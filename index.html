@@ -100,6 +100,103 @@ const sbApi = {
 
 console.log('[Attract ATS] SUPABASE_READY:', SUPABASE_READY);
 
+// ============================================================
+// データマイグレーション: 549件を新8ステージに再配分
+// ============================================================
+async function runDataMigration(onProgress) {
+  if (!SUPABASE_READY) { alert('Supabase未接続のため実行できません'); return false; }
+  onProgress && onProgress('候補者データを取得中...');
+
+  // 1) 全候補者ID取得
+  const { data: allCandidates, error } = await sbApi.select('candidates', 'select=id&order=id.asc&limit=1000');
+  if (error || !allCandidates) { alert('データ取得エラー'); return false; }
+  const total = allCandidates.length;
+  onProgress && onProgress('取得完了: ' + total + '件。ステージ再配分中...');
+
+  // 2) リアルな選考ファネル分布を設計
+  //    エントリー(100%) → 説明会(75%) → 一次(55%) → 適性(40%) → 二次(28%) → 最終(18%) → 内定(10%) → 承諾(7%)
+  //    各ステージで一部が離脱（辞退・不合格・保留）
+  const distribution = [
+    { stage: 'エントリー', pct: 0.12, subs: [
+      { sub: '受付済', w: 2 }, { sub: '書類確認中', w: 3 }, { sub: '書類通過', w: 5 },
+      { sub: '辞退', w: 2 }, { sub: '不合格', w: 3 }
+    ]},
+    { stage: '説明会', pct: 0.14, subs: [
+      { sub: '案内済', w: 1 }, { sub: '予約済', w: 2 }, { sub: '参加済', w: 5 }, { sub: '欠席', w: 2 },
+      { sub: '辞退', w: 2 }, { sub: '不合格', w: 1 }
+    ]},
+    { stage: '一次面接', pct: 0.16, subs: [
+      { sub: '日程調整中', w: 2 }, { sub: '予約済', w: 2 }, { sub: '実施済', w: 4 }, { sub: '合格', w: 5 },
+      { sub: '辞退', w: 2 }, { sub: '不合格', w: 4 }
+    ]},
+    { stage: '適性テスト', pct: 0.12, subs: [
+      { sub: '案内済', w: 2 }, { sub: '受験済', w: 4 }, { sub: '合格', w: 5 },
+      { sub: '辞退', w: 1 }, { sub: '不合格', w: 3 }
+    ]},
+    { stage: '二次面接', pct: 0.14, subs: [
+      { sub: '日程調整中', w: 2 }, { sub: '予約済', w: 2 }, { sub: '実施済', w: 3 }, { sub: '合格', w: 4 },
+      { sub: '辞退', w: 3 }, { sub: '不合格', w: 4 }, { sub: '保留', w: 1 }
+    ]},
+    { stage: '最終面接', pct: 0.12, subs: [
+      { sub: '日程調整中', w: 2 }, { sub: '予約済', w: 2 }, { sub: '実施済', w: 3 }, { sub: '合格', w: 4 },
+      { sub: '辞退', w: 2 }, { sub: '不合格', w: 3 }, { sub: '保留', w: 1 }
+    ]},
+    { stage: '内定', pct: 0.10, subs: [
+      { sub: '内定通知', w: 2 }, { sub: '面談調整中', w: 3 }, { sub: '面談実施済', w: 4 },
+      { sub: '辞退', w: 3 }, { sub: '保留', w: 1 }
+    ]},
+    { stage: '内定承諾', pct: 0.10, subs: [
+      { sub: '承諾済', w: 5 }, { sub: '入社準備中', w: 3 }, { sub: '入社済', w: 2 },
+      { sub: '承諾後辞退', w: 1 }
+    ]},
+  ];
+
+  // 重み付きランダム選択
+  function weightedRandom(items) {
+    const totalW = items.reduce((s, i) => s + i.w, 0);
+    let r = Math.random() * totalW;
+    for (const item of items) {
+      r -= item.w;
+      if (r <= 0) return item.sub;
+    }
+    return items[items.length - 1].sub;
+  }
+
+  // 3) 各候補者にステージ＆サブステータスを割り当て
+  const assignments = [];
+  let idx = 0;
+  // まず各ステージに人数を割り当て
+  const stageCounts = distribution.map(d => Math.round(total * d.pct));
+  // 端数調整
+  const diff = total - stageCounts.reduce((s, c) => s + c, 0);
+  stageCounts[0] += diff; // エントリーで調整
+
+  for (let si = 0; si < distribution.length; si++) {
+    const stg = distribution[si];
+    const count = stageCounts[si];
+    for (let j = 0; j < count && idx < total; j++, idx++) {
+      const sub = weightedRandom(stg.subs);
+      assignments.push({ id: allCandidates[idx].id, stage: stg.stage, substatus: sub });
+    }
+  }
+
+  // 4) バッチ更新 (20件ずつ)
+  const batchSize = 20;
+  let done = 0;
+  for (let i = 0; i < assignments.length; i += batchSize) {
+    const batch = assignments.slice(i, i + batchSize);
+    const promises = batch.map(a =>
+      sbApi.update('candidates', 'id=eq.' + a.id, { stage: a.stage, substatus: a.substatus })
+    );
+    await Promise.all(promises);
+    done += batch.length;
+    onProgress && onProgress('更新中... ' + done + '/' + total + '件');
+  }
+
+  onProgress && onProgress('完了！ ' + total + '件のデータを更新しました');
+  return true;
+}
+
 // Simple Icon component (replaces lucide-react)
 function Icon({ name, size = 16, color = "currentColor", style: extraStyle }) {
   const icons = {
@@ -145,16 +242,67 @@ function Icon({ name, size = 16, color = "currentColor", style: extraStyle }) {
 // ============================================================
 // MOCK DATA - 新卒 + 中途
 // ============================================================
-// パイプラインステージ → 候補者ステージのマッピング
-const PIPELINE_STAGE_MAP = {
-  "エントリー": "エントリー",
-  "説明会": "説明会",
-  "人事面談": "一次面接",
-  "2次選考": "二次面接",
-  "役員面談": "最終面接",
-  "内定": "内定",
-};
-// 逆マッピング（候補者ステージ → パイプラインステージ名）
+// ============================================================
+// 選考ステージ定義 (8段階 + 共通離脱ステータス)
+// ============================================================
+const STAGE_DEFINITIONS = [
+  { id: "entry",       order: 1, name: "エントリー", color: "#6366f1", icon: "users",
+    substatuses: ["受付済", "書類確認中", "書類通過"],
+    exitStatuses: ["辞退", "不合格", "保留"] },
+  { id: "briefing",    order: 2, name: "説明会",     color: "#8b5cf6", icon: "volume",
+    substatuses: ["案内済", "予約済", "参加済", "欠席"],
+    exitStatuses: ["辞退", "不合格", "保留"] },
+  { id: "interview1",  order: 3, name: "一次面接",   color: "#a855f7", icon: "user",
+    substatuses: ["日程調整中", "予約済", "実施済", "合格"],
+    exitStatuses: ["辞退", "不合格", "保留"] },
+  { id: "aptitude",    order: 4, name: "適性テスト", color: "#c084fc", icon: "check-square",
+    substatuses: ["案内済", "受験済", "合格"],
+    exitStatuses: ["辞退", "不合格", "保留"] },
+  { id: "interview2",  order: 5, name: "二次面接",   color: "#d946ef", icon: "user",
+    substatuses: ["日程調整中", "予約済", "実施済", "合格"],
+    exitStatuses: ["辞退", "不合格", "保留"] },
+  { id: "final",       order: 6, name: "最終面接",   color: "#ec4899", icon: "star",
+    substatuses: ["日程調整中", "予約済", "実施済", "合格"],
+    exitStatuses: ["辞退", "不合格", "保留"] },
+  { id: "offer",       order: 7, name: "内定",       color: "#f59e0b", icon: "check-circle",
+    substatuses: ["内定通知", "面談調整中", "面談実施済"],
+    exitStatuses: ["辞退", "不合格", "保留"] },
+  { id: "accepted",    order: 8, name: "内定承諾",   color: "#10b981", icon: "check-circle",
+    substatuses: ["承諾済", "入社準備中", "入社済"],
+    exitStatuses: ["承諾後辞退"] },
+];
+
+// ステージ名からステージ定義を取得するヘルパー
+const getStageDefByName = (name) => STAGE_DEFINITIONS.find(s => s.name === name);
+const getStageDefById = (id) => STAGE_DEFINITIONS.find(s => s.id === id);
+const STAGE_NAMES = STAGE_DEFINITIONS.map(s => s.name);
+
+// 共通の離脱ステータス判定
+const EXIT_STATUSES = ["辞退", "不合格", "保留", "承諾後辞退"];
+const isExitStatus = (sub) => EXIT_STATUSES.includes(sub);
+
+// 候補者のstageからパイプラインステージIDへのマッピング
+function candidateToStageId(stage) {
+  if (!stage) return "entry";
+  for (const def of STAGE_DEFINITIONS) {
+    if (stage === def.name) return def.id;
+    if (stage.startsWith(def.name)) return def.id;
+  }
+  // レガシーマッピング
+  if (stage.includes("エントリー")) return "entry";
+  if (stage.includes("説明会")) return "briefing";
+  if (stage.includes("1次") || stage.includes("一次")) return "interview1";
+  if (stage.includes("適性")) return "aptitude";
+  if (stage.includes("2次") || stage.includes("二次")) return "interview2";
+  if (stage.includes("最終")) return "final";
+  if (stage.includes("内定承諾") || stage.includes("承諾")) return "accepted";
+  if (stage.includes("内定")) return "offer";
+  return "entry";
+}
+
+// レガシー互換マッピング
+const PIPELINE_STAGE_MAP = {};
+STAGE_DEFINITIONS.forEach(s => { PIPELINE_STAGE_MAP[s.name] = s.name; });
 const CANDIDATE_TO_PIPELINE = {};
 Object.entries(PIPELINE_STAGE_MAP).forEach(([k, v]) => { CANDIDATE_TO_PIPELINE[v] = k; });
 
@@ -187,25 +335,9 @@ const CANDIDATES = [
   { id: 23, recruitType: "中途", lastName: "西村", firstName: "健", university: null, faculty: null, gradYear: null, majorType: null, company: "マッキンゼー", position: "アソシエイト", experience: 4, stage: "説明会", substatus: "案内済", status: "案内済", format: null, email: "ken@example.com", phone: "090-9900-1122", route: "ビズリーチ", aspiration: 3, agent: null, gender: "男性", score: null, createdAt: "2026/02/21" },
 ];
 
-const PIPELINE_STAGES = [
-  { name: "エントリー", count: 751, active: 45, color: "#6366f1" },
-  { name: "書類選考", count: 680, active: 38, color: "#8b5cf6" },
-  { name: "一次面接", count: 420, active: 22, color: "#a855f7" },
-  { name: "二次面接", count: 185, active: 15, color: "#d946ef" },
-  { name: "最終面接", count: 85, active: 8, color: "#ec4899" },
-  { name: "内定", count: 12, active: 6, color: "#f43f5e" },
-  { name: "内定承諾", count: 5, active: 5, color: "#10b981" },
-];
+const PIPELINE_STAGES = STAGE_DEFINITIONS.map(s => ({ name: s.name, count: 0, active: 0, color: s.color }));
 
-const FUNNEL_DATA = [
-  { stage: "エントリー", value: 751 },
-  { stage: "書類選考", value: 680 },
-  { stage: "一次面接", value: 420 },
-  { stage: "二次面接", value: 185 },
-  { stage: "最終面接", value: 85 },
-  { stage: "内定", value: 12 },
-  { stage: "内定承諾", value: 5 },
-];
+const FUNNEL_DATA = STAGE_DEFINITIONS.map(s => ({ stage: s.name, value: 0 }));
 
 const MONTHLY_TREND = [
   { month: "10月", entries: 45, passes: 30, offers: 0 },
@@ -388,7 +520,7 @@ function useSupabaseCandidates(recruitFilter) {
       company: newCandidate.company || null,
       position: newCandidate.position || null,
       experience: newCandidate.experience || null,
-      stage: newCandidate.stage || 'エントリー/受付済',
+      stage: newCandidate.stage || 'エントリー',
       substatus: newCandidate.substatus || '受付済',
       status: newCandidate.status || '新規',
       format: newCandidate.format || null,
@@ -701,7 +833,7 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
   const [bulkToast, setBulkToast] = useState(null);
 
   // パイプラインステージ名でフィルタに使えるステージ一覧
-  const stages = ["all", "エントリー", "説明会", "一次面接", "二次面接", "最終面接", "内定"];
+  const stages = ["all", ...STAGE_NAMES];
 
   // 有効なステージを判定
   const effectiveStageFilter = pipelineFilter ? pipelineFilter.stageName : stageFilter;
@@ -757,9 +889,11 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
   };
 
   const getStatusColor = (status) => {
-    if (status === "通過" || status === "承諾待ち" || status === "合格" || status === "参加済") return { bg: "#dcfce7", text: "#15803d" };
-    if (status === "予定" || status === "新規" || status === "案内済" || status === "予約済" || status === "内定通知") return { bg: "#dbeafe", text: "#1d4ed8" };
-    if (status === "不合格" || status === "欠席") return { bg: "#fee2e2", text: "#dc2626" };
+    if (["通過", "承諾待ち", "合格", "参加済", "承諾済", "入社済", "入社準備中", "受験済", "実施済", "書類通過"].includes(status)) return { bg: "#dcfce7", text: "#15803d" };
+    if (["予定", "新規", "案内済", "予約済", "内定通知", "日程調整中", "書類確認中", "面談調整中", "面談実施済", "受付済"].includes(status)) return { bg: "#dbeafe", text: "#1d4ed8" };
+    if (["不合格", "欠席"].includes(status)) return { bg: "#fee2e2", text: "#dc2626" };
+    if (["辞退", "承諾後辞退"].includes(status)) return { bg: "#fef3c7", text: "#92400e" };
+    if (status === "保留") return { bg: "#f3f4f6", text: "#6b7280" };
     return { bg: "#f3f4f6", text: "#6b7280" };
   };
 
@@ -909,9 +1043,9 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
             </button>
             {showBulkStatus && (
               <div style={{ position: "absolute", right: 0, top: "110%", background: "white", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", padding: 6, zIndex: 100, minWidth: 160 }}>
-                {["通過", "不採用", "保留", "辞退", "内定"].map(s => (
+                {["通過", "不合格", "保留", "辞退", "内定"].map(s => (
                   <button key={s} onClick={() => handleBulkStatusChange(s)}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", border: "none", background: "none", fontSize: 13, cursor: "pointer", borderRadius: 6, color: s === "不採用" ? "#dc2626" : s === "辞退" ? "#9ca3af" : "#111827" }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", border: "none", background: "none", fontSize: 13, cursor: "pointer", borderRadius: 6, color: s === "不合格" ? "#dc2626" : s === "辞退" ? "#9ca3af" : "#111827" }}
                     onMouseOver={e => e.target.style.background = "#f3f4f6"} onMouseOut={e => e.target.style.background = "none"}>
                     {s}
                   </button>
@@ -1024,6 +1158,41 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [activeTab, setActiveTab] = useState("timeline");
   const [memoText, setMemoText] = useState(c.notes || "");
 
+  // ステージ変更用 state
+  const [editingStage, setEditingStage] = useState(false);
+  const [selectedStage, setSelectedStage] = useState(c.stage);
+  const [selectedSub, setSelectedSub] = useState(c.substatus || "");
+  const [savingStage, setSavingStage] = useState(false);
+
+  // 選択中ステージの定義を取得
+  const currentStageDef = getStageDefByName(selectedStage);
+  const availableSubs = currentStageDef
+    ? [...currentStageDef.substatuses, ...currentStageDef.exitStatuses]
+    : [];
+
+  // ステージが変わったらサブステータスをリセット
+  const handleStageChange = (newStage) => {
+    setSelectedStage(newStage);
+    const def = getStageDefByName(newStage);
+    if (def) setSelectedSub(def.substatuses[0] || "");
+  };
+
+  // 保存
+  const handleSaveStage = async () => {
+    if (!onUpdateCandidate) return;
+    setSavingStage(true);
+    await onUpdateCandidate(c.id, { stage: selectedStage, substatus: selectedSub });
+    setSavingStage(false);
+    setEditingStage(false);
+  };
+
+  // キャンセル
+  const handleCancelStage = () => {
+    setSelectedStage(c.stage);
+    setSelectedSub(c.substatus || "");
+    setEditingStage(false);
+  };
+
   // メール送信関連
   const [showCompose, setShowCompose] = useState(false);
   const [emailSubject, setEmailSubject] = useState("");
@@ -1113,69 +1282,37 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setSending(false);
   };
 
-  // 実データからタイムラインを構築
+  // 実データからタイムラインを構築（8段階対応）
   const buildTimeline = () => {
-    const STAGE_ORDER = ["エントリー/受付済", "説明会/参加済", "説明会/予約済", "説明会/欠席", "1次面接", "2次面接", "最終面接", "内定承諾/承諾済"];
     const currentStage = c.stage || "";
-    const currentIdx = STAGE_ORDER.findIndex(s => currentStage.startsWith(s.split("/")[0]));
-    const steps = [];
+    const currentSub = c.substatus || "";
+    const currentStageId = candidateToStageId(currentStage);
+    const currentDef = getStageDefById(currentStageId);
+    const currentOrder = currentDef ? currentDef.order : 0;
+    const isExit = isExitStatus(currentSub);
 
-    // エントリー
-    steps.push({
-      stage: "エントリー",
-      date: c.entryDate || "—",
-      status: currentIdx >= 0 ? "completed" : "current",
-      result: currentIdx >= 0 ? "完了" : null,
+    return STAGE_DEFINITIONS.map(def => {
+      let status = "pending";
+      let result = null;
+      let date = "未定";
+
+      if (def.id === currentStageId) {
+        status = isExit ? "exit" : "current";
+        result = currentSub || null;
+        date = c.stageDate || "—";
+        if (def.id === "entry") date = c.entryDate || c.stageDate || "—";
+      } else if (def.order < currentOrder) {
+        status = "completed";
+        result = "通過";
+        if (def.id === "entry") date = c.entryDate || "—";
+        else date = "—";
+      } else {
+        status = "pending";
+        date = "未定";
+      }
+
+      return { stage: def.name, date, status, result, color: def.color };
     });
-
-    // 説明会
-    if (currentIdx >= 1 || currentStage.includes("説明会")) {
-      const briefingDone = currentIdx > 3 || (currentIdx >= 1 && currentIdx <= 3);
-      steps.push({
-        stage: "説明会",
-        date: c.stageDate && currentStage.includes("説明会") ? c.stageDate : c.stageDate || "—",
-        status: briefingDone && currentIdx > 3 ? "completed" : currentStage.includes("説明会") ? "current" : "pending",
-        result: currentStage.includes("参加") ? "参加" : currentStage.includes("欠席") ? "欠席" : currentStage.includes("予約") ? "予約済" : briefingDone ? "完了" : null,
-      });
-    } else {
-      steps.push({ stage: "説明会", date: "—", status: "pending" });
-    }
-
-    // 1次面接
-    if (currentIdx >= 4) {
-      steps.push({ stage: "1次面接（人事面談）", date: c.stageDate && currentStage === "1次面接" ? c.stageDate : "—", status: currentIdx > 4 ? "completed" : "current", result: currentIdx > 4 ? "通過" : null });
-    } else if (currentStage === "1次面接") {
-      steps.push({ stage: "1次面接（人事面談）", date: c.stageDate || "—", status: "current" });
-    } else {
-      steps.push({ stage: "1次面接（人事面談）", date: "未定", status: "pending" });
-    }
-
-    // 2次面接
-    if (currentIdx >= 5) {
-      steps.push({ stage: "2次面接", date: c.stageDate && currentStage === "2次面接" ? c.stageDate : "—", status: currentIdx > 5 ? "completed" : "current", result: currentIdx > 5 ? "通過" : null });
-    } else if (currentStage === "2次面接") {
-      steps.push({ stage: "2次面接", date: c.stageDate || "—", status: "current" });
-    } else {
-      steps.push({ stage: "2次面接", date: "未定", status: "pending" });
-    }
-
-    // 最終面接
-    if (currentIdx >= 6) {
-      steps.push({ stage: "最終面接", date: "—", status: currentIdx > 6 ? "completed" : "current", result: currentIdx > 6 ? "通過" : null });
-    } else if (currentStage === "最終面接") {
-      steps.push({ stage: "最終面接", date: c.stageDate || "—", status: "current" });
-    } else {
-      steps.push({ stage: "最終面接", date: "未定", status: "pending" });
-    }
-
-    // 内定
-    if (currentStage.includes("内定")) {
-      steps.push({ stage: "内定承諾", date: c.stageDate || "—", status: "current", result: "承諾済" });
-    } else {
-      steps.push({ stage: "内定", date: "未定", status: "pending" });
-    }
-
-    return steps;
   };
   const timeline = buildTimeline();
   return (
@@ -1222,9 +1359,65 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
             )}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>LINE送信</button>
-            <button onClick={() => onNavigate("interview-fb")} style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer" }}>FB入力</button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
+            {/* ステージ変更UI */}
+            {!editingStage ? (
+              <button onClick={() => setEditingStage(true)}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", border: `2px solid ${currentStageDef ? currentStageDef.color : "#6366f1"}`, borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#111827", fontWeight: 600, minWidth: 200, justifyContent: "center" }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
+                {c.stage} {c.substatus ? `/ ${c.substatus}` : ""}
+                <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 4 }}>▼ 変更</span>
+              </button>
+            ) : (
+              <div style={{ background: "white", border: "2px solid #6366f1", borderRadius: 12, padding: 14, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", minWidth: 280 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 8 }}>ステージを変更</div>
+                <select value={selectedStage} onChange={e => handleStageChange(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, marginBottom: 10, outline: "none", background: "white", cursor: "pointer" }}>
+                  {STAGE_DEFINITIONS.map(def => (
+                    <option key={def.id} value={def.name}>{def.order}. {def.name}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 6 }}>サブステータス</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
+                  {availableSubs.map(sub => {
+                    const isExit = isExitStatus(sub);
+                    const isActive = selectedSub === sub;
+                    return (
+                      <button key={sub} onClick={() => setSelectedSub(sub)}
+                        style={{
+                          padding: "5px 10px", border: isActive ? "2px solid" : "1px solid",
+                          borderColor: isActive ? (isExit ? "#ef4444" : "#6366f1") : (isExit ? "#fecaca" : "#e5e7eb"),
+                          borderRadius: 8, fontSize: 11, cursor: "pointer", fontWeight: isActive ? 700 : 400,
+                          background: isActive ? (isExit ? "#fef2f2" : "#eef2ff") : (isExit ? "#fff5f5" : "white"),
+                          color: isExit ? "#dc2626" : (isActive ? "#4338ca" : "#374151"),
+                        }}>
+                        {sub}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* 変更前 → 変更後プレビュー */}
+                {(selectedStage !== c.stage || selectedSub !== (c.substatus || "")) && (
+                  <div style={{ padding: "8px 10px", background: "#f9fafb", borderRadius: 8, fontSize: 11, marginBottom: 10, lineHeight: 1.8 }}>
+                    <span style={{ color: "#9ca3af" }}>{c.stage}/{c.substatus || "—"}</span>
+                    <span style={{ margin: "0 6px", color: "#6366f1" }}>→</span>
+                    <strong style={{ color: isExitStatus(selectedSub) ? "#dc2626" : "#4338ca" }}>{selectedStage}/{selectedSub}</strong>
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={handleCancelStage}
+                    style={{ padding: "6px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>キャンセル</button>
+                  <button onClick={handleSaveStage} disabled={savingStage || (selectedStage === c.stage && selectedSub === (c.substatus || ""))}
+                    style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: (selectedStage === c.stage && selectedSub === (c.substatus || "")) ? "#d1d5db" : "#6366f1", color: "white", fontSize: 12, cursor: savingStage ? "default" : "pointer", fontWeight: 600 }}>
+                    {savingStage ? "保存中..." : "保存"}
+                  </button>
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>LINE送信</button>
+              <button onClick={() => onNavigate("interview-fb")} style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer" }}>FB入力</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1241,27 +1434,37 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         <>
           <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 20 }}>選考タイムライン</h3>
-            {timeline.map((t, i) => (
-              <div key={i} style={{ display: "flex", gap: 16 }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
-                  <div style={{ width: 12, height: 12, borderRadius: "50%", background: t.status === "completed" ? "#10b981" : t.status === "current" ? "#6366f1" : "#d1d5db", border: t.status === "current" ? "3px solid #c7d2fe" : "none", boxSizing: "content-box", flexShrink: 0 }} />
-                  {i < timeline.length - 1 && <div style={{ width: 2, flex: 1, background: t.status === "completed" ? "#a7f3d0" : "#e5e7eb", minHeight: 40 }} />}
-                </div>
-                <div style={{ flex: 1, paddingBottom: 20 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: t.status === "pending" ? "#9ca3af" : "#111827" }}>{t.stage}</div>
-                    <div style={{ fontSize: 12, color: "#9ca3af" }}>{t.date}</div>
+            {timeline.map((t, i) => {
+              const dotColor = t.status === "completed" ? "#10b981" : t.status === "current" ? "#6366f1" : t.status === "exit" ? "#ef4444" : "#d1d5db";
+              const dotBorder = t.status === "current" ? "3px solid #c7d2fe" : t.status === "exit" ? "3px solid #fecaca" : "none";
+              const lineColor = t.status === "completed" ? "#a7f3d0" : "#e5e7eb";
+              const isPositive = ["通過", "完了", "参加済", "合格", "承諾済", "入社済", "書類通過", "受験済", "実施済"].includes(t.result);
+              const isNegative = ["不合格", "欠席", "辞退", "承諾後辞退"].includes(t.result);
+              const resultBg = isPositive ? "#dcfce7" : isNegative ? "#fee2e2" : t.result === "保留" ? "#f3f4f6" : "#fef3c7";
+              const resultText = isPositive ? "#15803d" : isNegative ? "#dc2626" : t.result === "保留" ? "#6b7280" : "#92400e";
+              return (
+                <div key={i} style={{ display: "flex", gap: 16 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
+                    <div style={{ width: 12, height: 12, borderRadius: "50%", background: dotColor, border: dotBorder, boxSizing: "content-box", flexShrink: 0 }} />
+                    {i < timeline.length - 1 && <div style={{ width: 2, flex: 1, background: lineColor, minHeight: 40 }} />}
                   </div>
-                  {t.result && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: t.result === "通過" || t.result === "完了" || t.result === "参加" || t.result === "承諾済" ? "#dcfce7" : t.result === "欠席" ? "#fee2e2" : "#fef3c7", color: t.result === "通過" || t.result === "完了" || t.result === "参加" || t.result === "承諾済" ? "#15803d" : t.result === "欠席" ? "#dc2626" : "#92400e", marginTop: 4, display: "inline-block" }}>{t.result}</span>}
+                  <div style={{ flex: 1, paddingBottom: 20 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: t.status === "pending" ? "#9ca3af" : t.status === "exit" ? "#dc2626" : "#111827" }}>{t.stage}</div>
+                      <div style={{ fontSize: 12, color: "#9ca3af" }}>{t.date}</div>
+                    </div>
+                    {t.result && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: resultBg, color: resultText, marginTop: 4, display: "inline-block" }}>{t.result}</span>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div style={{ background: "white", borderRadius: 12, padding: 20, marginTop: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
             <h4 style={{ fontSize: 14, fontWeight: 600, color: "#111827", marginBottom: 12 }}>基本情報</h4>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", fontSize: 13 }}>
               <div><span style={{ color: "#9ca3af" }}>現在のステージ:</span> <strong style={{ color: "#4338ca" }}>{c.stage}</strong></div>
-              {c.originalStage && <div><span style={{ color: "#9ca3af" }}>詳細ステージ:</span> <strong>{c.originalStage}</strong></div>}
+              <div><span style={{ color: "#9ca3af" }}>サブステータス:</span> <strong style={{ color: isExitStatus(c.substatus) ? "#dc2626" : "#374151" }}>{c.substatus || "—"}</strong></div>
+              {c.originalStage && <div><span style={{ color: "#9ca3af" }}>元ステージ:</span> <strong>{c.originalStage}</strong></div>}
               {c.entryDate && <div><span style={{ color: "#9ca3af" }}>エントリー日:</span> <strong>{c.entryDate}</strong></div>}
               {c.stageDate && <div><span style={{ color: "#9ca3af" }}>ステージ到達日:</span> <strong>{c.stageDate}</strong></div>}
               {c.birthDate && <div><span style={{ color: "#9ca3af" }}>生年月日:</span> <strong>{c.birthDate}</strong></div>}
@@ -1450,74 +1653,81 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   );
 }
 
-// Pipeline - 選考フロー詳細ビュー（合計一本化）
+// Pipeline - 選考フロー詳細ビュー（8段階対応・歩留まり計算付き）
 // 候補者データから選考フローを動的に構築する関数
 function buildPipelineFromCandidates(candidates) {
-  // original_stage → パイプラインステージへのマッピング
-  const stageMap = {
-    "エントリー/受付済": "entry",
-    "説明会/参加済": "briefing",
-    "説明会/予約済": "briefing",
-    "説明会/欠席": "briefing",
-    "1次面接": "hr-interview",
-    "2次面接": "secondary",
-    "最終面接": "exec-interview",
-    "内定承諾/承諾済": "offer",
-  };
+  // ステージ別・サブステータス別に集計
+  const counts = {}; // { stageId: { substatus: count } }
+  const exitCounts = {}; // { stageId: { exitStatus: count } }
+  const stageTotal = {}; // { stageId: totalInStage }
 
-  // original_stage → サブステータス
-  const substageMap = {
-    "エントリー/受付済": "受付済",
-    "説明会/参加済": "参加",
-    "説明会/予約済": "予約済",
-    "説明会/欠席": "欠席",
-    "1次面接": "選考中",
-    "2次面接": "選考中",
-    "最終面接": "選考中",
-    "内定承諾/承諾済": "承諾",
-  };
-
-  // 集計
-  const counts = {};
   (candidates || []).forEach(c => {
     const stage = c.stage || "";
-    const pipelineId = stageMap[stage] || (stage.includes("エントリー") ? "entry" : stage.includes("説明会") ? "briefing" : stage.includes("1次") ? "hr-interview" : stage.includes("2次") ? "secondary" : stage.includes("最終") ? "exec-interview" : stage.includes("内定") ? "offer" : "entry");
-    const sub = substageMap[stage] || stage.split("/")[1] || "その他";
-    if (!counts[pipelineId]) counts[pipelineId] = {};
-    if (!counts[pipelineId][sub]) counts[pipelineId][sub] = 0;
-    counts[pipelineId][sub]++;
+    const sub = c.substatus || "その他";
+    const stageId = candidateToStageId(stage);
+
+    if (!counts[stageId]) counts[stageId] = {};
+    if (!exitCounts[stageId]) exitCounts[stageId] = {};
+    if (!stageTotal[stageId]) stageTotal[stageId] = 0;
+
+    stageTotal[stageId]++;
+
+    if (isExitStatus(sub)) {
+      exitCounts[stageId][sub] = (exitCounts[stageId][sub] || 0) + 1;
+    } else {
+      counts[stageId][sub] = (counts[stageId][sub] || 0) + 1;
+    }
   });
 
-  const totalCandidates = (candidates || []).length;
+  // 累積通過数（そのステージ以降に進んだ人数）を計算
+  const cumulativePassed = {};
+  let runningTotal = (candidates || []).length;
+  STAGE_DEFINITIONS.forEach((def, i) => {
+    cumulativePassed[def.id] = runningTotal;
+    // 離脱者を差し引いて次のステージへ
+    const exitCount = Object.values(exitCounts[def.id] || {}).reduce((a, b) => a + b, 0);
+    const stayingInStage = Object.values(counts[def.id] || {}).reduce((a, b) => a + b, 0);
+    // 次のステージに進んだ = 累積 - 離脱 - 滞留中
+    runningTotal = runningTotal - exitCount - stayingInStage;
+    if (runningTotal < 0) runningTotal = 0;
+  });
 
-  const pipeline = [
-    { id: "entry", name: "エントリー", color: "#6366f1", icon: "users",
-      subs: [{ status: "受付済", color: "#6366f1" }] },
-    { id: "briefing", name: "説明会", color: "#8b5cf6", icon: "volume",
-      subs: [{ status: "予約済", color: "#a78bfa" }, { status: "参加", color: "#8b5cf6" }, { status: "欠席", color: "#ef4444", isAlert: true }] },
-    { id: "hr-interview", name: "1次面接", color: "#a855f7", icon: "user",
-      subs: [{ status: "選考中", color: "#a855f7" }] },
-    { id: "secondary", name: "2次面接", color: "#d946ef", icon: "check-square",
-      subs: [{ status: "選考中", color: "#d946ef" }] },
-    { id: "exec-interview", name: "最終面接", color: "#ec4899", icon: "star",
-      subs: [{ status: "選考中", color: "#ec4899" }] },
-    { id: "offer", name: "内定", color: "#10b981", icon: "check-circle",
-      subs: [{ status: "承諾", color: "#10b981" }] },
-  ];
+  return STAGE_DEFINITIONS.map((def, i) => {
+    const progSubs = def.substatuses.map(sub => ({
+      status: sub,
+      color: def.color,
+      staying: (counts[def.id] && counts[def.id][sub]) || 0,
+      total: (counts[def.id] && counts[def.id][sub]) || 0,
+      isAlert: false,
+    })).filter(s => s.staying > 0);
 
-  return pipeline.map(p => ({
-    ...p,
-    substages: p.subs.map(s => ({
-      ...s,
-      staying: (counts[p.id] && counts[p.id][s.status]) || 0,
-      total: (counts[p.id] && counts[p.id][s.status]) || 0,
-    })).filter(s => s.staying > 0 || !s.isAlert),
-  })).map(p => {
-    // サブステージが空なら「0名」表示用に1つ追加
-    if (p.substages.length === 0) {
-      p.substages = [{ status: "—", staying: 0, total: 0, color: p.color }];
-    }
-    return p;
+    const exitSubs = (def.exitStatuses || []).map(sub => ({
+      status: sub,
+      color: sub === "辞退" || sub === "承諾後辞退" ? "#f59e0b" : sub === "不合格" ? "#ef4444" : "#9ca3af",
+      staying: (exitCounts[def.id] && exitCounts[def.id][sub]) || 0,
+      total: (exitCounts[def.id] && exitCounts[def.id][sub]) || 0,
+      isAlert: true,
+    })).filter(s => s.staying > 0);
+
+    const allSubs = [...progSubs, ...exitSubs];
+
+    // 歩留まり（前ステージからの通過率）
+    const prevCumulative = i === 0 ? (candidates || []).length : cumulativePassed[STAGE_DEFINITIONS[i - 1].id];
+    const thisCumulative = cumulativePassed[def.id];
+    const conversionRate = prevCumulative > 0 ? Math.round((thisCumulative / prevCumulative) * 100) : 0;
+
+    return {
+      id: def.id,
+      name: def.name,
+      color: def.color,
+      icon: def.icon,
+      order: def.order,
+      substages: allSubs.length > 0 ? allSubs : [{ status: "—", staying: 0, total: 0, color: def.color }],
+      cumulativePassed: thisCumulative,
+      exitCount: Object.values(exitCounts[def.id] || {}).reduce((a, b) => a + b, 0),
+      activeCount: Object.values(counts[def.id] || {}).reduce((a, b) => a + b, 0),
+      conversionRate: i === 0 ? 100 : conversionRate,
+    };
   });
 }
 
@@ -1570,32 +1780,32 @@ function SubstageRow({ sub, maxTotal, onClickStaying }) {
   );
 }
 
-// ステージカード（合計一本化・シンプル版）
+// ステージカード（8段階対応・歩留まり表示付き）
 function StageCard({ stage, onSubstageClick }) {
   const maxTotal = Math.max(...stage.substages.map(s => s.total), 1);
-  const totalStaying = stage.substages.reduce((a, s) => a + (s.isAlert ? 0 : s.staying), 0);
-  const alertCount = stage.substages.filter(s => s.isAlert).reduce((a, s) => a + s.staying, 0);
+  const totalStaying = stage.activeCount || stage.substages.reduce((a, s) => a + (s.isAlert ? 0 : s.staying), 0);
+  const alertCount = stage.exitCount || stage.substages.filter(s => s.isAlert).reduce((a, s) => a + s.staying, 0);
 
   return (
-    <div style={{ background: "white", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "hidden", minWidth: 200, flex: 1 }}>
+    <div style={{ background: "white", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "hidden", minWidth: 150, maxWidth: 180, flex: 1 }}>
       <div style={{ height: 4, background: `linear-gradient(90deg, ${stage.color}, ${stage.color}99)` }} />
-      <div style={{ padding: "14px 16px 4px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Icon name={stage.icon} size={15} color={stage.color} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{stage.name}</span>
+      <div style={{ padding: "12px 14px 4px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <Icon name={stage.icon} size={14} color={stage.color} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>{stage.name}</span>
           </div>
           <span style={{ fontSize: 18, fontWeight: 800, color: stage.color }}>{totalStaying}</span>
         </div>
       </div>
-      <div style={{ padding: "0 16px 14px" }}>
+      <div style={{ padding: "0 14px 12px" }}>
         {stage.substages.map((sub, i) => (
           <SubstageRow key={i} sub={sub} maxTotal={maxTotal}
             onClickStaying={onSubstageClick ? () => onSubstageClick(stage.name, sub.status) : undefined} />
         ))}
         {alertCount > 0 && (
           <div style={{ marginTop: 6, padding: "4px 8px", background: "#fef2f2", borderRadius: 6, display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#ef4444" }}>
-            <Icon name="alert-circle" size={11} color="#ef4444" /> 欠席/辞退 {alertCount}名
+            <Icon name="alert-circle" size={11} color="#ef4444" /> 離脱 {alertCount}名
           </div>
         )}
       </div>
@@ -1607,7 +1817,11 @@ function PipelinePage({ recruitFilter, onNavigateFromPipeline, candidates }) {
   const [viewMode, setViewMode] = useState("detail");
   const DETAILED_PIPELINE = buildPipelineFromCandidates(candidates);
   const totalEntry = (candidates || []).length;
-  const totalActive = DETAILED_PIPELINE.reduce((a, s) => a + s.substages.reduce((sa, sub) => sa + sub.staying, 0), 0);
+  const totalActive = DETAILED_PIPELINE.reduce((a, s) => a + s.activeCount, 0);
+  const totalExit = DETAILED_PIPELINE.reduce((a, s) => a + s.exitCount, 0);
+
+  // ファネルデータ
+  const funnelData = DETAILED_PIPELINE.map(s => ({ stage: s.name, value: s.cumulativePassed, color: s.color }));
 
   return (
     <div style={{ padding: 24, maxWidth: 1400 }}>
@@ -1615,57 +1829,61 @@ function PipelinePage({ recruitFilter, onNavigateFromPipeline, candidates }) {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>選考フロー</h1>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-            全エントリー <strong style={{ color: "#6366f1" }}>{totalEntry}名</strong> ・ 現在滞留 <strong style={{ color: "#111827" }}>{totalActive}名</strong>
+            全エントリー <strong style={{ color: "#6366f1" }}>{totalEntry}名</strong> ・
+            選考中 <strong style={{ color: "#111827" }}>{totalActive}名</strong> ・
+            離脱 <strong style={{ color: "#ef4444" }}>{totalExit}名</strong>
           </div>
         </div>
         <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 8, padding: 3 }}>
-          <button onClick={() => setViewMode("detail")}
-            style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 14px", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer",
-              background: viewMode === "detail" ? "white" : "transparent",
-              color: viewMode === "detail" ? "#4338ca" : "#6b7280",
-              fontWeight: viewMode === "detail" ? 600 : 400,
-              boxShadow: viewMode === "detail" ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
-            <Icon name="git-branch" size={13} /> 詳細フロー
-          </button>
-          <button onClick={() => setViewMode("trend")}
-            style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 14px", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer",
-              background: viewMode === "trend" ? "white" : "transparent",
-              color: viewMode === "trend" ? "#4338ca" : "#6b7280",
-              fontWeight: viewMode === "trend" ? 600 : 400,
-              boxShadow: viewMode === "trend" ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
-            <Icon name="bar-chart" size={13} /> 月次トレンド
-          </button>
+          {[
+            { id: "detail", icon: "git-branch", label: "詳細フロー" },
+            { id: "funnel", icon: "filter", label: "ファネル" },
+            { id: "trend", icon: "bar-chart", label: "月次トレンド" },
+          ].map(v => (
+            <button key={v.id} onClick={() => setViewMode(v.id)}
+              style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 14px", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                background: viewMode === v.id ? "white" : "transparent",
+                color: viewMode === v.id ? "#4338ca" : "#6b7280",
+                fontWeight: viewMode === v.id ? 600 : 400,
+                boxShadow: viewMode === v.id ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
+              <Icon name={v.icon} size={13} /> {v.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* 凡例 */}
-      <div style={{ display: "flex", gap: 20, marginBottom: 16, fontSize: 11, color: "#6b7280", alignItems: "center" }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 12, height: 12, borderRadius: 3, background: "#6366f1" }} /> 滞留人数
-        </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 12, height: 12, borderRadius: 3, background: "#6366f130" }} /> 累計通過
-        </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 12, height: 12, borderRadius: 3, background: "#ef4444" }} /> 欠席・辞退
-        </span>
-        <span style={{ marginLeft: "auto", fontSize: 11, color: "#9ca3af" }}>
-          数字: 滞留 / 累計
-        </span>
-      </div>
 
       {viewMode === "detail" ? (
         <>
+          {/* 凡例 */}
+          <div style={{ display: "flex", gap: 20, marginBottom: 16, fontSize: 11, color: "#6b7280", alignItems: "center" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: "#6366f1" }} /> 進行中
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: "#f59e0b" }} /> 辞退
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: "#ef4444" }} /> 不合格
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: "#9ca3af" }} /> 保留
+            </span>
+          </div>
+
           {/* メインフロー：横スクロール可能なステージカード */}
-          <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 16, alignItems: "flex-start" }}>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 16, alignItems: "flex-start" }}>
             {DETAILED_PIPELINE.map((stage, i) => (
-              <div key={stage.id} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <div key={stage.id} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                 <StageCard stage={stage} onSubstageClick={onNavigateFromPipeline} />
                 {i < DETAILED_PIPELINE.length - 1 && (
-                  <div style={{ display: "flex", alignItems: "center", paddingTop: 30, flexShrink: 0 }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="2">
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 24, flexShrink: 0, gap: 2 }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="2">
                       <path d="M5 12h14M12 5l7 7-7 7" />
                     </svg>
+                    <span style={{ fontSize: 9, color: DETAILED_PIPELINE[i + 1].conversionRate >= 80 ? "#10b981" : DETAILED_PIPELINE[i + 1].conversionRate >= 50 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>
+                      {DETAILED_PIPELINE[i + 1].conversionRate}%
+                    </span>
                   </div>
                 )}
               </div>
@@ -1676,17 +1894,18 @@ function PipelinePage({ recruitFilter, onNavigateFromPipeline, candidates }) {
           {(() => {
             const alerts = [];
             DETAILED_PIPELINE.forEach(stage => {
+              if (stage.exitCount >= 5) {
+                const exitDetails = stage.substages.filter(s => s.isAlert).map(s => `${s.status}${s.staying}名`).join("、");
+                alerts.push({ title: `${stage.name}の離脱が多い`, desc: `${exitDetails}。歩留まり ${stage.conversionRate}%`, severity: stage.exitCount >= 20 ? "high" : "medium", count: stage.exitCount });
+              }
               stage.substages.forEach(sub => {
-                if (sub.isAlert && sub.staying > 0) {
-                  alerts.push({ title: `${stage.name}の${sub.status}`, desc: `${sub.status} ${sub.staying}名。フォロー連絡を推奨`, severity: sub.staying >= 10 ? "high" : "medium", count: sub.staying });
+                if (!sub.isAlert && (sub.status === "日程調整中" || sub.status === "案内済") && sub.staying >= 10) {
+                  alerts.push({ title: `${stage.name} → ${sub.status}の滞留`, desc: `${sub.staying}名が滞留中。アクション推奨`, severity: sub.staying >= 30 ? "high" : "medium", count: sub.staying });
                 }
               });
-              // 予約済で多数滞留
-              stage.substages.forEach(sub => {
-                if (!sub.isAlert && sub.status === "予約済" && sub.staying >= 20) {
-                  alerts.push({ title: `${stage.name} → 予約済の滞留`, desc: `予約済 ${sub.staying}名が未参加。リマインド送信を推奨`, severity: "high", count: sub.staying });
-                }
-              });
+              if (stage.order > 1 && stage.conversionRate < 50 && stage.cumulativePassed > 0) {
+                alerts.push({ title: `${stage.name}の歩留まりが低い`, desc: `歩留まり ${stage.conversionRate}%。選考プロセス改善を検討`, severity: stage.conversionRate < 30 ? "high" : "medium", count: `${stage.conversionRate}%` });
+              }
             });
             if (alerts.length === 0) return null;
             return (
@@ -1709,6 +1928,70 @@ function PipelinePage({ recruitFilter, onNavigateFromPipeline, candidates }) {
             );
           })()}
         </>
+      ) : viewMode === "funnel" ? (
+        /* ファネルビュー */
+        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 20 }}>選考ファネル</h3>
+          <div style={{ maxWidth: 700, margin: "0 auto" }}>
+            {funnelData.map((item, i) => {
+              const maxVal = funnelData[0].value || 1;
+              const widthPct = Math.max((item.value / maxVal) * 100, 8);
+              const prevVal = i > 0 ? funnelData[i - 1].value : item.value;
+              const rate = prevVal > 0 ? Math.round((item.value / prevVal) * 100) : 100;
+              return (
+                <div key={item.stage} style={{ marginBottom: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+                    <div style={{ width: 80, fontSize: 12, fontWeight: 600, color: "#374151", textAlign: "right", flexShrink: 0 }}>{item.stage}</div>
+                    <div style={{ flex: 1, position: "relative" }}>
+                      <div style={{
+                        height: 36, borderRadius: 8,
+                        background: `linear-gradient(90deg, ${item.color}, ${item.color}cc)`,
+                        width: `${widthPct}%`,
+                        display: "flex", alignItems: "center", paddingLeft: 12,
+                        transition: "width 0.5s",
+                        minWidth: 50,
+                      }}>
+                        <span style={{ color: "white", fontSize: 13, fontWeight: 700 }}>{item.value}名</span>
+                      </div>
+                    </div>
+                    <div style={{ width: 50, fontSize: 11, fontWeight: 600, flexShrink: 0, textAlign: "right",
+                      color: i === 0 ? "#6b7280" : rate >= 80 ? "#10b981" : rate >= 50 ? "#f59e0b" : "#ef4444" }}>
+                      {i === 0 ? "—" : `${rate}%`}
+                    </div>
+                  </div>
+                  {i < funnelData.length - 1 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+                      <div style={{ width: 80 }} />
+                      <div style={{ fontSize: 10, color: "#9ca3af", paddingLeft: 8 }}>
+                        ↓ {DETAILED_PIPELINE[i].exitCount > 0 ? `離脱 ${DETAILED_PIPELINE[i].exitCount}名` : ""}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 全体歩留まりサマリー */}
+          <div style={{ marginTop: 24, padding: 16, background: "#f9fafb", borderRadius: 10, display: "flex", gap: 24, justifyContent: "center", flexWrap: "wrap" }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: "#6b7280" }}>エントリー → 内定</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#6366f1" }}>
+                {totalEntry > 0 ? Math.round(((DETAILED_PIPELINE.find(s => s.id === "offer")?.cumulativePassed || 0) / totalEntry) * 100) : 0}%
+              </div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: "#6b7280" }}>エントリー → 内定承諾</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#10b981" }}>
+                {totalEntry > 0 ? Math.round(((DETAILED_PIPELINE.find(s => s.id === "accepted")?.cumulativePassed || 0) / totalEntry) * 100) : 0}%
+              </div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: "#6b7280" }}>総離脱数</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#ef4444" }}>{totalExit}名</div>
+            </div>
+          </div>
+        </div>
       ) : (
         /* 月次トレンド */
         <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
@@ -2160,9 +2443,24 @@ function App() {
   const [recruitFilter, setRecruitFilter] = useState("all");
   const [pipelineFilter, setPipelineFilter] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState(null); // null | 'running' | 'done'
+  const [migrationMsg, setMigrationMsg] = useState('');
 
   // データフック
   const { candidates, loading: dataLoading, addCandidate, updateCandidate, bulkUpdateStatus, refresh } = useSupabaseCandidates(recruitFilter);
+
+  const handleMigration = async () => {
+    if (!window.confirm('候補者データを新しい8ステージ形式に一括変換します。\\n（既存のステージ・サブステータスが上書きされます）\\n\\n実行しますか？')) return;
+    setMigrationStatus('running');
+    const ok = await runDataMigration((msg) => setMigrationMsg(msg));
+    if (ok) {
+      setMigrationStatus('done');
+      await refresh();
+      setTimeout(() => { setMigrationStatus(null); setMigrationMsg(''); }, 5000);
+    } else {
+      setMigrationStatus(null);
+    }
+  };
 
   // 認証状態チェック
   useEffect(() => {
@@ -2241,6 +2539,15 @@ function App() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {SUPABASE_READY && migrationStatus !== 'done' && (
+              <button onClick={handleMigration} disabled={migrationStatus === 'running'}
+                style={{ fontSize: 11, color: "white", background: migrationStatus === 'running' ? '#9ca3af' : '#f59e0b', border: "none", borderRadius: 6, padding: "4px 12px", cursor: migrationStatus === 'running' ? "default" : "pointer", fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {migrationStatus === 'running' ? migrationMsg || '実行中...' : 'データ移行'}
+              </button>
+            )}
+            {migrationStatus === 'done' && (
+              <span style={{ fontSize: 11, color: '#15803d', fontWeight: 600 }}>{migrationMsg}</span>
+            )}
             <button style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 4 }}>
               <Icon name="bell" size={18} color="#6b7280" />
               <div style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, borderRadius: "50%", background: "#ef4444" }} />
