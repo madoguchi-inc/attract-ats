@@ -637,7 +637,7 @@ function RecruitTypeSelector({ value, onChange }) {
 // ============================================================
 // COMPONENTS
 // ============================================================
-function Sidebar({ currentPage, onNavigate, userRole = "admin", userProfile }) {
+function Sidebar({ currentPage, onNavigate, userRole = "admin", userProfile, onEditProfile }) {
   const items = [
     { id: "dashboard", icon: "home", label: "ダッシュボード" },
     { id: "candidates", icon: "users", label: "候補者管理" },
@@ -665,7 +665,7 @@ function Sidebar({ currentPage, onNavigate, userRole = "admin", userProfile }) {
           </button>
         ))}
       </nav>
-      <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 8 }}>
+      <div onClick={onEditProfile} style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <div style={{ width: 32, height: 32, borderRadius: "50%", background: getRoleDef(userRole).color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600 }}>
           {(userProfile?.display_name || "U").charAt(0)}
         </div>
@@ -673,6 +673,7 @@ function Sidebar({ currentPage, onNavigate, userRole = "admin", userProfile }) {
           <div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userProfile?.display_name || "ユーザー"}</div>
           <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{getRoleDef(userRole).label}</div>
         </div>
+        <Icon name="edit" size={12} color="rgba(255,255,255,0.3)" />
       </div>
     </div>
   );
@@ -3263,6 +3264,8 @@ function App() {
   const [recruitFilter, setRecruitFilter] = useState("all");
   const [pipelineFilter, setPipelineFilter] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileEditName, setProfileEditName] = useState("");
   const [migrationStatus, setMigrationStatus] = useState(null);
   const [migrationMsg, setMigrationMsg] = useState('');
 
@@ -3288,6 +3291,25 @@ function App() {
   }, []);
 
   const can = (permission) => hasPermission(userRole, permission);
+
+  const openProfileEdit = () => {
+    setProfileEditName(userProfile?.display_name || "");
+    setShowProfileModal(true);
+  };
+  const saveProfile = async () => {
+    if (!profileEditName.trim()) return;
+    if (SUPABASE_READY && user?.id) {
+      await fetch(SUPABASE_URL + '/rest/v1/profiles?id=eq.' + user.id, {
+        method: 'PATCH',
+        headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tokenStore.accessToken, 'Prefer': 'return=representation' },
+        body: JSON.stringify({ display_name: profileEditName.trim() })
+      });
+      await loadProfile(user.id, user.email);
+    } else {
+      setUserProfile(prev => ({ ...prev, display_name: profileEditName.trim() }));
+    }
+    setShowProfileModal(false);
+  };
 
   // データフック
   const { candidates, loading: dataLoading, addCandidate, updateCandidate, bulkUpdateStatus, refresh } = useSupabaseCandidates(recruitFilter);
@@ -3367,7 +3389,7 @@ function App() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#f5f5f7", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif" }}>
-      <Sidebar currentPage={currentPage} onNavigate={navigate} userRole={userRole} userProfile={userProfile} />
+      <Sidebar currentPage={currentPage} onNavigate={navigate} userRole={userRole} userProfile={userProfile} onEditProfile={openProfileEdit} />
       <div style={{ flex: 1, overflowY: "auto", maxHeight: "100vh" }}>
         <div style={{ background: "white", borderBottom: "1px solid #e5e7eb", padding: "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -3397,7 +3419,6 @@ function App() {
               <Icon name="bell" size={18} color="#6b7280" />
               <div style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, borderRadius: "50%", background: "#ef4444" }} />
             </button>
-            <span style={{ fontSize: 12, color: "#374151", fontWeight: 500 }}>{userProfile?.display_name || user?.email || ""}</span>
             <button onClick={handleLogout} style={{ fontSize: 11, color: "#6b7280", background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>ログアウト</button>
           </div>
         </div>
@@ -3406,6 +3427,34 @@ function App() {
 
       {/* 候補者追加モーダル */}
       {showAddModal && <AddCandidateModal onClose={() => setShowAddModal(false)} onAdd={async (c) => { await addCandidate(c); setShowAddModal(false); }} />}
+
+      {/* プロフィール編集モーダル */}
+      {showProfileModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={e => { if (e.target === e.currentTarget) setShowProfileModal(false); }}>
+          <div style={{ background: "white", borderRadius: 16, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", width: "100%", maxWidth: 420 }}>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: "#111827", marginBottom: 20 }}>プロフィール編集</h3>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 6 }}>表示名</label>
+              <input value={profileEditName} onChange={e => setProfileEditName(e.target.value)}
+                style={{ width: "100%", padding: "10px 14px", border: "2px solid #e5e7eb", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border 0.2s" }}
+                onFocus={e => e.target.style.borderColor = "#6366f1"} onBlur={e => e.target.style.borderColor = "#e5e7eb"}
+                placeholder="名前を入力" autoFocus
+                onKeyDown={e => { if (e.key === "Enter") saveProfile(); }} />
+            </div>
+            <div style={{ marginBottom: 20, padding: "10px 14px", background: "#f9fafb", borderRadius: 8, fontSize: 12, color: "#6b7280" }}>
+              <div><strong>メール:</strong> {user?.email || "—"}</div>
+              <div><strong>ロール:</strong> {getRoleDef(userRole).icon} {getRoleDef(userRole).label}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowProfileModal(false)}
+                style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", color: "#374151", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+              <button onClick={saveProfile}
+                style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
