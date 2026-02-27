@@ -3136,47 +3136,282 @@ function SchedulePage({ recruitFilter }) {
 }
 
 // Automation
-function AutomationPage() {
-  const [triggers, setTriggers] = useState(AUTOMATION_TRIGGERS);
+function AutomationPage({ emailTemplates = [] }) {
+  const [triggers, setTriggers] = useState(() => {
+    try { const s = localStorage.getItem('ats_automations'); return s ? JSON.parse(s) : AUTOMATION_TRIGGERS; } catch(e) { return AUTOMATION_TRIGGERS; }
+  });
+  const save = (list) => { setTriggers(list); localStorage.setItem('ats_automations', JSON.stringify(list)); };
+  const [showModal, setShowModal] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState({ name: "", trigger: "", triggerType: "stage_change", triggerStage: "エントリー", target: "候補者", delay: "即時", channels: ["メール"], templateId: "", active: true });
+  const [expandedId, setExpandedId] = useState(null);
+  const [logFilter, setLogFilter] = useState("all"); // all, active, inactive
+
+  const TRIGGER_TYPES = [
+    { id: "stage_change", label: "ステージ変更時", icon: "⚡" },
+    { id: "time_before", label: "予定日の○時間前", icon: "⏰" },
+    { id: "time_after", label: "○時間後（未対応時）", icon: "⏳" },
+    { id: "manual", label: "手動トリガー", icon: "👆" },
+  ];
+  const DELAY_OPTIONS = ["即時", "30分後", "1時間後", "3時間後", "24時間後", "24時間ごと", "自動"];
+  const TARGET_OPTIONS = ["候補者", "面接官", "候補者 + 面接官", "採用担当"];
+
+  const openNew = () => {
+    setEditId(null);
+    setForm({ name: "", trigger: "", triggerType: "stage_change", triggerStage: "エントリー", target: "候補者", delay: "即時", channels: ["メール"], templateId: "", active: true });
+    setShowModal(true);
+  };
+  const openEdit = (t) => {
+    setEditId(t.id);
+    setForm({ name: t.name, trigger: t.trigger, triggerType: t.triggerType || "stage_change", triggerStage: t.triggerStage || "エントリー", target: t.target, delay: t.delay, channels: [...t.channels], templateId: t.templateId || "", active: t.active });
+    setShowModal(true);
+  };
+  const handleSave = () => {
+    if (!form.name.trim()) return;
+    if (editId) {
+      save(triggers.map(t => t.id === editId ? { ...t, ...form } : t));
+    } else {
+      save([...triggers, { id: Date.now(), ...form }]);
+    }
+    setShowModal(false);
+  };
+  const handleDelete = (id) => { if (confirm("この自動化ルールを削除しますか？")) save(triggers.filter(t => t.id !== id)); };
+  const toggleChannel = (ch) => {
+    setForm(prev => ({ ...prev, channels: prev.channels.includes(ch) ? prev.channels.filter(c => c !== ch) : [...prev.channels, ch] }));
+  };
+
+  const filteredTriggers = logFilter === "all" ? triggers : logFilter === "active" ? triggers.filter(t => t.active) : triggers.filter(t => !t.active);
+  const stats = { total: triggers.length, active: triggers.filter(t => t.active).length, inactive: triggers.filter(t => !t.active).length };
+
+  const getTemplateLabel = (id) => { const t = emailTemplates.find(x => x.id === id); return t ? `[${t.category}] ${t.label}` : ""; };
+  const cardStyle = { background: "white", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" };
+
   return (
-    <div style={{ padding: 24, maxWidth: 1000 }}>
+    <div style={{ padding: 24, maxWidth: 1100 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>自動化設定</h1>
-        <button style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-          <Icon name="plus" size={16} /> 新規トリガー
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", marginBottom: 4 }}>自動化設定</h1>
+          <p style={{ fontSize: 13, color: "#9ca3af" }}>ステージ変更やタイミングに応じて自動でメール・LINEを送信</p>
+        </div>
+        <button onClick={openNew}
+          style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          <Icon name="plus" size={16} /> 新規ルール作成
         </button>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {triggers.map(t => (
-          <div key={t.id} style={{ background: "white", borderRadius: 12, padding: "16px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", border: "1px solid #f3f4f6" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <Icon name="mail" size={16} color="#6366f1" />
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{t.name}</span>
-                </div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>トリガー: {t.trigger}</div>
-                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#9ca3af" }}>
-                  <span>送信先: {t.target}</span>
-                  <span>遅延: {t.delay}</span>
-                </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                  {t.channels.map(ch => (
-                    <span key={ch} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: ch === "LINE" ? "#dcfce7" : "#dbeafe", color: ch === "LINE" ? "#15803d" : "#1d4ed8" }}>{ch}</span>
-                  ))}
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 11, color: t.active ? "#10b981" : "#9ca3af" }}>{t.active ? "有効" : "無効"}</span>
-                <button onClick={() => setTriggers(prev => prev.map(tr => tr.id === t.id ? { ...tr, active: !tr.active } : tr))}
-                  style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: t.active ? "#10b981" : "#d1d5db", cursor: "pointer", position: "relative" }}>
-                  <div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: t.active ? 20 : 2, transition: "left 0.2s" }} />
-                </button>
-              </div>
-            </div>
+
+      {/* 統計 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "ルール総数", value: stats.total, icon: "⚙️", color: "#6366f1" },
+          { label: "有効", value: stats.active, icon: "✅", color: "#10b981" },
+          { label: "無効", value: stats.inactive, icon: "⏸️", color: "#9ca3af" },
+        ].map((s, i) => (
+          <div key={i} style={{ ...cardStyle, padding: "14px 16px", borderLeft: `3px solid ${s.color}` }}>
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>{s.icon} {s.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
           </div>
         ))}
       </div>
+
+      {/* フィルタ */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#f3f4f6", borderRadius: 10, padding: 4, width: "fit-content" }}>
+        {[["all", "すべて"], ["active", "有効のみ"], ["inactive", "無効のみ"]].map(([id, label]) => (
+          <button key={id} onClick={() => setLogFilter(id)}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer", background: logFilter === id ? "white" : "transparent", color: logFilter === id ? "#4338ca" : "#6b7280", fontWeight: logFilter === id ? 600 : 400, boxShadow: logFilter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>{label}</button>
+        ))}
+      </div>
+
+      {/* ルール一覧 */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {filteredTriggers.length === 0 ? (
+          <div style={{ ...cardStyle, padding: 40, textAlign: "center" }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>⚡</div>
+            <div style={{ color: "#9ca3af", fontSize: 13 }}>自動化ルールがありません</div>
+          </div>
+        ) : filteredTriggers.map(t => (
+          <div key={t.id} style={{ ...cardStyle, border: `1px solid ${t.active ? "#e0e7ff" : "#f3f4f6"}`, overflow: "hidden", opacity: t.active ? 1 : 0.7 }}>
+            <div style={{ padding: "16px 20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedId(expandedId === t.id ? null : t.id)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 16 }}>{(TRIGGER_TYPES.find(x => x.id === t.triggerType) || TRIGGER_TYPES[0]).icon}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{t.name}</span>
+                    {!t.active && <span style={{ fontSize: 10, background: "#f3f4f6", color: "#9ca3af", padding: "2px 8px", borderRadius: 4 }}>無効</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+                    <Icon name="zap" size={12} color="#d1d5db" /> {t.trigger}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>👤 {t.target}</span>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>⏱️ {t.delay}</span>
+                    {t.channels.map(ch => (
+                      <span key={ch} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: ch === "LINE" ? "#dcfce7" : "#dbeafe", color: ch === "LINE" ? "#15803d" : "#1d4ed8" }}>{ch}</span>
+                    ))}
+                    {t.templateId && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "#fef3c7", color: "#92400e" }}>📄 テンプレート紐付</span>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                  <button onClick={() => save(triggers.map(tr => tr.id === t.id ? { ...tr, active: !tr.active } : tr))}
+                    style={{ width: 42, height: 24, borderRadius: 12, border: "none", background: t.active ? "#10b981" : "#d1d5db", cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: t.active ? 20 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 展開エリア */}
+            {expandedId === t.id && (
+              <div style={{ padding: "12px 20px 16px", borderTop: "1px solid #f3f4f6", background: "#fafbfc" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 12, fontSize: 12 }}>
+                  <div>
+                    <div style={{ color: "#6b7280", marginBottom: 2, fontWeight: 600 }}>トリガータイプ</div>
+                    <div style={{ color: "#111827" }}>{(TRIGGER_TYPES.find(x => x.id === t.triggerType) || TRIGGER_TYPES[0]).label}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#6b7280", marginBottom: 2, fontWeight: 600 }}>送信先</div>
+                    <div style={{ color: "#111827" }}>{t.target}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#6b7280", marginBottom: 2, fontWeight: 600 }}>遅延</div>
+                    <div style={{ color: "#111827" }}>{t.delay}</div>
+                  </div>
+                </div>
+                {t.templateId && (
+                  <div style={{ fontSize: 12, marginBottom: 12 }}>
+                    <span style={{ color: "#6b7280", fontWeight: 600 }}>紐付テンプレート: </span>
+                    <span style={{ color: "#4338ca" }}>{getTemplateLabel(t.templateId)}</span>
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => openEdit(t)}
+                    style={{ padding: "6px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>
+                    ✏️ 編集
+                  </button>
+                  <button onClick={() => handleDelete(t.id)}
+                    style={{ padding: "6px 16px", border: "1px solid #fecaca", borderRadius: 8, background: "#fef2f2", fontSize: 12, cursor: "pointer", color: "#dc2626" }}>
+                    🗑️ 削除
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* デフォルトリセット */}
+      <div style={{ marginTop: 20, textAlign: "center" }}>
+        <button onClick={() => { if (confirm("初期設定に戻しますか？")) save(AUTOMATION_TRIGGERS); }}
+          style={{ padding: "6px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "white", fontSize: 11, cursor: "pointer", color: "#9ca3af" }}>
+          🔄 初期設定に戻す
+        </button>
+      </div>
+
+      {/* 作成・編集モーダル */}
+      {showModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}>
+          <div style={{ background: "white", borderRadius: 16, width: 560, maxHeight: "90vh", overflow: "auto", padding: 28 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 20 }}>
+              {editId ? "ルールを編集" : "新規ルール作成"}
+            </h2>
+
+            {/* ルール名 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>ルール名 *</label>
+              <input value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
+                placeholder="例: エントリー完了 → サンクスメール"
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            </div>
+
+            {/* トリガータイプ */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>トリガータイプ</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {TRIGGER_TYPES.map(tt => (
+                  <button key={tt.id} onClick={() => setForm(p => ({ ...p, triggerType: tt.id }))}
+                    style={{ padding: "10px 12px", border: `2px solid ${form.triggerType === tt.id ? "#6366f1" : "#e5e7eb"}`, borderRadius: 10, background: form.triggerType === tt.id ? "#eef2ff" : "white", cursor: "pointer", textAlign: "left", fontSize: 12 }}>
+                    <span style={{ marginRight: 6 }}>{tt.icon}</span>{tt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* トリガー条件 */}
+            {form.triggerType === "stage_change" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>トリガーステージ</label>
+                <select value={form.triggerStage} onChange={(e) => setForm(p => ({ ...p, triggerStage: e.target.value, trigger: `ステータスが「${e.target.value}」に変更` }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", background: "white" }}>
+                  {STAGE_NAMES.map(s => <option key={s} value={s}>{s}</option>)}
+                  <option value="不合格">不合格</option>
+                  <option value="辞退">辞退</option>
+                </select>
+              </div>
+            )}
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>トリガー条件（説明）</label>
+              <input value={form.trigger} onChange={(e) => setForm(p => ({ ...p, trigger: e.target.value }))}
+                placeholder="例: ステータスが「エントリー」に変更"
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            </div>
+
+            {/* 送信先・遅延 */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>送信先</label>
+                <select value={form.target} onChange={(e) => setForm(p => ({ ...p, target: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", background: "white" }}>
+                  {TARGET_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>送信タイミング</label>
+                <select value={form.delay} onChange={(e) => setForm(p => ({ ...p, delay: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", background: "white" }}>
+                  {DELAY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* チャネル */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>送信チャネル</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["メール", "LINE"].map(ch => (
+                  <button key={ch} onClick={() => toggleChannel(ch)}
+                    style={{ padding: "8px 20px", border: `2px solid ${form.channels.includes(ch) ? (ch === "LINE" ? "#10b981" : "#3b82f6") : "#e5e7eb"}`, borderRadius: 10, background: form.channels.includes(ch) ? (ch === "LINE" ? "#dcfce7" : "#dbeafe") : "white", cursor: "pointer", fontSize: 12, fontWeight: form.channels.includes(ch) ? 600 : 400 }}>
+                    {ch === "LINE" ? "💬" : "✉️"} {ch}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* テンプレート紐付 */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>メールテンプレート（任意）</label>
+              <select value={form.templateId} onChange={(e) => setForm(p => ({ ...p, templateId: e.target.value }))}
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", background: "white" }}>
+                <option value="">テンプレートなし</option>
+                {emailTemplates.map(t => (
+                  <option key={t.id} value={t.id}>[{t.category}] {t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* ボタン */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setShowModal(false)}
+                style={{ padding: "10px 24px", border: "1px solid #d1d5db", borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#6b7280" }}>
+                キャンセル
+              </button>
+              <button onClick={handleSave}
+                style={{ padding: "10px 28px", border: "none", borderRadius: 10, background: "#6366f1", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                {editId ? "保存" : "作成"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5099,7 +5334,7 @@ function App() {
       case "messages": return <MessagesPage candidates={candidates} emailTemplates={emailTemplates} onNavigate={navigate} />;
       case "schedule": return <SchedulePage recruitFilter={recruitFilter} />;
       case "interview-fb": return <InterviewFBPage onNavigate={navigate} />;
-      case "automation": return <AutomationPage />;
+      case "automation": return <AutomationPage emailTemplates={emailTemplates} />;
       case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} candidates={candidates} />;
       case "tasks": return <TasksPage tasks={tasks} onUpdateTasks={saveTasks} candidates={candidates} onNavigate={navigate} />;
       case "agents": return <AgentsPage candidates={candidates} />;
