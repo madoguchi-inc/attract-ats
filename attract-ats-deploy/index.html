@@ -3519,6 +3519,392 @@ function AnalyticsPage({ recruitFilter, candidates = [] }) {
 }
 
 // ============================================================
+// メッセージ管理ページ
+// ============================================================
+function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState("all"); // all, sent, received, draft
+  const [search, setSearch] = useState("");
+  const [selectedMsg, setSelectedMsg] = useState(null);
+  const [showCompose, setShowCompose] = useState(false);
+  const [composeData, setComposeData] = useState({ to: "", candidateId: null, candidateName: "", subject: "", body: "", channel: "email" });
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState({ type: "", text: "" });
+  const [selectedTemplate, setSelectedTemplate] = useState("");
+
+  // Supabaseからメッセージ履歴を取得
+  const loadMessages = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await sbApi.select('messages', 'order=created_at.desc');
+      if (!error && data) {
+        // 候補者名をマッピング
+        const candMap = {};
+        candidates.forEach(c => { candMap[c.id] = (c.lastName || "") + " " + (c.firstName || ""); });
+        setMessages(data.map(m => ({
+          ...m,
+          candidateName: candMap[m.candidate_id] || "不明",
+          date: m.created_at,
+        })));
+      }
+    } catch (err) {
+      console.error("メッセージ取得エラー:", err);
+    }
+    setLoading(false);
+  }, [candidates]);
+
+  useEffect(() => { loadMessages(); }, [loadMessages]);
+
+  // フィルタリング
+  const filteredMessages = useMemo(() => {
+    let list = messages;
+    if (filter === "sent") list = list.filter(m => m.direction === "outbound");
+    else if (filter === "received") list = list.filter(m => m.direction === "inbound");
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(m =>
+        (m.subject || "").toLowerCase().includes(q) ||
+        (m.body || "").toLowerCase().includes(q) ||
+        (m.candidateName || "").toLowerCase().includes(q) ||
+        (m.to_email || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [messages, filter, search]);
+
+  // 統計
+  const stats = useMemo(() => {
+    const total = messages.length;
+    const sent = messages.filter(m => m.direction === "outbound").length;
+    const received = messages.filter(m => m.direction === "inbound").length;
+    const today = messages.filter(m => {
+      if (!m.date) return false;
+      const d = new Date(m.date);
+      const now = new Date();
+      return d.toDateString() === now.toDateString();
+    }).length;
+    return { total, sent, received, today };
+  }, [messages]);
+
+  // テンプレート選択
+  const handleTemplateSelect = (templateId) => {
+    const tmpl = emailTemplates.find(t => t.id === templateId);
+    if (tmpl) {
+      let subject = tmpl.subject.replace(/\{\{company\}\}/g, "株式会社madoguchi");
+      let body = tmpl.body.replace(/\{\{company\}\}/g, "株式会社madoguchi");
+      if (composeData.candidateName) {
+        subject = subject.replace(/\{\{name\}\}/g, composeData.candidateName);
+        body = body.replace(/\{\{name\}\}/g, composeData.candidateName);
+      }
+      setComposeData(prev => ({ ...prev, subject, body }));
+    }
+    setSelectedTemplate(templateId);
+  };
+
+  // 候補者選択
+  const handleCandidateSelect = (candidateId) => {
+    const c = candidates.find(x => x.id == candidateId);
+    if (c) {
+      setComposeData(prev => ({ ...prev, candidateId: c.id, candidateName: (c.lastName || "") + " " + (c.firstName || ""), to: c.email || "" }));
+    }
+  };
+
+  // 送信
+  const handleSend = async () => {
+    if (!composeData.to || !composeData.subject || !composeData.body) {
+      setSendResult({ type: "error", text: "宛先・件名・本文をすべて入力してください" });
+      return;
+    }
+    setSending(true);
+    setSendResult({ type: "", text: "" });
+    try {
+      // Gmail API で送信
+      const res = await fetch('/.netlify/functions/gmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send',
+          to: composeData.to,
+          subject: composeData.subject,
+          body: composeData.body,
+          candidateName: composeData.candidateName,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        setSendResult({ type: "error", text: result.error || "送信に失敗しました" });
+        setSending(false);
+        return;
+      }
+      // Supabaseに履歴保存
+      if (composeData.candidateId) {
+        await sbApi.insert('messages', {
+          candidate_id: composeData.candidateId,
+          direction: 'outbound',
+          channel: composeData.channel,
+          to_email: composeData.to,
+          subject: composeData.subject,
+          body: composeData.body,
+          status: 'sent',
+        });
+      }
+      setSendResult({ type: "success", text: "メールを送信しました" });
+      setComposeData({ to: "", candidateId: null, candidateName: "", subject: "", body: "", channel: "email" });
+      setSelectedTemplate("");
+      setShowCompose(false);
+      loadMessages();
+      setTimeout(() => setSendResult({ type: "", text: "" }), 3000);
+    } catch (err) {
+      setSendResult({ type: "error", text: "送信エラー: " + err.message });
+    }
+    setSending(false);
+  };
+
+  const cardStyle = { background: "white", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" };
+  const formatDate = (d) => {
+    if (!d) return "";
+    const dt = new Date(d);
+    const now = new Date();
+    if (dt.toDateString() === now.toDateString()) return dt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    return dt.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }) + " " + dt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1200 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>メッセージ</h1>
+        <button onClick={() => { setShowCompose(true); setSendResult({ type: "", text: "" }); }}
+          style={{ padding: "10px 24px", border: "none", borderRadius: 10, background: "#1d4aff", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+          <Icon name="edit" size={14} /> 新規メール作成
+        </button>
+      </div>
+
+      {/* 統計カード */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "総メッセージ", value: stats.total, icon: "📨", color: "#6366f1" },
+          { label: "送信済み", value: stats.sent, icon: "📤", color: "#10b981" },
+          { label: "受信", value: stats.received, icon: "📥", color: "#3b82f6" },
+          { label: "今日", value: stats.today, icon: "📅", color: "#f59e0b" },
+        ].map((item, i) => (
+          <div key={i} style={{ ...cardStyle, padding: "14px 16px", borderLeft: `3px solid ${item.color}` }}>
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>{item.icon} {item.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 成功/エラー通知 */}
+      {sendResult.text && (
+        <div style={{ padding: 12, borderRadius: 8, marginBottom: 16, background: sendResult.type === "success" ? "#ecfdf5" : "#fef2f2", border: `1px solid ${sendResult.type === "success" ? "#a7f3d0" : "#fecaca"}`, color: sendResult.type === "success" ? "#065f46" : "#dc2626", fontSize: 13 }}>
+          {sendResult.type === "success" ? "✓" : "✕"} {sendResult.text}
+        </div>
+      )}
+
+      {/* メール作成モーダル */}
+      {showCompose && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={(e) => { if (e.target === e.currentTarget) setShowCompose(false); }}>
+          <div style={{ background: "white", borderRadius: 16, width: 680, maxHeight: "90vh", overflow: "auto", padding: 28 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>新規メール作成</h2>
+              <button onClick={() => setShowCompose(false)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: "#9ca3af" }}>✕</button>
+            </div>
+
+            {/* 候補者選択 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>宛先（候補者を選択）</label>
+              <select value={composeData.candidateId || ""} onChange={(e) => handleCandidateSelect(e.target.value)}
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
+                <option value="">候補者を選択...</option>
+                {candidates.filter(c => c.email).map(c => (
+                  <option key={c.id} value={c.id}>{c.lastName} {c.firstName} ({c.email}) — {c.stage}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* メールアドレス */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>メールアドレス</label>
+              <input type="email" value={composeData.to} onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
+                placeholder="example@email.com"
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            </div>
+
+            {/* テンプレート選択 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>テンプレート</label>
+              <select value={selectedTemplate} onChange={(e) => handleTemplateSelect(e.target.value)}
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
+                <option value="">テンプレートを選択（任意）...</option>
+                {emailTemplates.map(t => (
+                  <option key={t.id} value={t.id}>[{t.category}] {t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 件名 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>件名</label>
+              <input type="text" value={composeData.subject} onChange={(e) => setComposeData(prev => ({ ...prev, subject: e.target.value }))}
+                placeholder="件名を入力..."
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            </div>
+
+            {/* 本文 */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>本文</label>
+              <textarea value={composeData.body} onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
+                rows={12} placeholder="メール本文を入力..."
+                style={{ width: "100%", padding: 12, border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, lineHeight: 1.7, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+            </div>
+
+            {/* ボタン */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setShowCompose(false)}
+                style={{ padding: "10px 24px", border: "1px solid #d1d5db", borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#6b7280" }}>
+                キャンセル
+              </button>
+              <button onClick={handleSend} disabled={sending}
+                style={{ padding: "10px 28px", border: "none", borderRadius: 10, background: sending ? "#93c5fd" : "#1d4aff", color: "white", fontSize: 13, cursor: sending ? "default" : "pointer", fontWeight: 600 }}>
+                {sending ? "送信中..." : "✉ 送信する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* フィルター & 検索 */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 10, padding: 4 }}>
+          {[["all", "すべて"], ["sent", "送信済み"], ["received", "受信"]].map(([id, label]) => (
+            <button key={id} onClick={() => setFilter(id)}
+              style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? "#4338ca" : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>{label}</button>
+          ))}
+        </div>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 件名・本文・候補者名で検索..."
+          style={{ flex: 1, padding: "8px 14px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, outline: "none", background: "#fafbfc" }} />
+        <button onClick={loadMessages} disabled={loading}
+          style={{ padding: "8px 14px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
+          {loading ? "読込中..." : "↻ 更新"}
+        </button>
+      </div>
+
+      {/* メッセージ一覧 & 詳細 */}
+      <div style={{ display: "grid", gridTemplateColumns: selectedMsg ? "1fr 1fr" : "1fr", gap: 16 }}>
+        {/* 一覧 */}
+        <div style={{ ...cardStyle, overflow: "hidden" }}>
+          {loading && messages.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>読み込み中...</div>
+          ) : filteredMessages.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
+              <div style={{ color: "#9ca3af", fontSize: 13 }}>{messages.length === 0 ? "メッセージ履歴がまだありません" : "条件に一致するメッセージがありません"}</div>
+              <div style={{ color: "#d1d5db", fontSize: 12, marginTop: 4 }}>候補者にメールを送信すると、ここに履歴が表示されます</div>
+            </div>
+          ) : (
+            <div>
+              {filteredMessages.map((msg, i) => {
+                const isInbound = msg.direction === "inbound";
+                const isSelected = selectedMsg && selectedMsg.id === msg.id;
+                return (
+                  <div key={msg.id || i} onClick={() => setSelectedMsg(msg)}
+                    style={{
+                      padding: "14px 18px", cursor: "pointer", borderBottom: "1px solid #f3f4f6",
+                      background: isSelected ? "#eef2ff" : "white",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "#fafbfc"; }}
+                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "white"; }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{
+                          fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
+                          background: isInbound ? "#dbeafe" : "#e0e7ff",
+                          color: isInbound ? "#1d4aff" : "#4338ca",
+                        }}>
+                          {isInbound ? "受信" : "送信"}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{msg.candidateName}</span>
+                        {msg.channel === "line" && <span style={{ fontSize: 10, background: "#dcfce7", color: "#15803d", padding: "1px 6px", borderRadius: 4 }}>LINE</span>}
+                      </div>
+                      <span style={{ fontSize: 11, color: "#9ca3af" }}>{formatDate(msg.date)}</span>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{msg.subject || "(件名なし)"}</div>
+                    <div style={{ fontSize: 12, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(msg.body || "").slice(0, 80)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 詳細パネル */}
+        {selectedMsg && (
+          <div style={{ ...cardStyle, padding: 24, position: "sticky", top: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{
+                    fontSize: 11, padding: "3px 10px", borderRadius: 6, fontWeight: 500,
+                    background: selectedMsg.direction === "inbound" ? "#dbeafe" : "#e0e7ff",
+                    color: selectedMsg.direction === "inbound" ? "#1d4aff" : "#4338ca",
+                  }}>
+                    {selectedMsg.direction === "inbound" ? "← 受信" : "→ 送信"}
+                  </span>
+                  {selectedMsg.channel === "line" && <span style={{ fontSize: 10, background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: 4 }}>LINE</span>}
+                </div>
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 4 }}>{selectedMsg.subject || "(件名なし)"}</h3>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>
+                  {selectedMsg.direction === "inbound" ? "From" : "To"}: {selectedMsg.to_email || "—"}
+                </div>
+              </div>
+              <button onClick={() => setSelectedMsg(null)}
+                style={{ border: "none", background: "#f3f4f6", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 14, color: "#6b7280" }}>✕</button>
+            </div>
+
+            <div style={{ display: "flex", gap: 12, marginBottom: 16, fontSize: 12, color: "#6b7280" }}>
+              <span>📅 {formatDate(selectedMsg.date)}</span>
+              <span>👤 {selectedMsg.candidateName}</span>
+              {selectedMsg.status && <span style={{ background: "#f3f4f6", padding: "2px 8px", borderRadius: 4, fontSize: 11 }}>{selectedMsg.status}</span>}
+            </div>
+
+            <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{selectedMsg.body || "(本文なし)"}</div>
+            </div>
+
+            {/* アクション */}
+            <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 16, marginTop: 16, display: "flex", gap: 8 }}>
+              {selectedMsg.candidate_id && (
+                <button onClick={() => onNavigate && onNavigate("candidate-detail", selectedMsg.candidate_id)}
+                  style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>
+                  👤 候補者詳細
+                </button>
+              )}
+              <button onClick={() => {
+                setComposeData({
+                  to: selectedMsg.to_email || "",
+                  candidateId: selectedMsg.candidate_id,
+                  candidateName: selectedMsg.candidateName,
+                  subject: "Re: " + (selectedMsg.subject || ""),
+                  body: "\n\n---\n" + (selectedMsg.body || ""),
+                  channel: "email",
+                });
+                setShowCompose(true);
+              }}
+                style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#1d4aff", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+                ↩ 返信
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // ステージ別タスク定義（自動生成用）
 // ============================================================
 const STAGE_TASKS = {
@@ -4710,6 +5096,7 @@ function App() {
       case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} can={can} emailTemplates={emailTemplates} />;
       case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} can={can} />;
       case "pipeline": return <PipelinePage recruitFilter={recruitFilter} onNavigateFromPipeline={navigateFromPipeline} candidates={candidates} />;
+      case "messages": return <MessagesPage candidates={candidates} emailTemplates={emailTemplates} onNavigate={navigate} />;
       case "schedule": return <SchedulePage recruitFilter={recruitFilter} />;
       case "interview-fb": return <InterviewFBPage onNavigate={navigate} />;
       case "automation": return <AutomationPage />;
