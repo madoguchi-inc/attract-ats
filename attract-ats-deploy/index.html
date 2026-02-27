@@ -17,7 +17,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kak
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useMemo, useEffect, useCallback } = React;
+const { useState, useMemo, useEffect, useCallback, useRef } = React;
 const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Legend } = Recharts;
 
 // ============================================================
@@ -888,6 +888,128 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
     setCheckedSubstatuses(new Set());
   };
 
+  // ===== CSVインポート =====
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [csvStep, setCsvStep] = useState("upload"); // upload | preview | importing | done
+  const [csvRawData, setCsvRawData] = useState([]);
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [csvMapping, setCsvMapping] = useState({});
+  const [csvImportResult, setCsvImportResult] = useState(null);
+  const csvFileRef = useRef(null);
+
+  const CSV_TEMPLATE_COLS = [
+    { key: "lastName", label: "姓", required: true, example: "山田" },
+    { key: "firstName", label: "名", required: true, example: "太郎" },
+    { key: "email", label: "メールアドレス", required: false, example: "taro@example.com" },
+    { key: "phone", label: "電話番号", required: false, example: "090-1234-5678" },
+    { key: "recruitType", label: "区分", required: true, example: "新卒" },
+    { key: "university", label: "大学", required: false, example: "東京大学" },
+    { key: "faculty", label: "学部", required: false, example: "経済学部" },
+    { key: "gradYear", label: "卒業年", required: false, example: "2027" },
+    { key: "majorType", label: "文理", required: false, example: "文系" },
+    { key: "company", label: "現職企業", required: false, example: "〇〇株式会社" },
+    { key: "position", label: "職種", required: false, example: "営業" },
+    { key: "experience", label: "経験年数", required: false, example: "5" },
+    { key: "stage", label: "選考ステージ", required: false, example: "エントリー" },
+    { key: "substatus", label: "サブステータス", required: false, example: "受付済" },
+    { key: "route", label: "流入経路", required: false, example: "リクナビ" },
+    { key: "agent", label: "エージェント", required: false, example: "〇〇エージェント" },
+    { key: "aspiration", label: "志望度(1-5)", required: false, example: "4" },
+    { key: "gender", label: "性別", required: false, example: "男性" },
+    { key: "format", label: "選考形態", required: false, example: "WEB" },
+  ];
+
+  const downloadCsvTemplate = () => {
+    const bom = "\uFEFF";
+    const header = CSV_TEMPLATE_COLS.map(c => c.label).join(",");
+    const example = CSV_TEMPLATE_COLS.map(c => c.example).join(",");
+    const blob = new Blob([bom + header + "\n" + example + "\n"], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "候補者インポートテンプレート.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text) => {
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return { headers: [], rows: [] };
+    const parseLine = (line) => {
+      const result = []; let current = ""; let inQuote = false;
+      for (let i = 0; i < line.length; i++) {
+        if (line[i] === '"') { inQuote = !inQuote; }
+        else if (line[i] === ',' && !inQuote) { result.push(current.trim()); current = ""; }
+        else { current += line[i]; }
+      }
+      result.push(current.trim());
+      return result;
+    };
+    const headers = parseLine(lines[0]);
+    const rows = lines.slice(1).map(l => parseLine(l)).filter(r => r.some(c => c));
+    return { headers, rows };
+  };
+
+  const handleCsvFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const { headers, rows } = parseCSV(ev.target.result);
+      setCsvHeaders(headers);
+      setCsvRawData(rows);
+      // 自動マッピング
+      const mapping = {};
+      CSV_TEMPLATE_COLS.forEach(col => {
+        const idx = headers.findIndex(h => h === col.label || h.toLowerCase() === col.key.toLowerCase() || h === col.key);
+        if (idx >= 0) mapping[col.key] = idx;
+      });
+      setCsvMapping(mapping);
+      setCsvStep("preview");
+    };
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const executeCsvImport = async () => {
+    setCsvStep("importing");
+    let success = 0; let failed = 0; const errors = [];
+    for (let i = 0; i < csvRawData.length; i++) {
+      const row = csvRawData[i];
+      try {
+        const record = {};
+        CSV_TEMPLATE_COLS.forEach(col => {
+          if (csvMapping[col.key] !== undefined) {
+            let val = row[csvMapping[col.key]] || "";
+            if (col.key === "gradYear" || col.key === "experience" || col.key === "aspiration") val = val ? parseInt(val, 10) || null : null;
+            record[col.key] = val || null;
+          }
+        });
+        // 必須チェック
+        if (!record.lastName && !record.firstName) { failed++; errors.push(`行${i+1}: 氏名が空`); continue; }
+        if (!record.recruitType) record.recruitType = "新卒";
+        if (!record.stage) record.stage = "エントリー";
+        if (!record.substatus) record.substatus = "受付済";
+        // Supabase insert
+        if (SUPABASE_READY) {
+          const snakeRecord = {
+            last_name: record.lastName, first_name: record.firstName, email: record.email, phone: record.phone,
+            recruit_type: record.recruitType, university: record.university, faculty: record.faculty,
+            grad_year: record.gradYear, major_type: record.majorType, company: record.company, position: record.position,
+            experience: record.experience, stage: record.stage, substatus: record.substatus, status: record.substatus || "受付済",
+            route: record.route, agent: record.agent, aspiration: record.aspiration, gender: record.gender, format: record.format,
+          };
+          const { error } = await sbApi.insert('candidates', snakeRecord);
+          if (error) { failed++; errors.push(`行${i+1}: ${error.message || "DB登録エラー"}`); continue; }
+        }
+        success++;
+      } catch (err) { failed++; errors.push(`行${i+1}: ${err.message}`); }
+    }
+    setCsvImportResult({ success, failed, errors, total: csvRawData.length });
+    setCsvStep("done");
+  };
+
+  const resetCsvModal = () => {
+    setCsvModalOpen(false); setCsvStep("upload"); setCsvRawData([]); setCsvHeaders([]); setCsvMapping({}); setCsvImportResult(null);
+    if (csvFileRef.current) csvFileRef.current.value = "";
+  };
+
   const getStatusColor = (status) => {
     if (["通過", "承諾待ち", "合格", "参加済", "承諾済", "入社済", "入社準備中", "受験済", "実施済", "書類通過"].includes(status)) return { bg: "#dcfce7", text: "#15803d" };
     if (["予定", "新規", "案内済", "予約済", "内定通知", "日程調整中", "書類確認中", "面談調整中", "面談実施済", "受付済"].includes(status)) return { bg: "#dbeafe", text: "#1d4ed8" };
@@ -939,9 +1061,14 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
     <div style={{ padding: 24, maxWidth: 1200 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>候補者管理</h1>
-        <button onClick={onShowAddModal} style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-          <Icon name="plus" size={16} /> 新規登録
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setCsvModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: 6, background: "white", color: "#6366f1", border: "1px solid #6366f1", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+            <Icon name="upload" size={16} /> CSVインポート
+          </button>
+          <button onClick={onShowAddModal} style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+            <Icon name="plus" size={16} /> 新規登録
+          </button>
+        </div>
       </div>
 
       {/* 検索 + ステージフィルタ */}
@@ -1134,6 +1261,158 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
           <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>該当する候補者がいません</div>
         )}
       </div>
+
+      {/* ===== CSVインポートモーダル ===== */}
+      {csvModalOpen && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={e => { if (e.target === e.currentTarget && csvStep !== "importing") resetCsvModal(); }}>
+          <div style={{ background: "white", borderRadius: 16, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", width: "100%", maxWidth: 720, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: "#111827" }}>📂 CSVインポート</h3>
+              {csvStep !== "importing" && <button onClick={resetCsvModal} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9ca3af" }}>✕</button>}
+            </div>
+
+            {/* ステップ1: アップロード */}
+            {csvStep === "upload" && (
+              <>
+                <div style={{ padding: 32, border: "2px dashed #d1d5db", borderRadius: 12, textAlign: "center", marginBottom: 20, background: "#f9fafb" }}>
+                  <Icon name="upload" size={40} color="#9ca3af" />
+                  <div style={{ fontSize: 14, color: "#6b7280", marginTop: 12, marginBottom: 16 }}>CSVファイルをここにドロップ、またはクリックして選択</div>
+                  <input ref={csvFileRef} type="file" accept=".csv,.tsv,.txt" onChange={handleCsvFile}
+                    style={{ display: "none" }} />
+                  <button onClick={() => csvFileRef.current?.click()}
+                    style={{ padding: "10px 24px", background: "#6366f1", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    ファイルを選択
+                  </button>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 16, background: "#eef2ff", borderRadius: 10 }}>
+                  <Icon name="download" size={20} color="#6366f1" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#4338ca" }}>テンプレートCSV</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>フォーマットに合わせたCSVテンプレートをダウンロードできます</div>
+                  </div>
+                  <button onClick={downloadCsvTemplate}
+                    style={{ padding: "8px 16px", background: "white", color: "#6366f1", border: "1px solid #6366f1", borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+                    ダウンロード
+                  </button>
+                </div>
+                <div style={{ marginTop: 16, fontSize: 12, color: "#9ca3af" }}>
+                  ※ 文字コード: UTF-8（BOM付き推奨）、区切り: カンマ<br/>
+                  ※ 必須項目: 姓、名、区分（新卒/中途）
+                </div>
+              </>
+            )}
+
+            {/* ステップ2: プレビュー */}
+            {csvStep === "preview" && (
+              <>
+                <div style={{ marginBottom: 16, padding: 12, background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0", fontSize: 13, color: "#15803d" }}>
+                  ✅ {csvRawData.length}件のデータを検出しました
+                </div>
+
+                {/* マッピング設定 */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>カラムマッピング</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, maxHeight: 200, overflowY: "auto" }}>
+                    {CSV_TEMPLATE_COLS.map(col => (
+                      <div key={col.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "#f9fafb", borderRadius: 8, fontSize: 12 }}>
+                        <span style={{ color: col.required ? "#dc2626" : "#9ca3af", fontSize: 10 }}>{col.required ? "●" : "○"}</span>
+                        <span style={{ color: "#374151", fontWeight: 500, minWidth: 70 }}>{col.label}</span>
+                        <select value={csvMapping[col.key] ?? ""} onChange={e => setCsvMapping({...csvMapping, [col.key]: e.target.value === "" ? undefined : parseInt(e.target.value)})}
+                          style={{ flex: 1, padding: "3px 4px", border: "1px solid #e5e7eb", borderRadius: 4, fontSize: 11, minWidth: 0 }}>
+                          <option value="">-- 未設定 --</option>
+                          {csvHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* データプレビュー */}
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>データプレビュー（先頭5件）</div>
+                <div style={{ overflowX: "auto", marginBottom: 20 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: "#f9fafb" }}>
+                        <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", textAlign: "left", color: "#6b7280" }}>#</th>
+                        {CSV_TEMPLATE_COLS.filter(c => csvMapping[c.key] !== undefined).map(col => (
+                          <th key={col.key} style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", textAlign: "left", color: "#6b7280", whiteSpace: "nowrap" }}>{col.label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvRawData.slice(0, 5).map((row, i) => (
+                        <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                          <td style={{ padding: "6px 8px", color: "#9ca3af" }}>{i + 1}</td>
+                          {CSV_TEMPLATE_COLS.filter(c => csvMapping[c.key] !== undefined).map(col => (
+                            <td key={col.key} style={{ padding: "6px 8px", color: "#374151", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {row[csvMapping[col.key]] || <span style={{ color: "#d1d5db" }}>—</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <button onClick={() => { setCsvStep("upload"); setCsvRawData([]); setCsvHeaders([]); }}
+                    style={{ padding: "10px 20px", border: "1px solid #e5e7eb", borderRadius: 8, background: "white", color: "#6b7280", fontSize: 13, cursor: "pointer" }}>
+                    ← 戻る
+                  </button>
+                  <button onClick={executeCsvImport}
+                    style={{ padding: "10px 28px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    {csvRawData.length}件をインポート
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ステップ3: インポート中 */}
+            {csvStep === "importing" && (
+              <div style={{ padding: 40, textAlign: "center" }}>
+                <div style={{ fontSize: 40, marginBottom: 16 }}>⏳</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#374151", marginBottom: 8 }}>インポート中...</div>
+                <div style={{ fontSize: 13, color: "#9ca3af" }}>データをSupabaseに登録しています。しばらくお待ちください。</div>
+              </div>
+            )}
+
+            {/* ステップ4: 完了 */}
+            {csvStep === "done" && csvImportResult && (
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>{csvImportResult.failed === 0 ? "🎉" : "⚠️"}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: "#111827", marginBottom: 8 }}>インポート完了</div>
+                <div style={{ display: "flex", justifyContent: "center", gap: 24, marginBottom: 20 }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: "#10b981" }}>{csvImportResult.success}</div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>成功</div>
+                  </div>
+                  {csvImportResult.failed > 0 && (
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: "#ef4444" }}>{csvImportResult.failed}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>失敗</div>
+                    </div>
+                  )}
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: "#6b7280" }}>{csvImportResult.total}</div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>合計</div>
+                  </div>
+                </div>
+                {csvImportResult.errors.length > 0 && (
+                  <div style={{ textAlign: "left", marginBottom: 16, padding: 12, background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca", maxHeight: 120, overflowY: "auto" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#dc2626", marginBottom: 6 }}>エラー詳細:</div>
+                    {csvImportResult.errors.map((e, i) => <div key={i} style={{ fontSize: 11, color: "#991b1b", marginBottom: 2 }}>・{e}</div>)}
+                  </div>
+                )}
+                <button onClick={() => { resetCsvModal(); window.location.reload(); }}
+                  style={{ padding: "10px 28px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  閉じる
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* トースト通知 */}
       {bulkToast && (
