@@ -1,0 +1,2378 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Attract ATS - 採用管理システム プロトタイプ</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.5.0/umd/Recharts.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useEffect, useCallback } = React;
+const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Legend } = Recharts;
+
+// ============================================================
+// SUPABASE 設定 (CDN不要・fetch API直接呼び出し)
+// ============================================================
+const SUPABASE_URL = 'https://enzgjnelimfrosilsokn.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVuemdqbmVsaW1mcm9zaWxzb2tuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNjU0MzQsImV4cCI6MjA4Nzc0MTQzNH0.lGp7juqG5IPjSiXa7E8dWtyl7q1CH34ntodzCetFN3U';
+const SUPABASE_READY = SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+
+// トークン管理
+const tokenStore = {
+  get accessToken() { return localStorage.getItem('sb_access_token'); },
+  get refreshToken() { return localStorage.getItem('sb_refresh_token'); },
+  save(session) {
+    localStorage.setItem('sb_access_token', session.access_token);
+    localStorage.setItem('sb_refresh_token', session.refresh_token);
+  },
+  clear() {
+    localStorage.removeItem('sb_access_token');
+    localStorage.removeItem('sb_refresh_token');
+  }
+};
+
+// Supabase REST API ヘルパー
+const sbApi = {
+  _headers(withAuth = true) {
+    const h = { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' };
+    if (withAuth && tokenStore.accessToken) h['Authorization'] = 'Bearer ' + tokenStore.accessToken;
+    return h;
+  },
+  // 認証: ログイン
+  async signIn(email, password) {
+    const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+      method: 'POST', headers: this._headers(false),
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) return { user: null, error: data };
+    tokenStore.save(data);
+    return { user: data.user, error: null };
+  },
+  // 認証: 現在のユーザー取得
+  async getUser() {
+    if (!tokenStore.accessToken) return null;
+    const res = await fetch(SUPABASE_URL + '/auth/v1/user', { headers: this._headers() });
+    if (!res.ok) { tokenStore.clear(); return null; }
+    return await res.json();
+  },
+  // 認証: ログアウト
+  async signOut() {
+    await fetch(SUPABASE_URL + '/auth/v1/logout', { method: 'POST', headers: this._headers() }).catch(() => {});
+    tokenStore.clear();
+  },
+  // DB: SELECT
+  async select(table, params = '') {
+    const res = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?select=*' + (params ? '&' + params : ''), { headers: this._headers() });
+    if (!res.ok) return { data: null, error: await res.json() };
+    return { data: await res.json(), error: null };
+  },
+  // DB: INSERT
+  async insert(table, row) {
+    const res = await fetch(SUPABASE_URL + '/rest/v1/' + table, {
+      method: 'POST', headers: { ...this._headers(), 'Prefer': 'return=representation' },
+      body: JSON.stringify(row)
+    });
+    if (!res.ok) return { data: null, error: await res.json() };
+    const data = await res.json();
+    return { data: data[0] || data, error: null };
+  },
+  // DB: UPDATE
+  async update(table, filter, row) {
+    const res = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?' + filter, {
+      method: 'PATCH', headers: { ...this._headers(), 'Prefer': 'return=representation' },
+      body: JSON.stringify(row)
+    });
+    if (!res.ok) return { error: await res.json() };
+    return { error: null };
+  }
+};
+
+console.log('[Attract ATS] SUPABASE_READY:', SUPABASE_READY);
+
+// Simple Icon component (replaces lucide-react)
+function Icon({ name, size = 16, color = "currentColor", style: extraStyle }) {
+  const icons = {
+    home: "M3 12l9-9 9 9M5 10v10h4v-6h6v6h4V10",
+    users: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 7a4 4 0 100-8 4 4 0 000 8M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75",
+    "git-branch": "M6 3v12M18 9a3 3 0 100-6 3 3 0 000 6zM6 21a3 3 0 100-6 3 3 0 000 6zM18 9a9 9 0 01-9 9",
+    calendar: "M19 4H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zM16 2v4M8 2v4M3 10h18",
+    "message-square": "M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z",
+    zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+    building: "M6 22V4a2 2 0 012-2h8a2 2 0 012 2v18zM6 12H4a2 2 0 00-2 2v6a2 2 0 002 2h2M18 9h2a2 2 0 012 2v9a2 2 0 01-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4",
+    "bar-chart": "M12 20V10M18 20V4M6 20v-4",
+    "check-square": "M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11",
+    settings: "M12 15a3 3 0 100-6 3 3 0 000 6z",
+    bell: "M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0",
+    search: "M11 17.25a6.25 6.25 0 110-12.5 6.25 6.25 0 010 12.5zM16.65 16.65L21 21",
+    "chevron-right": "M9 18l6-6-6-6",
+    "arrow-left": "M19 12H5M12 19l-7-7 7-7",
+    mic: "M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8",
+    "mic-off": "M1 1l22 22M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6M17 16.95A7 7 0 015 12v-2m14 0v2c0 .76-.12 1.5-.34 2.18M12 19v4M8 23h8",
+    mail: "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6",
+    phone: "M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72",
+    "graduation-cap": "M22 10l-10-6L2 10l10 6 10-6zM6 12v5c3 3 9 3 12 0v-5",
+    briefcase: "M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zM16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16",
+    star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
+    plus: "M12 5v14M5 12h14",
+    "trending-up": "M23 6l-9.5 9.5-5-5L1 18",
+    "trending-down": "M23 18l-9.5-9.5-5 5L1 6",
+    "alert-circle": "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 8v4M12 16h.01",
+    "check-circle": "M22 11.08V12a10 10 0 11-5.93-9.14M22 4L12 14.01l-3-3",
+    "file-text": "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+    volume: "M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07",
+    user: "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 7a4 4 0 100-8 4 4 0 000 8",
+    filter: "M22 3H2l8 9.46V19l4 2v-8.54L22 3",
+  };
+  const path = icons[name] || icons["user"];
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle", flexShrink: 0, ...extraStyle }}>
+      {path.split("M").filter(Boolean).map((d, i) => <path key={i} d={"M" + d} />)}
+    </svg>
+  );
+}
+
+// ============================================================
+// MOCK DATA - 新卒 + 中途
+// ============================================================
+// パイプラインステージ → 候補者ステージのマッピング
+const PIPELINE_STAGE_MAP = {
+  "エントリー": "エントリー",
+  "説明会": "説明会",
+  "人事面談": "一次面接",
+  "2次選考": "二次面接",
+  "役員面談": "最終面接",
+  "内定": "内定",
+};
+// 逆マッピング（候補者ステージ → パイプラインステージ名）
+const CANDIDATE_TO_PIPELINE = {};
+Object.entries(PIPELINE_STAGE_MAP).forEach(([k, v]) => { CANDIDATE_TO_PIPELINE[v] = k; });
+
+const CANDIDATES = [
+  // 新卒  ※ format: 面接・選考の実施形態（"WEB" / "対面" / null）  ※ substatus: パイプライン内サブステータス
+  { id: 1, recruitType: "新卒", lastName: "山田", firstName: "花子", university: "東京大学", faculty: "経済学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "二次面接", substatus: "予約済", status: "予定", format: "対面", email: "hanako@example.com", phone: "090-1234-5678", route: "リクナビ", aspiration: 4, agent: "○○エージェント", gender: "女性", score: 4.2, createdAt: "2026/01/15" },
+  { id: 2, recruitType: "新卒", lastName: "佐藤", firstName: "太郎", university: "慶應義塾大学", faculty: "法学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "一次面接", substatus: "合格", status: "通過", format: "WEB", email: "taro@example.com", phone: "090-2345-6789", route: "マイナビ", aspiration: 5, agent: null, gender: "男性", score: 3.8, createdAt: "2026/01/18" },
+  { id: 3, recruitType: "新卒", lastName: "鈴木", firstName: "美咲", university: "早稲田大学", faculty: "商学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "説明会", substatus: "案内済", status: "案内済", format: null, email: "misaki@example.com", phone: "090-3456-7890", route: "エージェント", aspiration: 3, agent: "△△人材", gender: "女性", score: null, createdAt: "2026/02/01" },
+  { id: 4, recruitType: "新卒", lastName: "田中", firstName: "健一", university: "京都大学", faculty: "工学部", gradYear: 2027, majorType: "理系", company: null, position: null, experience: null, stage: "最終面接", substatus: "予約済", status: "予定", format: "対面", email: "kenichi@example.com", phone: "090-4567-8901", route: "リクナビ", aspiration: 5, agent: null, gender: "男性", score: 4.5, createdAt: "2026/01/10" },
+  { id: 5, recruitType: "新卒", lastName: "高橋", firstName: "さくら", university: "上智大学", faculty: "文学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "内定", substatus: "承諾", status: "承諾待ち", format: null, email: "sakura@example.com", phone: "090-5678-9012", route: "マイナビ", aspiration: 5, agent: null, gender: "女性", score: 4.7, createdAt: "2025/12/20" },
+  { id: 6, recruitType: "新卒", lastName: "伊藤", firstName: "大輝", university: "東北大学", faculty: "理学部", gradYear: 2027, majorType: "理系", company: null, position: null, experience: null, stage: "エントリー", substatus: "受付済", status: "新規", format: null, email: "daiki@example.com", phone: "090-6789-0123", route: "エージェント", aspiration: 2, agent: "□□キャリア", gender: "男性", score: null, createdAt: "2026/02/24" },
+  { id: 7, recruitType: "新卒", lastName: "渡辺", firstName: "愛", university: "一橋大学", faculty: "社会学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "一次面接", substatus: "欠席", status: "不合格", format: "WEB", email: "ai@example.com", phone: "090-7890-1234", route: "リクナビ", aspiration: 3, agent: null, gender: "女性", score: 2.8, createdAt: "2026/01/22" },
+  { id: 8, recruitType: "新卒", lastName: "中村", firstName: "翔", university: "大阪大学", faculty: "経済学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "二次面接", substatus: "合格", status: "通過", format: "WEB", email: "sho@example.com", phone: "090-8901-2345", route: "マイナビ", aspiration: 4, agent: null, gender: "男性", score: 4.0, createdAt: "2026/01/12" },
+  // 新卒追加（説明会フロー）
+  { id: 15, recruitType: "新卒", lastName: "藤田", firstName: "優花", university: "明治大学", faculty: "政治経済学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "説明会", substatus: "案内済", status: "案内済", format: null, email: "yuka@example.com", phone: "090-1122-3344", route: "リクナビ", aspiration: 3, agent: null, gender: "女性", score: null, createdAt: "2026/02/20" },
+  { id: 16, recruitType: "新卒", lastName: "山口", firstName: "拓海", university: "立命館大学", faculty: "理工学部", gradYear: 2027, majorType: "理系", company: null, position: null, experience: null, stage: "説明会", substatus: "予約済", status: "予約済", format: "WEB", email: "takumi@example.com", phone: "090-2233-4455", route: "マイナビ", aspiration: 4, agent: null, gender: "男性", score: null, createdAt: "2026/02/18" },
+  { id: 17, recruitType: "新卒", lastName: "石井", firstName: "七海", university: "青山学院大学", faculty: "経営学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "説明会", substatus: "参加", status: "参加済", format: "WEB", email: "nanami@example.com", phone: "090-3344-5566", route: "エージェント", aspiration: 4, agent: "○○エージェント", gender: "女性", score: null, createdAt: "2026/02/10" },
+  { id: 18, recruitType: "新卒", lastName: "前田", firstName: "陸", university: "中央大学", faculty: "法学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "説明会", substatus: "案内済", status: "案内済", format: null, email: "riku@example.com", phone: "090-4455-6677", route: "リクナビ", aspiration: 2, agent: null, gender: "男性", score: null, createdAt: "2026/02/22" },
+  { id: 19, recruitType: "新卒", lastName: "岡田", firstName: "あおい", university: "法政大学", faculty: "社会学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "説明会", substatus: "予約済", status: "予約済", format: "対面", email: "aoi@example.com", phone: "090-5566-7788", route: "マイナビ", aspiration: 3, agent: null, gender: "女性", score: null, createdAt: "2026/02/19" },
+  { id: 20, recruitType: "新卒", lastName: "森", firstName: "悠斗", university: "筑波大学", faculty: "情報学群", gradYear: 2027, majorType: "理系", company: null, position: null, experience: null, stage: "一次面接", substatus: "案内済", status: "案内済", format: null, email: "yuto@example.com", phone: "090-6677-8899", route: "エージェント", aspiration: 4, agent: "△△人材", gender: "男性", score: null, createdAt: "2026/02/15" },
+  { id: 21, recruitType: "新卒", lastName: "池田", firstName: "結衣", university: "神戸大学", faculty: "経済学部", gradYear: 2027, majorType: "文系", company: null, position: null, experience: null, stage: "二次面接", substatus: "案内済", status: "案内済", format: null, email: "yui@example.com", phone: "090-7788-9900", route: "リクナビ", aspiration: 5, agent: null, gender: "女性", score: null, createdAt: "2026/02/12" },
+  { id: 22, recruitType: "新卒", lastName: "原", firstName: "蓮", university: "九州大学", faculty: "工学部", gradYear: 2027, majorType: "理系", company: null, position: null, experience: null, stage: "内定", substatus: "内定通知", status: "内定通知", format: null, email: "ren@example.com", phone: "090-8899-0011", route: "マイナビ", aspiration: 4, agent: null, gender: "男性", score: 4.3, createdAt: "2026/01/08" },
+  // 中途
+  { id: 9, recruitType: "中途", lastName: "松本", firstName: "大介", university: null, faculty: null, gradYear: null, majorType: null, company: "株式会社リクルート", position: "営業マネージャー", experience: 8, stage: "二次面接", substatus: "予約済", status: "予定", format: "対面", email: "daisuke@example.com", phone: "090-1111-2222", route: "ビズリーチ", aspiration: 4, agent: "◎◎エージェント", gender: "男性", score: 4.3, createdAt: "2026/02/10" },
+  { id: 10, recruitType: "中途", lastName: "小林", firstName: "由美", university: null, faculty: null, gradYear: null, majorType: null, company: "アクセンチュア株式会社", position: "コンサルタント", experience: 5, stage: "一次面接", substatus: "合格", status: "通過", format: "WEB", email: "yumi@example.com", phone: "090-2222-3333", route: "エージェント", aspiration: 5, agent: "★★キャリア", gender: "女性", score: 4.1, createdAt: "2026/02/05" },
+  { id: 11, recruitType: "中途", lastName: "加藤", firstName: "翔太", university: null, faculty: null, gradYear: null, majorType: null, company: "サイバーエージェント", position: "Webエンジニア", experience: 3, stage: "説明会", substatus: "参加", status: "参加済", format: "WEB", email: "shota@example.com", phone: "090-3333-4444", route: "Green", aspiration: 3, agent: null, gender: "男性", score: null, createdAt: "2026/02/15" },
+  { id: 12, recruitType: "中途", lastName: "木村", firstName: "麻衣", university: null, faculty: null, gradYear: null, majorType: null, company: "デロイトトーマツ", position: "シニアアナリスト", experience: 6, stage: "最終面接", substatus: "予約済", status: "予定", format: "対面", email: "mai@example.com", phone: "090-4444-5555", route: "ビズリーチ", aspiration: 5, agent: null, gender: "女性", score: 4.6, createdAt: "2026/01/28" },
+  { id: 13, recruitType: "中途", lastName: "吉田", firstName: "健太", university: null, faculty: null, gradYear: null, majorType: null, company: "楽天グループ", position: "プロダクトマネージャー", experience: 10, stage: "エントリー", substatus: "受付済", status: "新規", format: null, email: "kenta@example.com", phone: "090-5555-6666", route: "リファラル", aspiration: 4, agent: null, gender: "男性", score: null, createdAt: "2026/02/22" },
+  { id: 14, recruitType: "中途", lastName: "斉藤", firstName: "あかり", university: null, faculty: null, gradYear: null, majorType: null, company: "パーソルキャリア", position: "人事", experience: 4, stage: "内定", substatus: "承諾", status: "承諾待ち", format: null, email: "akari@example.com", phone: "090-6666-7777", route: "エージェント", aspiration: 5, agent: "◎◎エージェント", gender: "女性", score: 4.4, createdAt: "2026/01/05" },
+  { id: 23, recruitType: "中途", lastName: "西村", firstName: "健", university: null, faculty: null, gradYear: null, majorType: null, company: "マッキンゼー", position: "アソシエイト", experience: 4, stage: "説明会", substatus: "案内済", status: "案内済", format: null, email: "ken@example.com", phone: "090-9900-1122", route: "ビズリーチ", aspiration: 3, agent: null, gender: "男性", score: null, createdAt: "2026/02/21" },
+];
+
+const PIPELINE_STAGES = [
+  { name: "エントリー", count: 751, active: 45, color: "#6366f1" },
+  { name: "書類選考", count: 680, active: 38, color: "#8b5cf6" },
+  { name: "一次面接", count: 420, active: 22, color: "#a855f7" },
+  { name: "二次面接", count: 185, active: 15, color: "#d946ef" },
+  { name: "最終面接", count: 85, active: 8, color: "#ec4899" },
+  { name: "内定", count: 12, active: 6, color: "#f43f5e" },
+  { name: "内定承諾", count: 5, active: 5, color: "#10b981" },
+];
+
+const FUNNEL_DATA = [
+  { stage: "エントリー", value: 751 },
+  { stage: "書類選考", value: 680 },
+  { stage: "一次面接", value: 420 },
+  { stage: "二次面接", value: 185 },
+  { stage: "最終面接", value: 85 },
+  { stage: "内定", value: 12 },
+  { stage: "内定承諾", value: 5 },
+];
+
+const MONTHLY_TREND = [
+  { month: "10月", entries: 45, passes: 30, offers: 0 },
+  { month: "11月", entries: 82, passes: 55, offers: 0 },
+  { month: "12月", entries: 120, passes: 78, offers: 1 },
+  { month: "1月", entries: 210, passes: 145, offers: 3 },
+  { month: "2月", entries: 180, passes: 120, offers: 5 },
+  { month: "3月", entries: 114, passes: 0, offers: 3 },
+];
+
+const EVALUATOR_BIAS = [
+  { name: "安岡", avg: 3.8, passRate: 72, tendency: "平均", variance: 0.8, count: 45 },
+  { name: "鈴木", avg: 4.2, passRate: 85, tendency: "甘め", variance: 0.5, count: 38 },
+  { name: "田中部長", avg: 3.2, passRate: 55, tendency: "辛め", variance: 1.2, count: 22 },
+  { name: "佐藤", avg: 3.9, passRate: 70, tendency: "平均", variance: 0.6, count: 30 },
+];
+
+const RADAR_DATA = [
+  { subject: "コミュ力", a: 3.8, b: 4.5, c: 3.2 },
+  { subject: "論理力", a: 4.0, b: 3.5, c: 4.3 },
+  { subject: "志望度", a: 3.5, b: 4.3, c: 2.8 },
+  { subject: "適性", a: 3.8, b: 4.0, c: 3.5 },
+  { subject: "スキル", a: 4.0, b: 4.2, c: 3.0 },
+];
+
+const AUTOMATION_TRIGGERS = [
+  { id: 1, name: "エントリー完了 → サンクスメール", trigger: "ステータスが「エントリー」に変更", target: "候補者", delay: "即時", channels: ["メール", "LINE"], active: true },
+  { id: 2, name: "書類選考通過 → 一次面接案内", trigger: "ステータスが「書類選考通過」に変更", target: "候補者", delay: "30分後", channels: ["メール", "LINE"], active: true },
+  { id: 3, name: "面接前日リマインド", trigger: "面接予定日の24時間前", target: "候補者 + 面接官", delay: "自動", channels: ["メール", "LINE"], active: true },
+  { id: 4, name: "面接直前リマインド", trigger: "面接予定日の1時間前", target: "候補者 + 面接官", delay: "自動", channels: ["LINE"], active: true },
+  { id: 5, name: "不合格通知", trigger: "ステータスが「不合格」に変更", target: "候補者", delay: "1時間後", channels: ["メール"], active: true },
+  { id: 6, name: "FB未入力リマインド", trigger: "面接完了後24時間、FBが未入力", target: "面接官", delay: "24時間ごと", channels: ["メール"], active: true },
+  { id: 7, name: "内定通知", trigger: "ステータスが「内定」に変更", target: "候補者", delay: "即時", channels: ["メール", "LINE"], active: false },
+];
+
+const COLORS = ["#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#10b981"];
+
+// ============================================================
+// ログインページ
+// ============================================================
+function LoginPage({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    if (SUPABASE_READY) {
+      const { user, error: authError } = await sbApi.signIn(email, password);
+      if (authError) {
+        setError("ログインに失敗しました: " + (authError.error_description || authError.msg || JSON.stringify(authError)));
+        setLoading(false);
+        return;
+      }
+      onLogin(user);
+    } else {
+      // デモモード（Supabase未設定時）
+      if (email && password) {
+        onLogin({ email, id: "demo" });
+      } else {
+        setError("メールアドレスとパスワードを入力してください");
+      }
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0d2eb5 0%, #1d4aff 50%, #3562f6 100%)" }}>
+      <div style={{ background: "white", borderRadius: 20, padding: "48px 40px", width: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <img src="logo.svg" alt="Attract" style={{ width: 200, marginBottom: 4, filter: "brightness(0) saturate(100%) invert(22%) sepia(93%) saturate(4000%) hue-rotate(228deg) brightness(100%) contrast(102%)" }} />
+          <div style={{ fontSize: 13, color: "#6b7280" }}>採用管理システム</div>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>メールアドレス</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com"
+              style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>パスワード</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワードを入力"
+              style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          {error && (
+            <div style={{ padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, color: "#dc2626", fontSize: 12, marginBottom: 16 }}>{error}</div>
+          )}
+          <button type="submit" disabled={loading}
+            style={{ width: "100%", padding: "12px", background: loading ? "#a5b4fc" : "#4338ca", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: loading ? "default" : "pointer" }}>
+            {loading ? "ログイン中..." : "ログイン"}
+          </button>
+        </form>
+        {!SUPABASE_READY && (
+          <div style={{ marginTop: 20, padding: "12px 14px", background: "#fefce8", border: "1px solid #fde68a", borderRadius: 8, fontSize: 11, color: "#92400e" }}>
+            <strong>デモモード:</strong> Supabase未接続のため、任意のメール・パスワードでログインできます。データはブラウザ内のダミーデータです。
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// データ取得フック
+// ============================================================
+function useSupabaseCandidates(recruitFilter) {
+  const [candidates, setCandidates] = useState(CANDIDATES);
+  const [loading, setLoading] = useState(false);
+
+  const fetchCandidates = useCallback(async () => {
+    if (!SUPABASE_READY) { setCandidates(CANDIDATES); return; }
+    setLoading(true);
+    let params = 'order=created_at.desc';
+    if (recruitFilter !== 'all') params += '&recruit_type=eq.' + encodeURIComponent(recruitFilter);
+    const { data, error } = await sbApi.select('candidates', params);
+    if (!error && data) {
+      // DB のカラム名 → フロントのキー名にマッピング
+      setCandidates(data.map(r => ({
+        id: r.id,
+        recruitType: r.recruit_type,
+        lastName: r.last_name,
+        firstName: r.first_name,
+        university: r.university,
+        faculty: r.faculty,
+        gradYear: r.grad_year,
+        majorType: r.major_type,
+        company: r.company,
+        position: r.position,
+        experience: r.experience,
+        stage: r.stage,
+        substatus: r.substatus,
+        status: r.status,
+        format: r.format,
+        email: r.email,
+        phone: r.phone,
+        route: r.route,
+        aspiration: r.aspiration,
+        agent: r.agent,
+        gender: r.gender,
+        score: r.score ? parseFloat(r.score) : null,
+        createdAt: new Date(r.created_at).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/-/g, '/'),
+        entryDate: r.entry_date || null,
+        birthDate: r.birth_date || null,
+        graduationPeriod: r.graduation_period || null,
+        department: r.department || null,
+        lastNameKana: r.last_name_kana || null,
+        firstNameKana: r.first_name_kana || null,
+        notes: r.notes || null,
+        stageDate: r.stage_date || null,
+        originalStage: r.original_stage || null,
+      })));
+    }
+    setLoading(false);
+  }, [recruitFilter]);
+
+  useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
+
+  const addCandidate = async (newCandidate) => {
+    if (!SUPABASE_READY) {
+      const maxId = Math.max(...candidates.map(c => c.id));
+      const withId = { ...newCandidate, id: maxId + 1, createdAt: new Date().toLocaleDateString('ja-JP').replace(/-/g, '/') };
+      setCandidates(prev => [withId, ...prev]);
+      return withId;
+    }
+    const { data, error } = await sbApi.insert('candidates', {
+      recruit_type: newCandidate.recruitType,
+      last_name: newCandidate.lastName,
+      first_name: newCandidate.firstName,
+      last_name_kana: newCandidate.lastNameKana || null,
+      first_name_kana: newCandidate.firstNameKana || null,
+      university: newCandidate.university || null,
+      faculty: newCandidate.faculty || null,
+      department: newCandidate.department || null,
+      grad_year: newCandidate.gradYear || null,
+      major_type: newCandidate.majorType || null,
+      graduation_period: newCandidate.graduationPeriod || null,
+      company: newCandidate.company || null,
+      position: newCandidate.position || null,
+      experience: newCandidate.experience || null,
+      stage: newCandidate.stage || 'エントリー/受付済',
+      substatus: newCandidate.substatus || '受付済',
+      status: newCandidate.status || '新規',
+      format: newCandidate.format || null,
+      email: newCandidate.email || null,
+      phone: newCandidate.phone || null,
+      route: newCandidate.route || null,
+      aspiration: newCandidate.aspiration || 3,
+      agent: newCandidate.agent || null,
+      gender: newCandidate.gender || null,
+      birth_date: newCandidate.birthDate || null,
+      entry_date: newCandidate.entryDate || null,
+      notes: newCandidate.notes || null,
+    });
+    if (!error) await fetchCandidates();
+    return data;
+  };
+
+  const updateCandidate = async (id, updates) => {
+    if (!SUPABASE_READY) {
+      setCandidates(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+      return;
+    }
+    // camelCase → snake_case
+    const dbUpdates = {};
+    if (updates.stage !== undefined) dbUpdates.stage = updates.stage;
+    if (updates.substatus !== undefined) dbUpdates.substatus = updates.substatus;
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
+    if (updates.format !== undefined) dbUpdates.format = updates.format;
+    if (updates.score !== undefined) dbUpdates.score = updates.score;
+    if (updates.aspiration !== undefined) dbUpdates.aspiration = updates.aspiration;
+    await sbApi.update('candidates', 'id=eq.' + id, dbUpdates);
+    await fetchCandidates();
+  };
+
+  const bulkUpdateStatus = async (ids, newStatus) => {
+    if (!SUPABASE_READY) {
+      setCandidates(prev => prev.map(c => ids.has(c.id) ? { ...c, status: newStatus } : c));
+      return;
+    }
+    const idList = Array.from(ids).join(',');
+    await sbApi.update('candidates', 'id=in.(' + idList + ')', { status: newStatus });
+    await fetchCandidates();
+  };
+
+  return { candidates, loading, addCandidate, updateCandidate, bulkUpdateStatus, refresh: fetchCandidates };
+}
+
+// ============================================================
+// 採用区分タブ（グローバルフィルター）
+// ============================================================
+function RecruitTypeSelector({ value, onChange }) {
+  const types = [
+    { id: "all", label: "全体", icon: "users" },
+    { id: "新卒", label: "新卒", icon: "graduation-cap" },
+    { id: "中途", label: "中途", icon: "briefcase" },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 2, background: "#eef2ff", borderRadius: 8, padding: 3 }}>
+      {types.map(t => (
+        <button key={t.id} onClick={() => onChange(t.id)}
+          style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 14px", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer",
+            background: value === t.id ? "#4338ca" : "transparent",
+            color: value === t.id ? "white" : "#6366f1",
+            fontWeight: value === t.id ? 600 : 400, transition: "all 0.15s" }}>
+          <Icon name={t.icon} size={13} color={value === t.id ? "white" : "#6366f1"} />
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================
+// COMPONENTS
+// ============================================================
+function Sidebar({ currentPage, onNavigate }) {
+  const items = [
+    { id: "dashboard", icon: "home", label: "ダッシュボード" },
+    { id: "candidates", icon: "users", label: "候補者管理" },
+    { id: "pipeline", icon: "git-branch", label: "選考フロー" },
+    { id: "schedule", icon: "calendar", label: "スケジュール" },
+    { id: "messages", icon: "message-square", label: "メッセージ" },
+    { id: "automation", icon: "zap", label: "自動化設定" },
+    { id: "agents", icon: "building", label: "紹介会社" },
+    { id: "analytics", icon: "bar-chart", label: "分析" },
+    { id: "tasks", icon: "check-square", label: "タスク" },
+    { id: "settings", icon: "settings", label: "設定" },
+  ];
+  return (
+    <div style={{ width: 220, background: "#0a1632", color: "white", display: "flex", flexDirection: "column", minHeight: "100vh", flexShrink: 0 }}>
+      <div style={{ padding: "18px 14px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <img src="logo.svg" alt="Attract" style={{ width: "100%", maxWidth: 170, display: "block" }} />
+      </div>
+      <nav style={{ flex: 1, padding: "8px 0" }}>
+        {items.map(item => (
+          <button key={item.id} onClick={() => onNavigate(item.id)}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", border: "none", background: currentPage === item.id ? "#1d4aff" : "transparent", color: currentPage === item.id ? "white" : "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 13, textAlign: "left", transition: "all 0.15s", borderRadius: currentPage === item.id ? 0 : 0 }}>
+            <Icon name={item.icon} size={18} color={currentPage === item.id ? "white" : "rgba(255,255,255,0.6)"} />
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
+      <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#1d4aff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600 }}>安</div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 500 }}>安岡 尚和</div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>管理者</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({ label, value, change, changeType, iconName, color }) {
+  return (
+    <div style={{ background: "white", borderRadius: 12, padding: "18px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", flex: 1, minWidth: 160 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{label}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: "#111827" }}>{value}</div>
+        </div>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: color + "18", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon name={iconName} size={20} color={color} />
+        </div>
+      </div>
+      {change !== undefined && (
+        <div style={{ fontSize: 11, marginTop: 8, display: "flex", alignItems: "center", gap: 4, color: changeType === "up" ? "#10b981" : changeType === "down" ? "#ef4444" : "#6b7280" }}>
+          {changeType === "up" ? <Icon name="trending-up" size={12} /> : changeType === "down" ? <Icon name="trending-down" size={12} /> : null}
+          {change} 今週
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 採用区分バッジ
+function RecruitTypeBadge({ type }) {
+  const isNew = type === "新卒";
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
+      background: isNew ? "#dbeafe" : "#fef3c7",
+      color: isNew ? "#1d4ed8" : "#92400e" }}>
+      {type}
+    </span>
+  );
+}
+
+// WEB/対面バッジ
+function FormatBadge({ format }) {
+  if (!format) return null;
+  const isWeb = format === "WEB";
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
+      background: isWeb ? "#ecfdf5" : "#fdf2f8",
+      color: isWeb ? "#065f46" : "#9d174d",
+      display: "inline-flex", alignItems: "center", gap: 3 }}>
+      {isWeb ? "💻" : "🏢"} {format}
+    </span>
+  );
+}
+
+// ============================================================
+// PAGES
+// ============================================================
+
+function DashboardPage({ onNavigate, recruitFilter }) {
+  const filteredCandidates = recruitFilter === "all" ? CANDIDATES : CANDIDATES.filter(c => c.recruitType === recruitFilter);
+  const newCount = CANDIDATES.filter(c => c.recruitType === "新卒").length;
+  const midCount = CANDIDATES.filter(c => c.recruitType === "中途").length;
+  return (
+    <div style={{ padding: 24, maxWidth: 1200 }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", marginBottom: 20 }}>ダッシュボード</h1>
+      <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+        <KpiCard label="エントリー総計" value="751" change="+12" changeType="up" iconName="users" color="#6366f1" />
+        <KpiCard label="選考中" value="540" change="-3" changeType="down" iconName="git-branch" color="#8b5cf6" />
+        <KpiCard label="内定" value="6" change="+1" changeType="up" iconName="check-circle" color="#10b981" />
+        <KpiCard label="内定承諾" value="5" change="±0" changeType="neutral" iconName="star" color="#f59e0b" />
+      </div>
+
+      {/* 採用区分別サマリー */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+        <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="alert-circle" size={16} color="#f59e0b" /> 今日のアクション
+          </h3>
+          {[
+            { icon: "🔴", text: "面接FB未入力", count: "3件", action: "入力する" },
+            { icon: "🟡", text: "リマインド送信待ち", count: "5件", action: "確認" },
+            { icon: "🟢", text: "今日の面接", count: "2件", action: "詳細" },
+            { icon: "⚪", text: "ステータス承認待ち", count: "1件", action: "承認" },
+          ].map((item, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: i < 3 ? "1px solid #f3f4f6" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>{item.icon}</span>
+                <span style={{ fontSize: 13, color: "#374151" }}>{item.text}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#6366f1" }}>{item.count}</span>
+              </div>
+              <button style={{ fontSize: 11, color: "#6366f1", background: "#eef2ff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>{item.action}</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="bar-chart" size={16} color="#6366f1" /> 選考ファネル
+          </h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={FUNNEL_DATA} layout="vertical" margin={{ left: 60 }}>
+              <XAxis type="number" hide />
+              <YAxis type="category" dataKey="stage" tick={{ fontSize: 11 }} width={60} />
+              <Tooltip />
+              <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                {FUNNEL_DATA.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* 採用区分別の候補者数 */}
+      <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 24 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>採用区分別ステータス</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ padding: 16, background: "#eef2ff", borderRadius: 10, border: "1px solid #c7d2fe" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Icon name="graduation-cap" size={18} color="#4338ca" />
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#4338ca" }}>新卒採用</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: "#4338ca", marginLeft: "auto" }}>{newCount}名</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, fontSize: 11 }}>
+              <span style={{ padding: "2px 8px", borderRadius: 8, background: "#dbeafe", color: "#1d4ed8" }}>選考中 6</span>
+              <span style={{ padding: "2px 8px", borderRadius: 8, background: "#dcfce7", color: "#15803d" }}>内定 1</span>
+              <span style={{ padding: "2px 8px", borderRadius: 8, background: "#fee2e2", color: "#dc2626" }}>不合格 1</span>
+            </div>
+          </div>
+          <div style={{ padding: 16, background: "#fffbeb", borderRadius: 10, border: "1px solid #fde68a" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Icon name="briefcase" size={18} color="#92400e" />
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#92400e" }}>中途採用</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: "#92400e", marginLeft: "auto" }}>{midCount}名</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, fontSize: 11 }}>
+              <span style={{ padding: "2px 8px", borderRadius: 8, background: "#fef3c7", color: "#92400e" }}>選考中 4</span>
+              <span style={{ padding: "2px 8px", borderRadius: 8, background: "#dcfce7", color: "#15803d" }}>内定 1</span>
+              <span style={{ padding: "2px 8px", borderRadius: 8, background: "#f3f4f6", color: "#6b7280" }}>新規 1</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="calendar" size={16} color="#6366f1" /> 直近の面接予定
+          </h3>
+          {[
+            { time: "14:00", name: "山田 花子", stage: "二次面接", interviewer: "安岡", type: "新卒", format: "対面" },
+            { time: "15:30", name: "松本 大介", stage: "二次面接", interviewer: "鈴木", type: "中途", format: "対面" },
+            { time: "16:00", name: "田中 健一", stage: "最終面接", interviewer: "田中部長", type: "新卒", format: "対面" },
+          ].map((item, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: i < 2 ? "1px solid #f3f4f6" : "none" }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: "#eef2ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: "#4338ca" }}>{item.time}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{item.name}</span>
+                  <RecruitTypeBadge type={item.type} />
+                  <FormatBadge format={item.format} />
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280" }}>{item.stage} ・ 面接官: {item.interviewer}</div>
+              </div>
+              <button onClick={() => onNavigate("interview-fb")} style={{ fontSize: 11, color: "white", background: "#6366f1", border: "none", borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}>FB入力</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="bell" size={16} color="#6366f1" /> 最新アクティビティ
+          </h3>
+          {[
+            { text: "田中健一が一次面接通過", time: "15分前", type: "pass", recruit: "新卒" },
+            { text: "小林由美が一次面接通過", time: "30分前", type: "pass", recruit: "中途" },
+            { text: "○○エージェントが3名登録", time: "3時間前", type: "entry", recruit: null },
+            { text: "木村麻衣の最終面接を予約", time: "5時間前", type: "schedule", recruit: "中途" },
+          ].map((item, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderBottom: i < 3 ? "1px solid #f3f4f6" : "none" }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: item.type === "pass" ? "#10b981" : item.type === "fb" ? "#6366f1" : item.type === "entry" ? "#f59e0b" : "#8b5cf6", marginTop: 5, flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13, color: "#374151" }}>{item.text}</span>
+                  {item.recruit && <RecruitTypeBadge type={item.recruit} />}
+                </div>
+                <div style={{ fontSize: 11, color: "#9ca3af" }}>{item.time}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Candidates List - 新卒/中途対応
+function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipelineFilter, candidates: propCandidates, onUpdateCandidate, onBulkUpdateStatus, onShowAddModal }) {
+  // propCandidatesが渡されればそれを使用、なければフォールバック
+  const CANDS = propCandidates || CANDIDATES;
+  const [searchTerm, setSearchTerm] = useState("");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [checkedSubstatuses, setCheckedSubstatuses] = useState(new Set()); // チェックされたサブステータス（空 = 全て）
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkStatus, setShowBulkStatus] = useState(false);
+  const [bulkToast, setBulkToast] = useState(null);
+
+  // パイプラインステージ名でフィルタに使えるステージ一覧
+  const stages = ["all", "エントリー", "説明会", "一次面接", "二次面接", "最終面接", "内定"];
+
+  // 有効なステージを判定
+  const effectiveStageFilter = pipelineFilter ? pipelineFilter.stageName : stageFilter;
+
+  // 現在のステージに対応するサブステータス一覧（件数付き）
+  const substatusOptions = useMemo(() => {
+    const activeStage = pipelineFilter ? pipelineFilter.stageName : (stageFilter !== "all" ? stageFilter : null);
+    if (!activeStage) return [];
+    const dynPipeline = buildPipelineFromCandidates(CANDS);
+    const pipelineEntry = dynPipeline.find(s => s.name === activeStage);
+    if (!pipelineEntry) return [];
+    return pipelineEntry.substages.map(s => {
+      return { status: s.status, count: s.staying, isAlert: s.isAlert };
+    });
+  }, [effectiveStageFilter, recruitFilter]);
+
+  // pipelineFilter到着時のチェック状態（該当サブステータスだけON）
+  const effectiveChecked = pipelineFilter
+    ? new Set([pipelineFilter.substatus])
+    : checkedSubstatuses;
+
+  const filtered = CANDS.filter(c => {
+    const matchRecruit = recruitFilter === "all" || c.recruitType === recruitFilter;
+    const searchTarget = recruitFilter === "中途" || c.recruitType === "中途"
+      ? `${c.lastName}${c.firstName}${c.company || ""}${c.position || ""}`
+      : `${c.lastName}${c.firstName}${c.university || ""}`;
+    const matchSearch = searchTarget.includes(searchTerm);
+    // ステージフィルタ
+    let matchStage = true;
+    if (effectiveStageFilter !== "all") {
+      const mappedStage = PIPELINE_STAGE_MAP[effectiveStageFilter] || effectiveStageFilter;
+      matchStage = c.stage === effectiveStageFilter || c.stage === mappedStage;
+    }
+    // サブステータスフィルタ（チェックボックス）：何もチェックされていなければ全表示
+    let matchSubstatus = true;
+    if (effectiveChecked.size > 0) {
+      matchSubstatus = effectiveChecked.has(c.substatus);
+    }
+    return matchRecruit && matchSearch && matchStage && matchSubstatus;
+  });
+
+  const toggleSubstatusCheck = (status) => {
+    if (pipelineFilter) onClearPipelineFilter();
+    setCheckedSubstatuses(prev => {
+      const next = new Set(prev);
+      next.has(status) ? next.delete(status) : next.add(status);
+      return next;
+    });
+  };
+  const clearSubstatusChecks = () => {
+    if (pipelineFilter) onClearPipelineFilter();
+    setCheckedSubstatuses(new Set());
+  };
+
+  const getStatusColor = (status) => {
+    if (status === "通過" || status === "承諾待ち" || status === "合格" || status === "参加済") return { bg: "#dcfce7", text: "#15803d" };
+    if (status === "予定" || status === "新規" || status === "案内済" || status === "予約済" || status === "内定通知") return { bg: "#dbeafe", text: "#1d4ed8" };
+    if (status === "不合格" || status === "欠席") return { bg: "#fee2e2", text: "#dc2626" };
+    return { bg: "#f3f4f6", text: "#6b7280" };
+  };
+
+  const showBothTypes = recruitFilter === "all";
+  const searchPlaceholder = recruitFilter === "中途" ? "名前・企業名・職種で検索..." : recruitFilter === "新卒" ? "名前・大学で検索..." : "名前・大学・企業名で検索...";
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map(c => c.id)));
+    }
+  };
+  const allSelected = filtered.length > 0 && selectedIds.size === filtered.length;
+
+  const handleBulkAction = (action) => {
+    const count = selectedIds.size;
+    let msg = "";
+    if (action === "email") msg = `${count}名にメールを送信しました（デモ）`;
+    if (action === "line") msg = `${count}名にLINEを送信しました（デモ）`;
+    if (action === "status") { setShowBulkStatus(true); return; }
+    setBulkToast(msg);
+    setTimeout(() => setBulkToast(null), 3000);
+  };
+
+  const handleBulkStatusChange = async (newStatus) => {
+    const count = selectedIds.size;
+    if (onBulkUpdateStatus) await onBulkUpdateStatus(selectedIds, newStatus);
+    setBulkToast(`${count}名のステータスを「${newStatus}」に変更しました`);
+    setShowBulkStatus(false);
+    setSelectedIds(new Set());
+    setTimeout(() => setBulkToast(null), 3000);
+  };
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1200 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>候補者管理</h1>
+        <button onClick={onShowAddModal} style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+          <Icon name="plus" size={16} /> 新規登録
+        </button>
+      </div>
+
+      {/* 検索 + ステージフィルタ */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: 1, maxWidth: 360 }}>
+          <Icon name="search" size={16} style={{ position: "absolute", left: 10, top: 10 }} color="#9ca3af" />
+          <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder={searchPlaceholder} style={{ width: "100%", padding: "8px 8px 8px 32px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+        </div>
+        <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 8, padding: 3 }}>
+          {stages.map(s => {
+            const isActive = effectiveStageFilter === s || (s === "all" && effectiveStageFilter === "all");
+            return (
+              <button key={s} onClick={() => { if (pipelineFilter) onClearPipelineFilter(); setStageFilter(s); setCheckedSubstatuses(new Set()); }}
+                style={{ padding: "6px 12px", border: "none", borderRadius: 6, fontSize: 11, cursor: "pointer", background: isActive ? "white" : "transparent", color: isActive ? "#4338ca" : "#6b7280", fontWeight: isActive ? 600 : 400, boxShadow: isActive ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>
+                {s === "all" ? "全て" : s}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* サブステータス チェックボックスフィルタ */}
+      {substatusOptions.length > 0 && (
+        <div style={{ marginBottom: 14, padding: "12px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #e5e7eb" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="filter" size={13} color="#6366f1" />
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>
+                {effectiveStageFilter} のサブステータスで絞り込み
+              </span>
+              {effectiveChecked.size > 0 && (
+                <span style={{ fontSize: 11, color: "#6366f1", background: "#eef2ff", padding: "2px 8px", borderRadius: 8, fontWeight: 600 }}>
+                  {filtered.length}名 表示中
+                </span>
+              )}
+            </div>
+            {effectiveChecked.size > 0 && (
+              <button onClick={clearSubstatusChecks}
+                style={{ background: "none", border: "none", color: "#6366f1", fontSize: 11, cursor: "pointer", fontWeight: 500, textDecoration: "underline" }}>
+                すべて解除
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {substatusOptions.map(opt => {
+              const isChecked = effectiveChecked.has(opt.status);
+              const alertStyle = opt.isAlert ? { borderColor: "#fecaca", background: isChecked ? "#fef2f2" : "white" } : {};
+              return (
+                <label key={opt.status}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+                    border: isChecked ? "1.5px solid #818cf8" : "1px solid #d1d5db",
+                    background: isChecked ? "#eef2ff" : "white",
+                    transition: "all 0.15s",
+                    ...alertStyle,
+                    ...(isChecked && opt.isAlert ? { borderColor: "#f87171" } : {}),
+                  }}
+                  onMouseOver={e => { if (!isChecked) e.currentTarget.style.borderColor = "#a5b4fc"; }}
+                  onMouseOut={e => { if (!isChecked) e.currentTarget.style.borderColor = "#d1d5db"; }}>
+                  <input type="checkbox" checked={isChecked} onChange={() => toggleSubstatusCheck(opt.status)}
+                    style={{ width: 15, height: 15, accentColor: opt.isAlert ? "#ef4444" : "#6366f1", cursor: "pointer" }} />
+                  <span style={{ fontSize: 12, fontWeight: isChecked ? 600 : 400, color: opt.isAlert ? "#dc2626" : "#374151" }}>
+                    {opt.status}
+                  </span>
+                  <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 500 }}>
+                    ({opt.count})
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 一括操作バー */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 12, marginBottom: 12, padding: "10px 16px",
+          background: "linear-gradient(90deg, #312e81, #4338ca)", borderRadius: 10,
+          boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
+        }}>
+          <span style={{ fontSize: 13, color: "white", fontWeight: 600 }}>
+            {selectedIds.size}名選択中
+          </span>
+          <div style={{ flex: 1 }} />
+          <button onClick={() => handleBulkAction("email")}
+            style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+            <Icon name="mail" size={13} color="white" /> メール一括送信
+          </button>
+          <button onClick={() => handleBulkAction("line")}
+            style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+            <Icon name="message-square" size={13} color="white" /> LINE一括送信
+          </button>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => handleBulkAction("status")}
+              style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+              <Icon name="check-square" size={13} color="white" /> ステータス一括変更
+            </button>
+            {showBulkStatus && (
+              <div style={{ position: "absolute", right: 0, top: "110%", background: "white", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", padding: 6, zIndex: 100, minWidth: 160 }}>
+                {["通過", "不採用", "保留", "辞退", "内定"].map(s => (
+                  <button key={s} onClick={() => handleBulkStatusChange(s)}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", border: "none", background: "none", fontSize: 13, cursor: "pointer", borderRadius: 6, color: s === "不採用" ? "#dc2626" : s === "辞退" ? "#9ca3af" : "#111827" }}
+                    onMouseOver={e => e.target.style.background = "#f3f4f6"} onMouseOut={e => e.target.style.background = "none"}>
+                    {s}
+                  </button>
+                ))}
+                <div style={{ borderTop: "1px solid #e5e7eb", margin: "4px 0" }} />
+                <button onClick={() => setShowBulkStatus(false)}
+                  style={{ display: "block", width: "100%", textAlign: "center", padding: "6px 14px", border: "none", background: "none", fontSize: 11, cursor: "pointer", color: "#9ca3af" }}>
+                  キャンセル
+                </button>
+              </div>
+            )}
+          </div>
+          <button onClick={() => setSelectedIds(new Set())}
+            style={{ background: "none", color: "rgba(255,255,255,0.7)", border: "none", fontSize: 18, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>
+            ×
+          </button>
+        </div>
+      )}
+
+      <div style={{ background: "white", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", overflow: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+          <thead>
+            <tr style={{ background: "#f9fafb" }}>
+              <th style={{ padding: "12px 8px 12px 16px", width: 36, borderBottom: "1px solid #e5e7eb" }}>
+                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                  style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#6366f1" }} />
+              </th>
+              {[
+                "氏名",
+                showBothTypes ? "区分" : null,
+                recruitFilter === "中途" ? "現職企業・職種" : recruitFilter === "新卒" ? "大学・学部" : "所属",
+                recruitFilter === "中途" ? "経験年数" : recruitFilter === "新卒" ? "卒年" : "卒年/経験",
+                "エントリー日",
+                "選考ステージ", "形態", "ステータス", "志望度", "評価", "登録日", ""
+              ].filter(Boolean).map((h, i) => (
+                <th key={i} style={{ padding: "12px 12px", fontSize: 11, fontWeight: 600, color: "#6b7280", textAlign: "left", borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(c => {
+              const sc = getStatusColor(c.status);
+              const isNewGrad = c.recruitType === "新卒";
+              const isSelected = selectedIds.has(c.id);
+              return (
+                <tr key={c.id} style={{ cursor: "pointer", borderBottom: "1px solid #f3f4f6", background: isSelected ? "#eef2ff" : "white" }}
+                  onMouseOver={e => { if (!isSelected) e.currentTarget.style.background = "#f9fafb"; }} onMouseOut={e => { if (!isSelected) e.currentTarget.style.background = "white"; }}>
+                  <td style={{ padding: "12px 8px 12px 16px" }} onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(c.id)}
+                      style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#6366f1" }} />
+                  </td>
+                  <td style={{ padding: "12px 16px" }} onClick={() => onNavigate("candidate-detail", c.id)}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: "50%", background: isNewGrad ? "#eef2ff" : "#fffbeb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, color: isNewGrad ? "#4338ca" : "#92400e" }}>{c.lastName[0]}</div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{c.lastName} {c.firstName}</div>
+                        {(c.lastNameKana || c.firstNameKana) && <div style={{ fontSize: 10, color: "#b0b5bf", marginTop: 1 }}>{c.lastNameKana || ""} {c.firstNameKana || ""}</div>}
+                        <div style={{ fontSize: 11, color: "#9ca3af" }}>{c.route}{c.agent ? ` / ${c.agent}` : ""}</div>
+                      </div>
+                    </div>
+                  </td>
+                  {showBothTypes && <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}><RecruitTypeBadge type={c.recruitType} /></td>}
+                  <td style={{ padding: "12px 10px", fontSize: 13, color: "#374151" }} onClick={() => onNavigate("candidate-detail", c.id)}>
+                    {isNewGrad
+                      ? <>{c.university}<br /><span style={{ fontSize: 11, color: "#9ca3af" }}>{c.faculty}{c.department ? ` / ${c.department}` : ""}</span></>
+                      : <>{c.company}<br /><span style={{ fontSize: 11, color: "#9ca3af" }}>{c.position}</span></>
+                    }
+                  </td>
+                  <td style={{ padding: "12px 10px", fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}>
+                    {isNewGrad ? c.gradYear : c.experience ? `${c.experience}年` : "—"}
+                  </td>
+                  <td style={{ padding: "12px 10px", fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" }}>{c.entryDate || "—"}</td>
+                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 8px", borderRadius: 12, background: "#eef2ff", color: "#4338ca", whiteSpace: "nowrap" }}>{c.stage}</span></td>
+                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}><FormatBadge format={c.format} /></td>
+                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 8px", borderRadius: 12, background: sc.bg, color: sc.text, whiteSpace: "nowrap" }}>{c.status}</span></td>
+                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}>{[...Array(5)].map((_, i) => <span key={i} style={{ color: i < c.aspiration ? "#f59e0b" : "#e5e7eb", fontSize: 12 }}>★</span>)}</td>
+                  <td style={{ padding: "12px 10px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", color: c.score ? (c.score >= 4 ? "#10b981" : c.score >= 3 ? "#f59e0b" : "#ef4444") : "#d1d5db" }}>{c.score ? `${c.score}/5.0` : "—"}</td>
+                  <td style={{ padding: "12px 10px", fontSize: 12, color: "#9ca3af", whiteSpace: "nowrap" }}>{c.createdAt}</td>
+                  <td style={{ padding: "12px 8px" }} onClick={() => onNavigate("candidate-detail", c.id)}><Icon name="chevron-right" size={16} color="#d1d5db" /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filtered.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>該当する候補者がいません</div>
+        )}
+      </div>
+
+      {/* トースト通知 */}
+      {bulkToast && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          background: "#10b981", color: "white", padding: "12px 24px", borderRadius: 10,
+          fontSize: 13, fontWeight: 600, boxShadow: "0 4px 16px rgba(16,185,129,0.3)", zIndex: 999,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <Icon name="check-circle" size={16} color="white" /> {bulkToast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Candidate Detail - 新卒/中途対応
+function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidates, onUpdateCandidate }) {
+  const CANDS = propCandidates || CANDIDATES;
+  const c = CANDS.find(c => c.id === candidateId) || CANDS[0];
+  const isNewGrad = c.recruitType === "新卒";
+  const [activeTab, setActiveTab] = useState("timeline");
+  const [memoText, setMemoText] = useState(c.notes || "");
+
+  // メール送信関連
+  const [showCompose, setShowCompose] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const [sendSuccess, setSendSuccess] = useState("");
+  const [messageHistory, setMessageHistory] = useState([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+
+  // Gmail APIからメッセージ履歴を読み込む
+  const loadMessages = useCallback(async () => {
+    if (!c.email) return;
+    setLoadingMessages(true);
+    try {
+      const res = await fetch('/.netlify/functions/gmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'fetch', candidateEmail: c.email }),
+      });
+      const data = await res.json();
+      if (data.success && data.messages) {
+        setMessageHistory(data.messages);
+      }
+    } catch (err) {
+      console.error('メール取得エラー:', err);
+    }
+    setLoadingMessages(false);
+  }, [c.email]);
+
+  useEffect(() => { if (activeTab === "messages") loadMessages(); }, [activeTab, loadMessages]);
+
+  // Gmail API経由でメール送信
+  const handleSendEmail = async () => {
+    if (!emailSubject.trim() || !emailBody.trim()) {
+      setSendError("件名と本文を入力してください");
+      return;
+    }
+    if (!c.email) {
+      setSendError("この候補者にはメールアドレスが登録されていません");
+      return;
+    }
+    setSending(true);
+    setSendError("");
+    setSendSuccess("");
+
+    try {
+      const res = await fetch('/.netlify/functions/gmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send',
+          to: c.email,
+          subject: emailSubject,
+          body: emailBody,
+          candidateName: c.lastName + " " + c.firstName,
+        }),
+      });
+      const result = await res.json();
+
+      if (!res.ok || !result.success) {
+        setSendError(result.error || "送信に失敗しました");
+        setSending(false);
+        return;
+      }
+
+      // Supabaseにも履歴を保存
+      await sbApi.insert('messages', {
+        candidate_id: c.id,
+        direction: 'outbound',
+        channel: 'email',
+        to_email: c.email,
+        subject: emailSubject,
+        body: emailBody,
+        status: 'sent',
+      });
+
+      setSendSuccess("メールを送信しました！");
+      setEmailSubject("");
+      setEmailBody("");
+      setShowCompose(false);
+      loadMessages();
+      setTimeout(() => setSendSuccess(""), 3000);
+    } catch (err) {
+      setSendError("送信エラー: " + err.message);
+    }
+    setSending(false);
+  };
+
+  // 実データからタイムラインを構築
+  const buildTimeline = () => {
+    const STAGE_ORDER = ["エントリー/受付済", "説明会/参加済", "説明会/予約済", "説明会/欠席", "1次面接", "2次面接", "最終面接", "内定承諾/承諾済"];
+    const currentStage = c.stage || "";
+    const currentIdx = STAGE_ORDER.findIndex(s => currentStage.startsWith(s.split("/")[0]));
+    const steps = [];
+
+    // エントリー
+    steps.push({
+      stage: "エントリー",
+      date: c.entryDate || "—",
+      status: currentIdx >= 0 ? "completed" : "current",
+      result: currentIdx >= 0 ? "完了" : null,
+    });
+
+    // 説明会
+    if (currentIdx >= 1 || currentStage.includes("説明会")) {
+      const briefingDone = currentIdx > 3 || (currentIdx >= 1 && currentIdx <= 3);
+      steps.push({
+        stage: "説明会",
+        date: c.stageDate && currentStage.includes("説明会") ? c.stageDate : c.stageDate || "—",
+        status: briefingDone && currentIdx > 3 ? "completed" : currentStage.includes("説明会") ? "current" : "pending",
+        result: currentStage.includes("参加") ? "参加" : currentStage.includes("欠席") ? "欠席" : currentStage.includes("予約") ? "予約済" : briefingDone ? "完了" : null,
+      });
+    } else {
+      steps.push({ stage: "説明会", date: "—", status: "pending" });
+    }
+
+    // 1次面接
+    if (currentIdx >= 4) {
+      steps.push({ stage: "1次面接（人事面談）", date: c.stageDate && currentStage === "1次面接" ? c.stageDate : "—", status: currentIdx > 4 ? "completed" : "current", result: currentIdx > 4 ? "通過" : null });
+    } else if (currentStage === "1次面接") {
+      steps.push({ stage: "1次面接（人事面談）", date: c.stageDate || "—", status: "current" });
+    } else {
+      steps.push({ stage: "1次面接（人事面談）", date: "未定", status: "pending" });
+    }
+
+    // 2次面接
+    if (currentIdx >= 5) {
+      steps.push({ stage: "2次面接", date: c.stageDate && currentStage === "2次面接" ? c.stageDate : "—", status: currentIdx > 5 ? "completed" : "current", result: currentIdx > 5 ? "通過" : null });
+    } else if (currentStage === "2次面接") {
+      steps.push({ stage: "2次面接", date: c.stageDate || "—", status: "current" });
+    } else {
+      steps.push({ stage: "2次面接", date: "未定", status: "pending" });
+    }
+
+    // 最終面接
+    if (currentIdx >= 6) {
+      steps.push({ stage: "最終面接", date: "—", status: currentIdx > 6 ? "completed" : "current", result: currentIdx > 6 ? "通過" : null });
+    } else if (currentStage === "最終面接") {
+      steps.push({ stage: "最終面接", date: c.stageDate || "—", status: "current" });
+    } else {
+      steps.push({ stage: "最終面接", date: "未定", status: "pending" });
+    }
+
+    // 内定
+    if (currentStage.includes("内定")) {
+      steps.push({ stage: "内定承諾", date: c.stageDate || "—", status: "current", result: "承諾済" });
+    } else {
+      steps.push({ stage: "内定", date: "未定", status: "pending" });
+    }
+
+    return steps;
+  };
+  const timeline = buildTimeline();
+  return (
+    <div style={{ padding: 24, maxWidth: 1000 }}>
+      <button onClick={() => onNavigate("candidates")} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontSize: 13, marginBottom: 16 }}>
+        <Icon name="arrow-left" size={16} /> 候補者一覧に戻る
+      </button>
+      <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+          <div style={{ width: 72, height: 72, borderRadius: 16, background: isNewGrad ? "#eef2ff" : "#fffbeb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: isNewGrad ? "#4338ca" : "#92400e", flexShrink: 0 }}>{c.lastName[0]}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <h2 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>{c.lastName} {c.firstName}</h2>
+              {(c.lastNameKana || c.firstNameKana) && <span style={{ fontSize: 13, color: "#9ca3af" }}>({c.lastNameKana || ""} {c.firstNameKana || ""})</span>}
+              <RecruitTypeBadge type={c.recruitType} />
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 8, fontSize: 13, color: "#6b7280" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="mail" size={14} /> {c.email}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="phone" size={14} /> {c.phone}</span>
+              {c.birthDate && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="calendar" size={14} /> 生年月日: {c.birthDate}</span>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 6, fontSize: 13, color: "#6b7280" }}>
+              {isNewGrad ? (
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <Icon name="graduation-cap" size={14} /> {c.university} {c.faculty}{c.department ? ` / ${c.department}` : ""} / {c.gradYear}年卒{c.graduationPeriod ? ` (${c.graduationPeriod})` : ""} / {c.majorType}
+                </span>
+              ) : (
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <Icon name="briefcase" size={14} /> {c.company} / {c.position} / 経験{c.experience}年
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#eef2ff", color: "#4338ca" }}>経路: {c.route}</span>
+              {c.entryDate && <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#e0e7ff", color: "#3730a3" }}>エントリー日: {c.entryDate}</span>}
+              {c.stageDate && <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#dbeafe", color: "#1e40af" }}>ステージ到達日: {c.stageDate}</span>}
+              {c.originalStage && <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#f0f9ff", color: "#075985" }}>元ステージ: {c.originalStage}</span>}
+              <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#fef3c7", color: "#92400e" }}>志望度: {"★".repeat(c.aspiration)}{"☆".repeat(5 - c.aspiration)}</span>
+              {c.agent && <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#f0fdf4", color: "#15803d" }}>{c.agent}</span>}
+            </div>
+            {c.notes && (
+              <div style={{ marginTop: 10, padding: "8px 12px", background: "#fffbeb", borderRadius: 8, fontSize: 12, color: "#92400e", border: "1px solid #fde68a" }}>
+                📝 メモ: {c.notes}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>LINE送信</button>
+            <button onClick={() => onNavigate("interview-fb")} style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer" }}>FB入力</button>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#f3f4f6", borderRadius: 10, padding: 4 }}>
+        {["timeline", "evaluation", "messages", "memo", "docs"].map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            style={{ flex: 1, padding: "8px 0", border: "none", borderRadius: 8, fontSize: 12, fontWeight: activeTab === tab ? 600 : 400, background: activeTab === tab ? "white" : "transparent", color: activeTab === tab ? "#4338ca" : "#6b7280", cursor: "pointer", boxShadow: activeTab === tab ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>
+            {({ timeline: "選考状況", evaluation: "評価・FB", messages: "メッセージ", memo: "メモ", docs: "書類" })[tab]}
+          </button>
+        ))}
+      </div>
+      {/* ===== 選考状況タブ ===== */}
+      {activeTab === "timeline" && (
+        <>
+          <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 20 }}>選考タイムライン</h3>
+            {timeline.map((t, i) => (
+              <div key={i} style={{ display: "flex", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: "50%", background: t.status === "completed" ? "#10b981" : t.status === "current" ? "#6366f1" : "#d1d5db", border: t.status === "current" ? "3px solid #c7d2fe" : "none", boxSizing: "content-box", flexShrink: 0 }} />
+                  {i < timeline.length - 1 && <div style={{ width: 2, flex: 1, background: t.status === "completed" ? "#a7f3d0" : "#e5e7eb", minHeight: 40 }} />}
+                </div>
+                <div style={{ flex: 1, paddingBottom: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: t.status === "pending" ? "#9ca3af" : "#111827" }}>{t.stage}</div>
+                    <div style={{ fontSize: 12, color: "#9ca3af" }}>{t.date}</div>
+                  </div>
+                  {t.result && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: t.result === "通過" || t.result === "完了" || t.result === "参加" || t.result === "承諾済" ? "#dcfce7" : t.result === "欠席" ? "#fee2e2" : "#fef3c7", color: t.result === "通過" || t.result === "完了" || t.result === "参加" || t.result === "承諾済" ? "#15803d" : t.result === "欠席" ? "#dc2626" : "#92400e", marginTop: 4, display: "inline-block" }}>{t.result}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: 20, marginTop: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h4 style={{ fontSize: 14, fontWeight: 600, color: "#111827", marginBottom: 12 }}>基本情報</h4>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", fontSize: 13 }}>
+              <div><span style={{ color: "#9ca3af" }}>現在のステージ:</span> <strong style={{ color: "#4338ca" }}>{c.stage}</strong></div>
+              {c.originalStage && <div><span style={{ color: "#9ca3af" }}>詳細ステージ:</span> <strong>{c.originalStage}</strong></div>}
+              {c.entryDate && <div><span style={{ color: "#9ca3af" }}>エントリー日:</span> <strong>{c.entryDate}</strong></div>}
+              {c.stageDate && <div><span style={{ color: "#9ca3af" }}>ステージ到達日:</span> <strong>{c.stageDate}</strong></div>}
+              {c.birthDate && <div><span style={{ color: "#9ca3af" }}>生年月日:</span> <strong>{c.birthDate}</strong></div>}
+              {c.graduationPeriod && <div><span style={{ color: "#9ca3af" }}>卒業予定:</span> <strong>{c.graduationPeriod}</strong></div>}
+              <div><span style={{ color: "#9ca3af" }}>登録日:</span> <strong>{c.createdAt}</strong></div>
+              <div><span style={{ color: "#9ca3af" }}>ステータス:</span> <strong>{c.status}</strong></div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ===== 評価・FBタブ ===== */}
+      {activeTab === "evaluation" && (
+        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 20 }}>評価・フィードバック</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20, padding: 16, background: "#f9fafb", borderRadius: 10 }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: c.score >= 4 ? "#10b981" : c.score >= 3 ? "#f59e0b" : "#ef4444" }}>{c.score ? c.score.toFixed(1) : "—"}</div>
+              <div style={{ fontSize: 11, color: "#9ca3af" }}>総合評価</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 4 }}>志望度: {[...Array(5)].map((_, i) => <span key={i} style={{ color: i < c.aspiration ? "#f59e0b" : "#e5e7eb" }}>★</span>)}</div>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>選考形態: {c.format || "—"}</div>
+            </div>
+          </div>
+          <div style={{ padding: 20, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+            <Icon name="file-text" size={24} color="#d1d5db" />
+            <div style={{ marginTop: 8 }}>面接フィードバックはまだ登録されていません</div>
+            <button onClick={() => onNavigate("interview-fb")} style={{ marginTop: 12, padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer" }}>FB入力</button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== メッセージタブ ===== */}
+      {activeTab === "messages" && (
+        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>メッセージ</h3>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setShowCompose(!showCompose); setSendError(""); setSendSuccess(""); }}
+                style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: showCompose ? "#ef4444" : "#1d4aff", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+                {showCompose ? "✕ 閉じる" : "✉ メール作成"}
+              </button>
+            </div>
+          </div>
+
+          {/* 送信成功メッセージ */}
+          {sendSuccess && (
+            <div style={{ padding: 12, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 8, color: "#065f46", fontSize: 13, marginBottom: 16 }}>
+              ✓ {sendSuccess}
+            </div>
+          )}
+
+          {/* メール作成フォーム */}
+          {showCompose && (
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 20, background: "#fafbfc" }}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>宛先</label>
+                <div style={{ padding: "8px 12px", background: "#f3f4f6", borderRadius: 6, fontSize: 13, color: "#374151" }}>
+                  {c.lastName} {c.firstName} &lt;{c.email || "メール未登録"}&gt;
+                </div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>件名</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={e => setEmailSubject(e.target.value)}
+                  placeholder="件名を入力..."
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>本文</label>
+                <textarea
+                  value={emailBody}
+                  onChange={e => setEmailBody(e.target.value)}
+                  placeholder="メール本文を入力..."
+                  rows={8}
+                  style={{ width: "100%", padding: 12, border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, lineHeight: 1.7, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+                />
+              </div>
+              {sendError && (
+                <div style={{ padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, color: "#dc2626", fontSize: 12, marginBottom: 12 }}>
+                  {sendError}
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => setShowCompose(false)}
+                  style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
+                  キャンセル
+                </button>
+                <button onClick={handleSendEmail} disabled={sending}
+                  style={{ padding: "8px 24px", border: "none", borderRadius: 8, background: sending ? "#93c5fd" : "#1d4aff", color: "white", fontSize: 12, cursor: sending ? "default" : "pointer", fontWeight: 500 }}>
+                  {sending ? "送信中..." : "送信する"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* メッセージ履歴 (Gmail API) */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>メール履歴</h4>
+              <button onClick={loadMessages} disabled={loadingMessages}
+                style={{ padding: "4px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>
+                {loadingMessages ? "読込中..." : "↻ 更新"}
+              </button>
+            </div>
+            {loadingMessages && messageHistory.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 20, color: "#9ca3af", fontSize: 13 }}>読み込み中...</div>
+            ) : messageHistory.length === 0 ? (
+              <div style={{ padding: 24, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                <Icon name="mail" size={24} color="#d1d5db" />
+                <div style={{ marginTop: 8 }}>この候補者とのメール履歴はありません</div>
+                <div style={{ marginTop: 4, fontSize: 12 }}>「メール作成」ボタンからメールを送信できます</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {messageHistory.map((msg, i) => {
+                  const isInbound = msg.direction === "inbound";
+                  return (
+                    <div key={msg.id || i} style={{
+                      border: "1px solid " + (isInbound ? "#bfdbfe" : "#e5e7eb"),
+                      borderRadius: 8, padding: 14,
+                      background: isInbound ? "#eff6ff" : "#fff",
+                      borderLeft: "3px solid " + (isInbound ? "#3b82f6" : "#1d4aff"),
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{
+                            background: isInbound ? "#dbeafe" : "#e0e7ff",
+                            color: isInbound ? "#1d4aff" : "#4338ca",
+                            padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
+                          }}>
+                            {isInbound ? "← 受信" : "→ 送信"}
+                          </span>
+                          <span style={{ fontSize: 12, color: "#6b7280" }}>
+                            {isInbound ? msg.from : msg.to}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                          {msg.date ? new Date(msg.date).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ""}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#111827", marginBottom: 4 }}>{msg.subject}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 80, overflow: "hidden" }}>{msg.body}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===== メモタブ ===== */}
+      {activeTab === "memo" && (
+        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 20 }}>メモ</h3>
+          <textarea
+            value={memoText}
+            onChange={e => setMemoText(e.target.value)}
+            placeholder="この候補者に関するメモを入力..."
+            style={{ width: "100%", minHeight: 160, padding: 14, border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13, lineHeight: 1.7, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+          />
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+            <button onClick={() => { if (onUpdateCandidate) onUpdateCandidate(c.id, { notes: memoText }); }}
+              style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer" }}>保存</button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 書類タブ ===== */}
+      {activeTab === "docs" && (
+        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 20 }}>書類</h3>
+          <div style={{ padding: 20, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+            <Icon name="file-text" size={24} color="#d1d5db" />
+            <div style={{ marginTop: 8 }}>提出書類はまだアップロードされていません</div>
+            <button style={{ marginTop: 12, padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>書類アップロード</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Pipeline - 選考フロー詳細ビュー（合計一本化）
+// 候補者データから選考フローを動的に構築する関数
+function buildPipelineFromCandidates(candidates) {
+  // original_stage → パイプラインステージへのマッピング
+  const stageMap = {
+    "エントリー/受付済": "entry",
+    "説明会/参加済": "briefing",
+    "説明会/予約済": "briefing",
+    "説明会/欠席": "briefing",
+    "1次面接": "hr-interview",
+    "2次面接": "secondary",
+    "最終面接": "exec-interview",
+    "内定承諾/承諾済": "offer",
+  };
+
+  // original_stage → サブステータス
+  const substageMap = {
+    "エントリー/受付済": "受付済",
+    "説明会/参加済": "参加",
+    "説明会/予約済": "予約済",
+    "説明会/欠席": "欠席",
+    "1次面接": "選考中",
+    "2次面接": "選考中",
+    "最終面接": "選考中",
+    "内定承諾/承諾済": "承諾",
+  };
+
+  // 集計
+  const counts = {};
+  (candidates || []).forEach(c => {
+    const stage = c.stage || "";
+    const pipelineId = stageMap[stage] || (stage.includes("エントリー") ? "entry" : stage.includes("説明会") ? "briefing" : stage.includes("1次") ? "hr-interview" : stage.includes("2次") ? "secondary" : stage.includes("最終") ? "exec-interview" : stage.includes("内定") ? "offer" : "entry");
+    const sub = substageMap[stage] || stage.split("/")[1] || "その他";
+    if (!counts[pipelineId]) counts[pipelineId] = {};
+    if (!counts[pipelineId][sub]) counts[pipelineId][sub] = 0;
+    counts[pipelineId][sub]++;
+  });
+
+  const totalCandidates = (candidates || []).length;
+
+  const pipeline = [
+    { id: "entry", name: "エントリー", color: "#6366f1", icon: "users",
+      subs: [{ status: "受付済", color: "#6366f1" }] },
+    { id: "briefing", name: "説明会", color: "#8b5cf6", icon: "volume",
+      subs: [{ status: "予約済", color: "#a78bfa" }, { status: "参加", color: "#8b5cf6" }, { status: "欠席", color: "#ef4444", isAlert: true }] },
+    { id: "hr-interview", name: "1次面接", color: "#a855f7", icon: "user",
+      subs: [{ status: "選考中", color: "#a855f7" }] },
+    { id: "secondary", name: "2次面接", color: "#d946ef", icon: "check-square",
+      subs: [{ status: "選考中", color: "#d946ef" }] },
+    { id: "exec-interview", name: "最終面接", color: "#ec4899", icon: "star",
+      subs: [{ status: "選考中", color: "#ec4899" }] },
+    { id: "offer", name: "内定", color: "#10b981", icon: "check-circle",
+      subs: [{ status: "承諾", color: "#10b981" }] },
+  ];
+
+  return pipeline.map(p => ({
+    ...p,
+    substages: p.subs.map(s => ({
+      ...s,
+      staying: (counts[p.id] && counts[p.id][s.status]) || 0,
+      total: (counts[p.id] && counts[p.id][s.status]) || 0,
+    })).filter(s => s.staying > 0 || !s.isAlert),
+  })).map(p => {
+    // サブステージが空なら「0名」表示用に1つ追加
+    if (p.substages.length === 0) {
+      p.substages = [{ status: "—", staying: 0, total: 0, color: p.color }];
+    }
+    return p;
+  });
+}
+
+// サブステータスの行コンポーネント
+function SubstageRow({ sub, maxTotal, onClickStaying }) {
+  const barWidth = maxTotal > 0 ? (sub.total / maxTotal) * 100 : 0;
+  const isClickable = sub.staying > 0 && onClickStaying;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+      <div style={{ width: 56, fontSize: 11, color: sub.isAlert ? "#ef4444" : "#6b7280", fontWeight: 500, flexShrink: 0 }}>
+        {sub.status}
+      </div>
+      <div style={{ flex: 1, position: "relative", height: 22, background: "#f9fafb", borderRadius: 6, overflow: "hidden",
+        cursor: isClickable ? "pointer" : "default" }}
+        onClick={isClickable ? onClickStaying : undefined}>
+        <div style={{
+          height: "100%", borderRadius: 6,
+          background: sub.isAlert
+            ? "linear-gradient(90deg, #fecaca, #fca5a5)"
+            : `linear-gradient(90deg, ${sub.color}30, ${sub.color}60)`,
+          width: `${barWidth}%`, transition: "width 0.5s",
+        }} />
+        {sub.staying > 0 && (
+          <div style={{
+            position: "absolute", left: 0, top: 0, height: "100%", borderRadius: 6,
+            background: sub.isAlert ? "#ef4444" : sub.color,
+            width: `${maxTotal > 0 ? (sub.staying / maxTotal) * 100 : 0}%`,
+            opacity: 0.85, transition: "width 0.5s",
+          }} />
+        )}
+      </div>
+      <div style={{ width: 32, textAlign: "right", flexShrink: 0 }}>
+        <span onClick={isClickable ? onClickStaying : undefined}
+          style={{
+            fontSize: 13, fontWeight: 700,
+            color: sub.staying > 0 ? (sub.isAlert ? "#ef4444" : "#111827") : "#d1d5db",
+            cursor: isClickable ? "pointer" : "default",
+            borderBottom: isClickable ? "1px dashed currentColor" : "none",
+            transition: "opacity 0.15s",
+          }}
+          onMouseOver={e => { if (isClickable) e.target.style.opacity = "0.7"; }}
+          onMouseOut={e => { if (isClickable) e.target.style.opacity = "1"; }}>
+          {sub.staying}
+        </span>
+      </div>
+      <div style={{ width: 36, textAlign: "right", flexShrink: 0, fontSize: 10, color: "#9ca3af" }}>
+        /{sub.total}
+      </div>
+    </div>
+  );
+}
+
+// ステージカード（合計一本化・シンプル版）
+function StageCard({ stage, onSubstageClick }) {
+  const maxTotal = Math.max(...stage.substages.map(s => s.total), 1);
+  const totalStaying = stage.substages.reduce((a, s) => a + (s.isAlert ? 0 : s.staying), 0);
+  const alertCount = stage.substages.filter(s => s.isAlert).reduce((a, s) => a + s.staying, 0);
+
+  return (
+    <div style={{ background: "white", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "hidden", minWidth: 200, flex: 1 }}>
+      <div style={{ height: 4, background: `linear-gradient(90deg, ${stage.color}, ${stage.color}99)` }} />
+      <div style={{ padding: "14px 16px 4px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name={stage.icon} size={15} color={stage.color} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{stage.name}</span>
+          </div>
+          <span style={{ fontSize: 18, fontWeight: 800, color: stage.color }}>{totalStaying}</span>
+        </div>
+      </div>
+      <div style={{ padding: "0 16px 14px" }}>
+        {stage.substages.map((sub, i) => (
+          <SubstageRow key={i} sub={sub} maxTotal={maxTotal}
+            onClickStaying={onSubstageClick ? () => onSubstageClick(stage.name, sub.status) : undefined} />
+        ))}
+        {alertCount > 0 && (
+          <div style={{ marginTop: 6, padding: "4px 8px", background: "#fef2f2", borderRadius: 6, display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#ef4444" }}>
+            <Icon name="alert-circle" size={11} color="#ef4444" /> 欠席/辞退 {alertCount}名
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PipelinePage({ recruitFilter, onNavigateFromPipeline, candidates }) {
+  const [viewMode, setViewMode] = useState("detail");
+  const DETAILED_PIPELINE = buildPipelineFromCandidates(candidates);
+  const totalEntry = (candidates || []).length;
+  const totalActive = DETAILED_PIPELINE.reduce((a, s) => a + s.substages.reduce((sa, sub) => sa + sub.staying, 0), 0);
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1400 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>選考フロー</h1>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+            全エントリー <strong style={{ color: "#6366f1" }}>{totalEntry}名</strong> ・ 現在滞留 <strong style={{ color: "#111827" }}>{totalActive}名</strong>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 8, padding: 3 }}>
+          <button onClick={() => setViewMode("detail")}
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 14px", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer",
+              background: viewMode === "detail" ? "white" : "transparent",
+              color: viewMode === "detail" ? "#4338ca" : "#6b7280",
+              fontWeight: viewMode === "detail" ? 600 : 400,
+              boxShadow: viewMode === "detail" ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
+            <Icon name="git-branch" size={13} /> 詳細フロー
+          </button>
+          <button onClick={() => setViewMode("trend")}
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 14px", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer",
+              background: viewMode === "trend" ? "white" : "transparent",
+              color: viewMode === "trend" ? "#4338ca" : "#6b7280",
+              fontWeight: viewMode === "trend" ? 600 : 400,
+              boxShadow: viewMode === "trend" ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
+            <Icon name="bar-chart" size={13} /> 月次トレンド
+          </button>
+        </div>
+      </div>
+
+      {/* 凡例 */}
+      <div style={{ display: "flex", gap: 20, marginBottom: 16, fontSize: 11, color: "#6b7280", alignItems: "center" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 12, height: 12, borderRadius: 3, background: "#6366f1" }} /> 滞留人数
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 12, height: 12, borderRadius: 3, background: "#6366f130" }} /> 累計通過
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 12, height: 12, borderRadius: 3, background: "#ef4444" }} /> 欠席・辞退
+        </span>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "#9ca3af" }}>
+          数字: 滞留 / 累計
+        </span>
+      </div>
+
+      {viewMode === "detail" ? (
+        <>
+          {/* メインフロー：横スクロール可能なステージカード */}
+          <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 16, alignItems: "flex-start" }}>
+            {DETAILED_PIPELINE.map((stage, i) => (
+              <div key={stage.id} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <StageCard stage={stage} onSubstageClick={onNavigateFromPipeline} />
+                {i < DETAILED_PIPELINE.length - 1 && (
+                  <div style={{ display: "flex", alignItems: "center", paddingTop: 30, flexShrink: 0 }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="2">
+                      <path d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* ボトルネックアラート（実データから動的生成） */}
+          {(() => {
+            const alerts = [];
+            DETAILED_PIPELINE.forEach(stage => {
+              stage.substages.forEach(sub => {
+                if (sub.isAlert && sub.staying > 0) {
+                  alerts.push({ title: `${stage.name}の${sub.status}`, desc: `${sub.status} ${sub.staying}名。フォロー連絡を推奨`, severity: sub.staying >= 10 ? "high" : "medium", count: sub.staying });
+                }
+              });
+              // 予約済で多数滞留
+              stage.substages.forEach(sub => {
+                if (!sub.isAlert && sub.status === "予約済" && sub.staying >= 20) {
+                  alerts.push({ title: `${stage.name} → 予約済の滞留`, desc: `予約済 ${sub.staying}名が未参加。リマインド送信を推奨`, severity: "high", count: sub.staying });
+                }
+              });
+            });
+            if (alerts.length === 0) return null;
+            return (
+              <div style={{ background: "linear-gradient(135deg, #fef2f2, #fff1f2)", borderRadius: 12, padding: 20, border: "1px solid #fecaca", marginTop: 8 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: "#dc2626", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="alert-circle" size={16} color="#dc2626" /> ボトルネック検知
+                </h3>
+                <div style={{ display: "grid", gridTemplateColumns: alerts.length >= 3 ? "1fr 1fr 1fr" : alerts.length === 2 ? "1fr 1fr" : "1fr", gap: 12 }}>
+                  {alerts.map((item, i) => (
+                    <div key={i} style={{ padding: 14, background: "white", borderRadius: 10, border: `1px solid ${item.severity === "high" ? "#fecaca" : "#fde68a"}` }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{item.title}</span>
+                        <span style={{ fontSize: 16, fontWeight: 800, color: item.severity === "high" ? "#ef4444" : "#f59e0b" }}>{item.count}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.5 }}>{item.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+        </>
+      ) : (
+        /* 月次トレンド */
+        <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>月次トレンド</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={MONTHLY_TREND}>
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="entries" name="エントリー" stroke="#6366f1" strokeWidth={2} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="passes" name="通過" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="offers" name="内定" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Interview Feedback
+function InterviewFBPage({ onNavigate }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [scores, setScores] = useState({ communication: 4, logic: 5, motivation: 3, cultureFit: 4, skill: 4 });
+  const [recommendation, setRecommendation] = useState("yes");
+  const [showAI, setShowAI] = useState(false);
+  const scoreLabels = { communication: "コミュニケーション力", logic: "論理的思考力", motivation: "志望度・モチベーション", cultureFit: "カルチャーフィット", skill: "スキル・ポテンシャル" };
+  const avgScore = (Object.values(scores).reduce((a, b) => a + b, 0) / Object.values(scores).length).toFixed(1);
+  return (
+    <div style={{ padding: 24, maxWidth: 800 }}>
+      <button onClick={() => onNavigate("candidates")} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontSize: 13, marginBottom: 16 }}>
+        <Icon name="arrow-left" size={16} /> 戻る
+      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>面接フィードバック入力</h1>
+        <button style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>下書き保存</button>
+      </div>
+      <div style={{ background: "#f9fafb", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#374151", display: "flex", gap: 24, flexWrap: "wrap" }}>
+        <span>候補者: <strong>山田 花子</strong></span>
+        <span>ステージ: <strong>二次面接（役員面談）</strong></span>
+        <span>日時: <strong>2026/02/26 14:00-14:45</strong></span>
+        <span>面接官: <strong>安岡</strong></span>
+      </div>
+      <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}>
+          <Icon name="mic" size={16} color="#ef4444" /> ボイスレコーダー
+        </h3>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px", background: isRecording ? "#fef2f2" : "#f9fafb", borderRadius: 10, border: isRecording ? "1px solid #fecaca" : "1px solid #e5e7eb" }}>
+          <button onClick={() => { setIsRecording(!isRecording); if (!isRecording) setShowAI(false); }}
+            style={{ width: 48, height: 48, borderRadius: "50%", border: "none", background: isRecording ? "#ef4444" : "#6366f1", color: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name={isRecording ? "mic-off" : "mic"} size={22} color="white" />
+          </button>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: isRecording ? "#dc2626" : "#374151" }}>
+              {isRecording ? "● 録音中..." : "録音開始"}
+            </div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+              {isRecording ? "クリックして停止" : "録音終了後、AIが自動で文字起こしを行います"}
+            </div>
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 600, fontFamily: "monospace", color: isRecording ? "#dc2626" : "#9ca3af" }}>
+            {isRecording ? "00:23:45" : "00:00:00"}
+          </div>
+        </div>
+        {!isRecording && (
+          <button onClick={() => setShowAI(true)} style={{ marginTop: 12, width: "100%", padding: "10px", border: "1px dashed #c7d2fe", borderRadius: 8, background: "#fafafe", color: "#6366f1", fontSize: 12, cursor: "pointer" }}>
+            📝 文字起こし結果を表示（デモ）
+          </button>
+        )}
+      </div>
+      <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>評価</h3>
+        {Object.entries(scoreLabels).map(([key, label]) => (
+          <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}>
+            <span style={{ fontSize: 13, color: "#374151", width: 180 }}>{label}</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[1, 2, 3, 4, 5].map(n => (
+                <button key={n} onClick={() => setScores(prev => ({ ...prev, [key]: n }))}
+                  style={{ width: 36, height: 36, borderRadius: "50%", border: scores[key] === n ? "none" : "2px solid #e5e7eb", background: scores[key] === n ? "#6366f1" : "white", color: scores[key] === n ? "white" : "#6b7280", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <div style={{ marginTop: 16, padding: "12px 16px", background: "#eef2ff", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#4338ca" }}>総合評価</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: "#4338ca" }}>{avgScore} / 5.0</span>
+        </div>
+      </div>
+      <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>推薦</h3>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[["strong_yes", "強く推薦"], ["yes", "推薦"], ["neutral", "保留"], ["no", "非推薦"], ["strong_no", "強く非推薦"]].map(([val, label]) => (
+            <button key={val} onClick={() => setRecommendation(val)}
+              style={{ flex: 1, padding: "10px 8px", border: recommendation === val ? "none" : "1px solid #e5e7eb", borderRadius: 8, background: recommendation === val ? (val.includes("yes") ? "#10b981" : val === "neutral" ? "#f59e0b" : "#ef4444") : "white", color: recommendation === val ? "white" : "#6b7280", fontSize: 12, fontWeight: recommendation === val ? 600 : 400, cursor: "pointer" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>コメント</h3>
+        <label style={{ fontSize: 12, fontWeight: 500, color: "#374151", display: "block", marginBottom: 4 }}>強み</label>
+        <textarea placeholder="候補者の強みを記入..." style={{ width: "100%", minHeight: 60, padding: 10, border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+        <label style={{ fontSize: 12, fontWeight: 500, color: "#374151", display: "block", marginBottom: 4, marginTop: 12 }}>懸念点</label>
+        <textarea placeholder="懸念される点を記入..." style={{ width: "100%", minHeight: 60, padding: 10, border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+      </div>
+      {showAI && (
+        <div style={{ background: "linear-gradient(135deg, #eef2ff, #f5f3ff)", borderRadius: 12, padding: 20, marginBottom: 16, border: "1px solid #c7d2fe" }}>
+          <h4 style={{ fontSize: 14, fontWeight: 600, color: "#4338ca", marginBottom: 10 }}>💡 AI提案（文字起こしから抽出）</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "#374151", lineHeight: 2 }}>
+            <li>候補者は「チームワーク」について3回言及</li>
+            <li>具体的エピソード: 大学ゼミでのプロジェクトリーダー経験</li>
+            <li>質問への回答時間: 平均12秒（即答傾向）</li>
+            <li>発話比率: 候補者55% / 面接官45%（バランス良好）</li>
+          </ul>
+          <button style={{ marginTop: 10, padding: "8px 16px", border: "none", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 12, cursor: "pointer" }}>この内容をメモに反映する</button>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+        <button style={{ padding: "12px 24px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 13, cursor: "pointer", color: "#374151" }}>下書き保存</button>
+        <button style={{ padding: "12px 24px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <Icon name="check-circle" size={16} /> 評価を確定して送信
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Schedule Page - 本日の予約・スケジュール一覧
+function SchedulePage({ recruitFilter }) {
+  const todayEvents = [
+    { time: "10:00-10:30", name: "佐藤 太郎", stage: "説明会", format: "WEB", interviewer: null, type: "新卒", meetUrl: "https://meet.google.com/xxx", location: null },
+    { time: "11:00-11:45", name: "小林 由美", stage: "一次面接", format: "WEB", interviewer: "佐々木", type: "中途", meetUrl: "https://meet.google.com/yyy", location: null },
+    { time: "14:00-14:45", name: "山田 花子", stage: "二次面接", format: "対面", interviewer: "安岡", type: "新卒", meetUrl: null, location: "本社 3F 会議室A" },
+    { time: "15:30-16:15", name: "松本 大介", stage: "二次面接", format: "対面", interviewer: "鈴木", type: "中途", meetUrl: null, location: "本社 3F 会議室B" },
+    { time: "16:00-16:45", name: "田中 健一", stage: "最終面接", format: "対面", interviewer: "田中部長", type: "新卒", meetUrl: null, location: "本社 5F 役員室" },
+    { time: "17:00-17:30", name: "加藤 翔太", stage: "書類選考結果通知", format: "WEB", interviewer: null, type: "中途", meetUrl: "https://meet.google.com/zzz", location: null },
+  ];
+
+  const filtered = recruitFilter === "all" ? todayEvents : todayEvents.filter(e => e.type === recruitFilter);
+  const webCount = filtered.filter(e => e.format === "WEB").length;
+  const inPersonCount = filtered.filter(e => e.format === "対面").length;
+
+  return (
+    <div style={{ padding: 24, maxWidth: 900 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>スケジュール</h1>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+            本日の予定 <strong>{filtered.length}件</strong>（💻 WEB {webCount}件 ・ 🏢 対面 {inPersonCount}件）
+          </div>
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#6366f1" }}>
+          <Icon name="calendar" size={16} color="#6366f1" style={{ marginRight: 4 }} /> 2026年2月26日（木）
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {filtered.map((ev, i) => (
+          <div key={i} style={{ background: "white", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", overflow: "hidden", display: "flex", border: "1px solid #f3f4f6" }}>
+            {/* 左の色バー */}
+            <div style={{ width: 4, background: ev.format === "WEB" ? "#10b981" : "#ec4899", flexShrink: 0 }} />
+            <div style={{ flex: 1, padding: "14px 18px", display: "flex", alignItems: "center", gap: 16 }}>
+              {/* 時間 */}
+              <div style={{ width: 100, flexShrink: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{ev.time.split("-")[0]}</div>
+                <div style={{ fontSize: 10, color: "#9ca3af" }}>〜 {ev.time.split("-")[1]}</div>
+              </div>
+              {/* バッジ群 */}
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                <FormatBadge format={ev.format} />
+                <RecruitTypeBadge type={ev.type} />
+              </div>
+              {/* メイン情報 */}
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{ev.name}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                  {ev.stage}{ev.interviewer ? ` ・ 面接官: ${ev.interviewer}` : ""}
+                </div>
+              </div>
+              {/* 場所/リンク */}
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                {ev.format === "WEB" ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#10b981", fontWeight: 500 }}>
+                    <Icon name="volume" size={12} color="#10b981" /> Google Meet
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>
+                    <Icon name="building" size={12} color="#9ca3af" style={{ marginRight: 3 }} />
+                    {ev.location}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* GCal連携ステータス */}
+      <div style={{ marginTop: 24, padding: "16px 20px", background: "#f0fdf4", borderRadius: 12, border: "1px solid #bbf7d0", display: "flex", alignItems: "center", gap: 12 }}>
+        <Icon name="check-circle" size={18} color="#16a34a" />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>Googleカレンダー連携中</div>
+          <div style={{ fontSize: 11, color: "#16a34a", marginTop: 2 }}>
+            タイトルに「WEB」「対面」が自動反映されます。リマインドメールも形態に応じて自動送信されます。
+          </div>
+        </div>
+        <button style={{ padding: "6px 14px", border: "1px solid #86efac", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#15803d" }}>設定</button>
+      </div>
+    </div>
+  );
+}
+
+// Automation
+function AutomationPage() {
+  const [triggers, setTriggers] = useState(AUTOMATION_TRIGGERS);
+  return (
+    <div style={{ padding: 24, maxWidth: 1000 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>自動化設定</h1>
+        <button style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+          <Icon name="plus" size={16} /> 新規トリガー
+        </button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {triggers.map(t => (
+          <div key={t.id} style={{ background: "white", borderRadius: 12, padding: "16px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", border: "1px solid #f3f4f6" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <Icon name="mail" size={16} color="#6366f1" />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{t.name}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>トリガー: {t.trigger}</div>
+                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#9ca3af" }}>
+                  <span>送信先: {t.target}</span>
+                  <span>遅延: {t.delay}</span>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  {t.channels.map(ch => (
+                    <span key={ch} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: ch === "LINE" ? "#dcfce7" : "#dbeafe", color: ch === "LINE" ? "#15803d" : "#1d4ed8" }}>{ch}</span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, color: t.active ? "#10b981" : "#9ca3af" }}>{t.active ? "有効" : "無効"}</span>
+                <button onClick={() => setTriggers(prev => prev.map(tr => tr.id === t.id ? { ...tr, active: !tr.active } : tr))}
+                  style={{ width: 40, height: 22, borderRadius: 11, border: "none", background: t.active ? "#10b981" : "#d1d5db", cursor: "pointer", position: "relative" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: t.active ? 20 : 2, transition: "left 0.2s" }} />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Analytics
+function AnalyticsPage({ recruitFilter }) {
+  const [tab, setTab] = useState("bias");
+  return (
+    <div style={{ padding: 24, maxWidth: 1200 }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", marginBottom: 20 }}>分析</h1>
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f3f4f6", borderRadius: 10, padding: 4, width: "fit-content" }}>
+        {[["bias", "選考官バイアス"], ["divergence", "メモvs録音 乖離"], ["traits", "通過者の特徴"], ["overview", "総合分析"]].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ padding: "8px 16px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer", background: tab === id ? "white" : "transparent", color: tab === id ? "#4338ca" : "#6b7280", fontWeight: tab === id ? 600 : 400, boxShadow: tab === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>{label}</button>
+        ))}
+      </div>
+      {tab === "bias" && (
+        <>
+          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>選考官ごとの評価傾向</h3>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#f9fafb" }}>
+                  {["選考官", "平均点", "通過率", "甘/辛", "偏差", "評価件数"].map((h, i) => (
+                    <th key={i} style={{ padding: "10px 16px", fontSize: 11, fontWeight: 600, color: "#6b7280", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {EVALUATOR_BIAS.map((e, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                    <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#111827" }}>{e.name}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 14, fontWeight: 700, color: e.avg >= 4 ? "#10b981" : e.avg >= 3.5 ? "#f59e0b" : "#ef4444" }}>{e.avg}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{e.passRate}%</td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 10, background: e.tendency === "甘め" ? "#dcfce7" : e.tendency === "辛め" ? "#fee2e2" : "#f3f4f6", color: e.tendency === "甘め" ? "#15803d" : e.tendency === "辛め" ? "#dc2626" : "#6b7280" }}>{e.tendency}</span>
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{e.variance}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{e.count}件</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>レーダーチャート（選考官比較）</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <RadarChart data={RADAR_DATA}>
+                  <PolarGrid />
+                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
+                  <PolarRadiusAxis domain={[0, 5]} tick={{ fontSize: 9 }} />
+                  <Radar name="安岡" dataKey="a" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} />
+                  <Radar name="鈴木" dataKey="b" stroke="#10b981" fill="#10b981" fillOpacity={0.15} />
+                  <Radar name="田中部長" dataKey="c" stroke="#ef4444" fill="#ef4444" fillOpacity={0.15} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ background: "linear-gradient(135deg, #eef2ff, #f5f3ff)", borderRadius: 12, padding: 20, border: "1px solid #c7d2fe" }}>
+              <h4 style={{ fontSize: 14, fontWeight: 600, color: "#4338ca", marginBottom: 12 }}>🤖 AIインサイト</h4>
+              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8 }}>
+                <p style={{ marginBottom: 12 }}><strong>1.</strong> 田中部長は「論理的思考力」を重視する傾向が強く、コミュニケーション力の評価が他の面接官と比べ低めです。</p>
+                <p style={{ marginBottom: 12 }}><strong>2.</strong> 鈴木さんは全体的に高評価をつける傾向があります（平均+0.4）。</p>
+                <p><strong>3.</strong> 面接官間の評価一致率: <strong style={{ color: "#f59e0b" }}>68%</strong>（目標: 80%以上）</p>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      {tab === "traits" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>通過者の共通特徴</h3>
+            {[
+              { trait: "論理的な回答構成（PREP法）", pct: 85 },
+              { trait: "具体的な数値を用いたエピソード", pct: 78 },
+              { trait: "チームワーク経験の言及", pct: 72 },
+              { trait: "自発的な質問（逆質問）", pct: 68 },
+              { trait: "業界理解の深さ", pct: 62 },
+            ].map((item, i) => (
+              <div key={i} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ color: "#374151" }}>{item.trait}</span>
+                  <span style={{ fontWeight: 600, color: "#6366f1" }}>{item.pct}%</span>
+                </div>
+                <div style={{ height: 6, background: "#f3f4f6", borderRadius: 3 }}>
+                  <div style={{ height: "100%", background: "#6366f1", borderRadius: 3, width: `${item.pct}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>
+              {recruitFilter === "中途" ? "前職業界別通過率" : "大学別通過率"}
+            </h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={recruitFilter === "中途" ? [
+                { name: "コンサル", rate: 52 }, { name: "IT", rate: 45 }, { name: "メーカー", rate: 38 },
+                { name: "金融", rate: 35 }, { name: "商社", rate: 42 }, { name: "その他", rate: 28 },
+              ] : [
+                { name: "東京大学", rate: 45 }, { name: "慶應大学", rate: 38 }, { name: "早稲田大学", rate: 35 },
+                { name: "京都大学", rate: 42 }, { name: "一橋大学", rate: 30 }, { name: "その他", rate: 25 },
+              ]} margin={{ left: 10 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} unit="%" />
+                <Tooltip />
+                <Bar dataKey="rate" name="通過率" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      {tab === "divergence" && (
+        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 20 }}>メモ vs 録音文字起こし 乖離分析</h3>
+          {[
+            { memo: "コミュ力が高い", analysis: "候補者の発話比率35%（面接官65%）", severity: "high", insight: "面接官が多く話しており、候補者のコミュ力を正確に測れていない可能性" },
+            { memo: "志望度が低い", analysis: "「御社」「ぜひ」など積極的ワード12回使用", severity: "high", insight: "言語データと主観評価にギャップ" },
+            { memo: "論理的思考力が高い", analysis: "PREP法での回答率80%、構造化スコア4.2/5.0", severity: "low", insight: "メモと客観分析が概ね一致" },
+          ].map((item, i) => (
+            <div key={i} style={{ padding: 16, background: i < 2 ? "#fef2f2" : "#f0fdf4", borderRadius: 10, marginBottom: 12, border: `1px solid ${i < 2 ? "#fecaca" : "#bbf7d0"}` }}>
+              <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>📋 面接官メモ</div>
+                  <div style={{ fontSize: 13, color: "#111827" }}>「{item.memo}」</div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>🎙️ 文字起こし分析</div>
+                  <div style={{ fontSize: 13, color: "#111827" }}>{item.analysis}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: i < 2 ? "#dc2626" : "#15803d", display: "flex", alignItems: "center", gap: 4 }}>
+                <Icon name={i < 2 ? "alert-circle" : "check-circle"} size={14} />
+                {i < 2 ? "⚠️ 乖離あり" : "✅ 一致"}: {item.insight}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {tab === "overview" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>選考通過率（ステージ別）</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={[
+                { stage: "書類→一次", rate: 62 }, { stage: "一次→二次", rate: 44 },
+                { stage: "二次→最終", rate: 46 }, { stage: "最終→内定", rate: 14 },
+                { stage: "内定→承諾", rate: 42 },
+              ]}>
+                <XAxis dataKey="stage" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} unit="%" />
+                <Tooltip />
+                <Bar dataKey="rate" name="通過率" radius={[4, 4, 0, 0]}>
+                  {[0, 1, 2, 3, 4].map(i => <Cell key={i} fill={COLORS[i]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>エントリー経路別分布</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={recruitFilter === "中途" ? [
+                  { name: "ビズリーチ", value: 120 }, { name: "エージェント", value: 95 },
+                  { name: "Green", value: 60 }, { name: "リファラル", value: 40 }, { name: "その他", value: 15 },
+                ] : [
+                  { name: "リクナビ", value: 320 }, { name: "マイナビ", value: 210 },
+                  { name: "エージェント", value: 130 }, { name: "自社サイト", value: 60 }, { name: "その他", value: 31 },
+                ]} cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine fontSize={10}>
+                  {[0, 1, 2, 3, 4].map(i => <Cell key={i} fill={COLORS[i]} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// APP
+// ============================================================
+function App() {
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [currentPage, setCurrentPage] = useState("dashboard");
+  const [selectedCandidateId, setSelectedCandidateId] = useState(null);
+  const [recruitFilter, setRecruitFilter] = useState("all");
+  const [pipelineFilter, setPipelineFilter] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // データフック
+  const { candidates, loading: dataLoading, addCandidate, updateCandidate, bulkUpdateStatus, refresh } = useSupabaseCandidates(recruitFilter);
+
+  // 認証状態チェック
+  useEffect(() => {
+    if (SUPABASE_READY) {
+      sbApi.getUser().then(u => {
+        setUser(u || null);
+        setAuthChecked(true);
+      });
+    } else {
+      setAuthChecked(true);
+    }
+  }, []);
+
+  const handleLogout = async () => {
+    if (SUPABASE_READY) await sbApi.signOut();
+    setUser(null);
+  };
+
+  // 未ログイン → ログイン画面
+  if (authChecked && !user) {
+    return <LoginPage onLogin={(u) => setUser(u)} />;
+  }
+  if (!authChecked) {
+    return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f5f7" }}><div style={{ fontSize: 14, color: "#6b7280" }}>読み込み中...</div></div>;
+  }
+
+  const navigate = (page, id) => {
+    setCurrentPage(page);
+    if (id) setSelectedCandidateId(id);
+    if (page !== "candidates" || !id) setPipelineFilter(null);
+  };
+
+  const navigateFromPipeline = (stageName, substatus) => {
+    setPipelineFilter({ stageName, substatus });
+    setCurrentPage("candidates");
+  };
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case "dashboard": return <DashboardPage onNavigate={navigate} recruitFilter={recruitFilter} />;
+      case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} />;
+      case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} />;
+      case "pipeline": return <PipelinePage recruitFilter={recruitFilter} onNavigateFromPipeline={navigateFromPipeline} candidates={candidates} />;
+      case "schedule": return <SchedulePage recruitFilter={recruitFilter} />;
+      case "interview-fb": return <InterviewFBPage onNavigate={navigate} />;
+      case "automation": return <AutomationPage />;
+      case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} />;
+      default: return (
+        <div style={{ padding: 24, display: "flex", alignItems: "center", justifyContent: "center", height: "60vh" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🚧</div>
+            <h2 style={{ fontSize: 18, fontWeight: 600, color: "#374151", marginBottom: 4 }}>この画面は開発中です</h2>
+            <p style={{ fontSize: 13, color: "#9ca3af" }}>次のフェーズで実装予定です</p>
+          </div>
+        </div>
+      );
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", background: "#f5f5f7", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif" }}>
+      <Sidebar currentPage={currentPage} onNavigate={navigate} />
+      <div style={{ flex: 1, overflowY: "auto", maxHeight: "100vh" }}>
+        <div style={{ background: "white", borderBottom: "1px solid #e5e7eb", padding: "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <RecruitTypeSelector value={recruitFilter} onChange={setRecruitFilter} />
+            {SUPABASE_READY && (
+              <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "#dcfce7", color: "#15803d", fontWeight: 600 }}>DB接続中</span>
+            )}
+            {!SUPABASE_READY && (
+              <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "#fef3c7", color: "#92400e", fontWeight: 600 }}>デモモード</span>
+            )}
+            <div style={{ position: "relative", width: 260 }}>
+              <Icon name="search" size={14} color="#9ca3af" style={{ position: "absolute", left: 8, top: 8 }} />
+              <input placeholder="候補者・タスクを検索..." style={{ width: "100%", padding: "6px 6px 6px 28px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+              <Icon name="bell" size={18} color="#6b7280" />
+              <div style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, borderRadius: "50%", background: "#ef4444" }} />
+            </button>
+            <button onClick={handleLogout} style={{ fontSize: 11, color: "#6b7280", background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>ログアウト</button>
+          </div>
+        </div>
+        {renderPage()}
+      </div>
+
+      {/* 候補者追加モーダル */}
+      {showAddModal && <AddCandidateModal onClose={() => setShowAddModal(false)} onAdd={async (c) => { await addCandidate(c); setShowAddModal(false); }} />}
+    </div>
+  );
+}
+
+// ============================================================
+// 候補者追加モーダル
+// ============================================================
+function AddCandidateModal({ onClose, onAdd }) {
+  const [form, setForm] = useState({
+    recruitType: "新卒", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
+    email: "", phone: "", birthDate: "",
+    university: "", faculty: "", department: "", gradYear: 2027, majorType: "文系", graduationPeriod: "2027年3月",
+    company: "", position: "", experience: "",
+    route: "", aspiration: 3, agent: "", gender: "男性", notes: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
+  const isNew = form.recruitType === "新卒";
+
+  const handleSave = async () => {
+    if (!form.lastName || !form.firstName) return;
+    setSaving(true);
+    await onAdd({
+      ...form,
+      stage: "エントリー/受付済",
+      substatus: "受付済",
+      status: "新規",
+      format: null,
+      score: null,
+      experience: form.experience ? parseInt(form.experience) : null,
+      entryDate: new Date().toISOString().split("T")[0],
+    });
+    setSaving(false);
+  };
+
+  const inputStyle = { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" };
+  const labelStyle = { display: "block", fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 4 };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={onClose}>
+      <div style={{ background: "white", borderRadius: 16, padding: 28, width: 520, maxHeight: "80vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: "#111827" }}>候補者を新規登録</h2>
+
+        {/* 採用区分 */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {["新卒", "中途"].map(t => (
+            <button key={t} onClick={() => set("recruitType", t)}
+              style={{ flex: 1, padding: "8px", border: form.recruitType === t ? "2px solid #4338ca" : "1px solid #d1d5db", borderRadius: 8, background: form.recruitType === t ? "#eef2ff" : "white", fontSize: 13, fontWeight: 600, cursor: "pointer", color: form.recruitType === t ? "#4338ca" : "#6b7280" }}>
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* 基本情報 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div><label style={labelStyle}>姓 *</label><input value={form.lastName} onChange={e => set("lastName", e.target.value)} style={inputStyle} placeholder="山田" /></div>
+          <div><label style={labelStyle}>名 *</label><input value={form.firstName} onChange={e => set("firstName", e.target.value)} style={inputStyle} placeholder="花子" /></div>
+          <div><label style={labelStyle}>セイ</label><input value={form.lastNameKana} onChange={e => set("lastNameKana", e.target.value)} style={inputStyle} placeholder="ヤマダ" /></div>
+          <div><label style={labelStyle}>メイ</label><input value={form.firstNameKana} onChange={e => set("firstNameKana", e.target.value)} style={inputStyle} placeholder="ハナコ" /></div>
+          <div><label style={labelStyle}>メール</label><input type="email" value={form.email} onChange={e => set("email", e.target.value)} style={inputStyle} placeholder="email@example.com" /></div>
+          <div><label style={labelStyle}>電話</label><input value={form.phone} onChange={e => set("phone", e.target.value)} style={inputStyle} placeholder="090-1234-5678" /></div>
+          <div><label style={labelStyle}>生年月日</label><input type="date" value={form.birthDate} onChange={e => set("birthDate", e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>性別</label>
+            <select value={form.gender} onChange={e => set("gender", e.target.value)} style={inputStyle}>
+              <option value="男性">男性</option><option value="女性">女性</option><option value="その他">その他</option>
+            </select>
+          </div>
+        </div>
+
+        {/* 新卒 or 中途固有 */}
+        {isNew ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div><label style={labelStyle}>大学</label><input value={form.university} onChange={e => set("university", e.target.value)} style={inputStyle} placeholder="○○大学" /></div>
+            <div><label style={labelStyle}>学部</label><input value={form.faculty} onChange={e => set("faculty", e.target.value)} style={inputStyle} placeholder="○○学部" /></div>
+            <div><label style={labelStyle}>学科</label><input value={form.department} onChange={e => set("department", e.target.value)} style={inputStyle} placeholder="○○学科" /></div>
+            <div><label style={labelStyle}>文理</label>
+              <select value={form.majorType} onChange={e => set("majorType", e.target.value)} style={inputStyle}>
+                <option value="文系">文系</option><option value="理系">理系</option>
+              </select>
+            </div>
+            <div><label style={labelStyle}>卒業年</label><input type="number" value={form.gradYear} onChange={e => set("gradYear", parseInt(e.target.value))} style={inputStyle} /></div>
+            <div><label style={labelStyle}>卒業予定時期</label><input value={form.graduationPeriod} onChange={e => set("graduationPeriod", e.target.value)} style={inputStyle} placeholder="2027年3月" /></div>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div><label style={labelStyle}>現職企業</label><input value={form.company} onChange={e => set("company", e.target.value)} style={inputStyle} /></div>
+            <div><label style={labelStyle}>職種</label><input value={form.position} onChange={e => set("position", e.target.value)} style={inputStyle} /></div>
+            <div><label style={labelStyle}>経験年数</label><input type="number" value={form.experience} onChange={e => set("experience", e.target.value)} style={inputStyle} /></div>
+            <div />
+          </div>
+        )}
+
+        {/* メタ情報 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div><label style={labelStyle}>応募経路</label><input value={form.route} onChange={e => set("route", e.target.value)} style={inputStyle} placeholder="マイナビ、紹介会社 等" /></div>
+          <div><label style={labelStyle}>紹介会社/エージェント</label><input value={form.agent} onChange={e => set("agent", e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>志望度</label>
+            <select value={form.aspiration} onChange={e => set("aspiration", parseInt(e.target.value))} style={inputStyle}>
+              {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} - {"★".repeat(n)}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ marginBottom: 24 }}>
+          <label style={labelStyle}>メモ</label>
+          <textarea value={form.notes} onChange={e => set("notes", e.target.value)} style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} placeholder="自由記入欄" />
+        </div>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 13, cursor: "pointer", color: "#374151" }}>キャンセル</button>
+          <button onClick={handleSave} disabled={saving || !form.lastName || !form.firstName}
+            style={{ padding: "8px 24px", border: "none", borderRadius: 8, background: (!form.lastName || !form.firstName) ? "#a5b4fc" : "#4338ca", color: "white", fontSize: 13, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>
+            {saving ? "保存中..." : "登録する"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
