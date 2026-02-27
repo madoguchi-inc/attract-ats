@@ -87,6 +87,24 @@ const sbApi = {
     const data = await res.json();
     return { data: data[0] || data, error: null };
   },
+  // 認証: サインアップ（招待用）
+  async signUp(email, password, metadata = {}) {
+    const res = await fetch(SUPABASE_URL + '/auth/v1/signup', {
+      method: 'POST', headers: this._headers(false),
+      body: JSON.stringify({ email, password, data: metadata })
+    });
+    const data = await res.json();
+    if (!res.ok) return { user: null, error: data };
+    return { user: data.user || data, error: null };
+  },
+  // DB: DELETE
+  async remove(table, filter) {
+    const res = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?' + filter, {
+      method: 'DELETE', headers: this._headers()
+    });
+    if (!res.ok) return { error: await res.json() };
+    return { error: null };
+  },
   // DB: UPDATE
   async update(table, filter, row) {
     const res = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?' + filter, {
@@ -276,6 +294,24 @@ const STAGE_DEFINITIONS = [
 const getStageDefByName = (name) => STAGE_DEFINITIONS.find(s => s.name === name);
 const getStageDefById = (id) => STAGE_DEFINITIONS.find(s => s.id === id);
 const STAGE_NAMES = STAGE_DEFINITIONS.map(s => s.name);
+
+// ============================================================
+// ロール定義 & 権限ヘルパー
+// ============================================================
+const ROLES = [
+  { id: "admin",       label: "管理者",    color: "#dc2626", icon: "🔑", description: "全機能にフルアクセス" },
+  { id: "recruiter",   label: "採用担当",  color: "#6366f1", icon: "👤", description: "候補者管理・メッセージ・インポート" },
+  { id: "interviewer", label: "面接官",    color: "#f59e0b", icon: "🎤", description: "担当候補者の閲覧・FB入力" },
+  { id: "viewer",      label: "閲覧者",    color: "#6b7280", icon: "👁️", description: "ダッシュボード・一覧の閲覧のみ" },
+];
+const PERMISSIONS = {
+  admin:       { viewDashboard: true, viewCandidates: true, editCandidates: true, changeStage: true, inputFB: true, csvImport: true, sendMessage: true, manageAccounts: true, editSettings: true },
+  recruiter:   { viewDashboard: true, viewCandidates: true, editCandidates: true, changeStage: true, inputFB: true, csvImport: true, sendMessage: true, manageAccounts: false, editSettings: false },
+  interviewer: { viewDashboard: true, viewCandidates: true, editCandidates: false, changeStage: false, inputFB: true, csvImport: false, sendMessage: false, manageAccounts: false, editSettings: false },
+  viewer:      { viewDashboard: true, viewCandidates: true, editCandidates: false, changeStage: false, inputFB: false, csvImport: false, sendMessage: false, manageAccounts: false, editSettings: false },
+};
+const hasPermission = (role, permission) => PERMISSIONS[role]?.[permission] ?? false;
+const getRoleDef = (roleId) => ROLES.find(r => r.id === roleId) || ROLES[3];
 
 // 共通の離脱ステータス判定
 const EXIT_STATUSES = ["辞退", "不合格", "保留", "承諾後辞退"];
@@ -596,19 +632,20 @@ function RecruitTypeSelector({ value, onChange }) {
 // ============================================================
 // COMPONENTS
 // ============================================================
-function Sidebar({ currentPage, onNavigate }) {
+function Sidebar({ currentPage, onNavigate, userRole = "admin", userProfile }) {
   const items = [
     { id: "dashboard", icon: "home", label: "ダッシュボード" },
     { id: "candidates", icon: "users", label: "候補者管理" },
     { id: "pipeline", icon: "git-branch", label: "選考フロー" },
     { id: "schedule", icon: "calendar", label: "スケジュール" },
-    { id: "messages", icon: "message-square", label: "メッセージ" },
-    { id: "automation", icon: "zap", label: "自動化設定" },
+    { id: "messages", icon: "message-square", label: "メッセージ", requiredPermission: "sendMessage" },
+    { id: "automation", icon: "zap", label: "自動化設定", requiredPermission: "editSettings" },
     { id: "agents", icon: "building", label: "紹介会社" },
     { id: "analytics", icon: "bar-chart", label: "分析" },
     { id: "tasks", icon: "check-square", label: "タスク" },
-    { id: "settings", icon: "settings", label: "設定" },
-  ];
+    { id: "accounts", icon: "shield", label: "アカウント管理", requiredPermission: "manageAccounts" },
+    { id: "settings", icon: "settings", label: "設定", requiredPermission: "editSettings" },
+  ].filter(item => !item.requiredPermission || hasPermission(userRole, item.requiredPermission));
   return (
     <div style={{ width: 220, background: "#0a1632", color: "white", display: "flex", flexDirection: "column", minHeight: "100vh", flexShrink: 0 }}>
       <div style={{ padding: "18px 14px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
@@ -624,10 +661,12 @@ function Sidebar({ currentPage, onNavigate }) {
         ))}
       </nav>
       <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#1d4aff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600 }}>安</div>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 500 }}>安岡 尚和</div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>管理者</div>
+        <div style={{ width: 32, height: 32, borderRadius: "50%", background: getRoleDef(userRole).color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600 }}>
+          {(userProfile?.display_name || "U").charAt(0)}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userProfile?.display_name || "ユーザー"}</div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{getRoleDef(userRole).label}</div>
         </div>
       </div>
     </div>
@@ -822,7 +861,7 @@ function DashboardPage({ onNavigate, recruitFilter }) {
 }
 
 // Candidates List - 新卒/中途対応
-function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipelineFilter, candidates: propCandidates, onUpdateCandidate, onBulkUpdateStatus, onShowAddModal }) {
+function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipelineFilter, candidates: propCandidates, onUpdateCandidate, onBulkUpdateStatus, onShowAddModal, can = () => true }) {
   // propCandidatesが渡されればそれを使用、なければフォールバック
   const CANDS = propCandidates || CANDIDATES;
   const [searchTerm, setSearchTerm] = useState("");
@@ -1062,12 +1101,12 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>候補者管理</h1>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setCsvModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: 6, background: "white", color: "#6366f1", border: "1px solid #6366f1", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+          {can("csvImport") && <button onClick={() => setCsvModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: 6, background: "white", color: "#6366f1", border: "1px solid #6366f1", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
             <Icon name="upload" size={16} /> CSVインポート
-          </button>
-          <button onClick={onShowAddModal} style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+          </button>}
+          {can("editCandidates") && <button onClick={onShowAddModal} style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
             <Icon name="plus" size={16} /> 新規登録
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -1430,7 +1469,7 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
 }
 
 // Candidate Detail - 新卒/中途対応
-function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidates, onUpdateCandidate }) {
+function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidates, onUpdateCandidate, can = () => true }) {
   const CANDS = propCandidates || CANDIDATES;
   const c = CANDS.find(c => c.id === candidateId) || CANDS[0];
   const isNewGrad = c.recruitType === "新卒";
@@ -1711,7 +1750,12 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
             {/* ステージ変更UI */}
-            {!editingStage ? (
+            {!can("changeStage") ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", border: "2px solid #e5e7eb", borderRadius: 10, background: "#f9fafb", fontSize: 13, color: "#111827", fontWeight: 600, minWidth: 200, justifyContent: "center" }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
+                {c.stage} {c.substatus ? `/ ${c.substatus}` : ""}
+              </div>
+            ) : !editingStage ? (
               <button onClick={() => setEditingStage(true)}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", border: `2px solid ${currentStageDef ? currentStageDef.color : "#6366f1"}`, borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#111827", fontWeight: 600, minWidth: 200, justifyContent: "center" }}>
                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
@@ -1833,7 +1877,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
           <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>評価サマリー</h3>
-              <button onClick={() => openFbForm()} style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>＋ FB入力</button>
+              {can("inputFB") && <button onClick={() => openFbForm()} style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>＋ FB入力</button>}
             </div>
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
               {/* 総合スコア */}
@@ -1925,7 +1969,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
             <div style={{ background: "white", borderRadius: 12, padding: 40, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", textAlign: "center", color: "#9ca3af" }}>
               <Icon name="file-text" size={32} color="#d1d5db" />
               <div style={{ marginTop: 12, fontSize: 14 }}>面接フィードバックはまだ登録されていません</div>
-              <button onClick={() => openFbForm()} style={{ marginTop: 16, padding: "10px 24px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>最初のFBを入力する</button>
+              {can("inputFB") && <button onClick={() => openFbForm()} style={{ marginTop: 16, padding: "10px 24px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>最初のFBを入力する</button>}
             </div>
           )}
 
@@ -2988,18 +3032,256 @@ function AnalyticsPage({ recruitFilter }) {
 }
 
 // ============================================================
+// アカウント管理ページ（Admin専用）
+// ============================================================
+function AccountsPage({ currentUser, onRefreshProfile }) {
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteData, setInviteData] = useState({ email: "", password: "", display_name: "", role: "recruiter" });
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const [inviteSuccess, setInviteSuccess] = useState("");
+
+  const loadAccounts = useCallback(async () => {
+    setLoading(true);
+    const { data } = await sbApi.select('profiles', 'order=created_at.asc');
+    setAccounts(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { if (SUPABASE_READY) loadAccounts(); }, []);
+
+  const handleInvite = async () => {
+    setInviteError(""); setInviteSuccess("");
+    if (!inviteData.email || !inviteData.password || !inviteData.display_name) {
+      setInviteError("全項目を入力してください"); return;
+    }
+    if (inviteData.password.length < 6) {
+      setInviteError("パスワードは6文字以上にしてください"); return;
+    }
+    setInviteLoading(true);
+    const { user: newUser, error } = await sbApi.signUp(inviteData.email, inviteData.password, { display_name: inviteData.display_name });
+    if (error) {
+      setInviteError(error.msg || error.message || JSON.stringify(error));
+      setInviteLoading(false); return;
+    }
+    const uid = newUser?.id || newUser?.user?.id;
+    if (uid) {
+      await sbApi.insert('profiles', { id: uid, role: inviteData.role, display_name: inviteData.display_name, is_active: true }).catch(() => {});
+    }
+    setInviteSuccess(inviteData.display_name + " を招待しました！");
+    setInviteData({ email: "", password: "", display_name: "", role: "recruiter" });
+    setInviteLoading(false);
+    await loadAccounts();
+    setTimeout(() => setInviteSuccess(""), 3000);
+  };
+
+  const updateRole = async (profileId, newRole) => {
+    if (profileId === currentUser?.id && newRole !== "admin") {
+      if (!window.confirm("自分のロールを変更すると管理者権限を失います。続けますか？")) return;
+    }
+    await sbApi.update ? await fetch(SUPABASE_URL + '/rest/v1/profiles?id=eq.' + profileId, {
+      method: 'PATCH', headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tokenStore.accessToken, 'Prefer': 'return=representation' },
+      body: JSON.stringify({ role: newRole })
+    }) : null;
+    await loadAccounts();
+    if (profileId === currentUser?.id && onRefreshProfile) onRefreshProfile();
+  };
+
+  const toggleActive = async (profileId, currentActive) => {
+    if (profileId === currentUser?.id) { alert("自分自身は無効化できません"); return; }
+    await fetch(SUPABASE_URL + '/rest/v1/profiles?id=eq.' + profileId, {
+      method: 'PATCH', headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tokenStore.accessToken, 'Prefer': 'return=representation' },
+      body: JSON.stringify({ is_active: !currentActive })
+    });
+    await loadAccounts();
+  };
+
+  const inputStyle = { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" };
+
+  return (
+    <div style={{ padding: 24, maxWidth: 900 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>🔑 アカウント管理</h1>
+        <button onClick={() => { setInviteOpen(!inviteOpen); setInviteError(""); setInviteSuccess(""); }}
+          style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+          <Icon name="plus" size={16} /> 新規ユーザー招待
+        </button>
+      </div>
+
+      {/* 招待フォーム */}
+      {inviteOpen && (
+        <div style={{ background: "white", borderRadius: 12, padding: 20, marginBottom: 20, border: "1px solid #e5e7eb", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14, color: "#374151" }}>ユーザーを招待</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>表示名 *</label>
+              <input value={inviteData.display_name} onChange={e => setInviteData({...inviteData, display_name: e.target.value})} placeholder="山田太郎" style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>メールアドレス *</label>
+              <input value={inviteData.email} onChange={e => setInviteData({...inviteData, email: e.target.value})} placeholder="taro@example.com" style={inputStyle} type="email" />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>初期パスワード *</label>
+              <input value={inviteData.password} onChange={e => setInviteData({...inviteData, password: e.target.value})} placeholder="6文字以上" style={inputStyle} type="password" />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>ロール</label>
+              <select value={inviteData.role} onChange={e => setInviteData({...inviteData, role: e.target.value})} style={{ ...inputStyle, cursor: "pointer" }}>
+                {ROLES.map(r => <option key={r.id} value={r.id}>{r.icon} {r.label} — {r.description}</option>)}
+              </select>
+            </div>
+          </div>
+          {inviteError && <div style={{ background: "#fef2f2", color: "#dc2626", padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10 }}>⚠️ {inviteError}</div>}
+          {inviteSuccess && <div style={{ background: "#f0fdf4", color: "#15803d", padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10 }}>✅ {inviteSuccess}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={handleInvite} disabled={inviteLoading}
+              style={{ background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 500, cursor: "pointer", opacity: inviteLoading ? 0.6 : 1 }}>
+              {inviteLoading ? "招待中..." : "招待を送信"}
+            </button>
+            <button onClick={() => setInviteOpen(false)}
+              style={{ background: "#f3f4f6", color: "#374151", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+          </div>
+        </div>
+      )}
+
+      {/* ロール凡例 */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {ROLES.map(r => (
+          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: "white", border: "1px solid #e5e7eb", fontSize: 11 }}>
+            <span>{r.icon}</span>
+            <span style={{ fontWeight: 600, color: r.color }}>{r.label}</span>
+            <span style={{ color: "#9ca3af" }}>{r.description}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* アカウント一覧 */}
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}>読み込み中...</div>
+      ) : (
+        <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>ユーザー</th>
+                <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>ロール</th>
+                <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>ステータス</th>
+                <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map((acc, i) => {
+                const roleDef = getRoleDef(acc.role);
+                const isMe = acc.id === currentUser?.id;
+                return (
+                  <tr key={acc.id} style={{ borderBottom: i < accounts.length - 1 ? "1px solid #f3f4f6" : "none", opacity: acc.is_active === false ? 0.5 : 1 }}>
+                    <td style={{ padding: "12px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: "50%", background: roleDef.color, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 12, fontWeight: 600 }}>
+                          {(acc.display_name || "?").charAt(0)}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 500, color: "#111827" }}>{acc.display_name || "—"} {isMe && <span style={{ fontSize: 10, color: "#6366f1", fontWeight: 600 }}>（自分）</span>}</div>
+                          <div style={{ fontSize: 11, color: "#9ca3af" }}>{acc.email || acc.id?.substring(0, 8)}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <select value={acc.role || "viewer"} onChange={e => updateRole(acc.id, e.target.value)}
+                        style={{ padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, cursor: "pointer", background: "white", color: roleDef.color, fontWeight: 600 }}>
+                        {ROLES.map(r => <option key={r.id} value={r.id}>{r.icon} {r.label}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: acc.is_active !== false ? "#dcfce7" : "#fee2e2", color: acc.is_active !== false ? "#15803d" : "#dc2626", fontWeight: 500 }}>
+                        {acc.is_active !== false ? "有効" : "無効"}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                      {!isMe && (
+                        <button onClick={() => toggleActive(acc.id, acc.is_active !== false)}
+                          style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", cursor: "pointer", color: acc.is_active !== false ? "#dc2626" : "#15803d" }}>
+                          {acc.is_active !== false ? "無効化" : "有効化"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {accounts.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>アカウントがありません</div>}
+        </div>
+      )}
+
+      {/* 権限マトリクス */}
+      <div style={{ marginTop: 24, background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 20 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 12 }}>権限マトリクス</h3>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+              <th style={{ padding: "8px 12px", textAlign: "left", color: "#6b7280", fontWeight: 600 }}>権限</th>
+              {ROLES.map(r => <th key={r.id} style={{ padding: "8px 12px", textAlign: "center", color: r.color, fontWeight: 600 }}>{r.icon} {r.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.keys(PERMISSIONS.admin).map(perm => (
+              <tr key={perm} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                <td style={{ padding: "6px 12px", color: "#374151" }}>{perm}</td>
+                {ROLES.map(r => (
+                  <td key={r.id} style={{ padding: "6px 12px", textAlign: "center" }}>
+                    {PERMISSIONS[r.id][perm] ? <span style={{ color: "#22c55e" }}>✓</span> : <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // APP
 // ============================================================
 function App() {
   const [user, setUser] = useState(null);
+  const [userRole, setUserRole] = useState("admin"); // デフォルト: admin（初回ユーザー＝管理者）
+  const [userProfile, setUserProfile] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [selectedCandidateId, setSelectedCandidateId] = useState(null);
   const [recruitFilter, setRecruitFilter] = useState("all");
   const [pipelineFilter, setPipelineFilter] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [migrationStatus, setMigrationStatus] = useState(null); // null | 'running' | 'done'
+  const [migrationStatus, setMigrationStatus] = useState(null);
   const [migrationMsg, setMigrationMsg] = useState('');
+
+  // profile取得
+  const loadProfile = useCallback(async (userId) => {
+    if (!SUPABASE_READY || !userId) {
+      setUserRole("admin"); // デモモードは管理者
+      setUserProfile({ display_name: "デモユーザー", role: "admin" });
+      return;
+    }
+    const { data } = await sbApi.select('profiles', 'id=eq.' + userId);
+    if (data && data.length > 0) {
+      setUserProfile(data[0]);
+      setUserRole(data[0].role || "admin");
+    } else {
+      // profileがない場合は最初のユーザー→admin として自動作成
+      const profile = { id: userId, role: "admin", display_name: user?.email?.split("@")[0] || "管理者", is_active: true };
+      await sbApi.insert('profiles', profile).catch(() => {});
+      setUserProfile(profile);
+      setUserRole("admin");
+    }
+  }, []);
+
+  const can = (permission) => hasPermission(userRole, permission);
 
   // データフック
   const { candidates, loading: dataLoading, addCandidate, updateCandidate, bulkUpdateStatus, refresh } = useSupabaseCandidates(recruitFilter);
@@ -3020,8 +3302,9 @@ function App() {
   // 認証状態チェック
   useEffect(() => {
     if (SUPABASE_READY) {
-      sbApi.getUser().then(u => {
+      sbApi.getUser().then(async u => {
         setUser(u || null);
+        if (u) await loadProfile(u.id);
         setAuthChecked(true);
       });
     } else {
@@ -3036,7 +3319,7 @@ function App() {
 
   // 未ログイン → ログイン画面
   if (authChecked && !user) {
-    return <LoginPage onLogin={(u) => setUser(u)} />;
+    return <LoginPage onLogin={async (u) => { setUser(u); await loadProfile(u.id); }} />;
   }
   if (!authChecked) {
     return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f5f7" }}><div style={{ fontSize: 14, color: "#6b7280" }}>読み込み中...</div></div>;
@@ -3056,13 +3339,14 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "dashboard": return <DashboardPage onNavigate={navigate} recruitFilter={recruitFilter} />;
-      case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} />;
-      case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} />;
+      case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} can={can} />;
+      case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} can={can} />;
       case "pipeline": return <PipelinePage recruitFilter={recruitFilter} onNavigateFromPipeline={navigateFromPipeline} candidates={candidates} />;
       case "schedule": return <SchedulePage recruitFilter={recruitFilter} />;
       case "interview-fb": return <InterviewFBPage onNavigate={navigate} />;
       case "automation": return <AutomationPage />;
       case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} />;
+      case "accounts": return can("manageAccounts") ? <AccountsPage currentUser={user} onRefreshProfile={() => loadProfile(user?.id)} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
       default: return (
         <div style={{ padding: 24, display: "flex", alignItems: "center", justifyContent: "center", height: "60vh" }}>
           <div style={{ textAlign: "center" }}>
@@ -3077,7 +3361,7 @@ function App() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#f5f5f7", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif" }}>
-      <Sidebar currentPage={currentPage} onNavigate={navigate} />
+      <Sidebar currentPage={currentPage} onNavigate={navigate} userRole={userRole} userProfile={userProfile} />
       <div style={{ flex: 1, overflowY: "auto", maxHeight: "100vh" }}>
         <div style={{ background: "white", borderBottom: "1px solid #e5e7eb", padding: "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
