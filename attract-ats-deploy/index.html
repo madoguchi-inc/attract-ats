@@ -3181,177 +3181,336 @@ function AutomationPage() {
   );
 }
 
-// Analytics
-function AnalyticsPage({ recruitFilter }) {
-  const [tab, setTab] = useState("bias");
+// Analytics — リアルデータ版
+function AnalyticsPage({ recruitFilter, candidates = [] }) {
+  const [tab, setTab] = useState("funnel");
+
+  // ===== ファネルデータ =====
+  const funnelData = useMemo(() => {
+    const stageCounts = {};
+    STAGE_DEFINITIONS.forEach(s => { stageCounts[s.name] = 0; });
+    candidates.forEach(c => { if (stageCounts[c.stage] !== undefined) stageCounts[c.stage]++; });
+    // 累積: 各ステージに「到達した」人数 = そのステージ以降にいる全員
+    const stageNames = STAGE_DEFINITIONS.map(s => s.name);
+    const cumulative = stageNames.map((name, i) => {
+      let count = 0;
+      for (let j = i; j < stageNames.length; j++) count += stageCounts[stageNames[j]];
+      return { stage: name, current: stageCounts[name], reached: count, color: STAGE_DEFINITIONS[i].color };
+    });
+    return cumulative;
+  }, [candidates]);
+
+  const conversionData = useMemo(() => {
+    if (funnelData.length < 2) return [];
+    return funnelData.slice(1).map((item, i) => {
+      const prev = funnelData[i];
+      const rate = prev.reached > 0 ? Math.round((item.reached / prev.reached) * 100) : 0;
+      return { label: prev.stage + " → " + item.stage, rate, from: prev.reached, to: item.reached };
+    });
+  }, [funnelData]);
+
+  // ===== 経路・エージェント分析 =====
+  const routeData = useMemo(() => {
+    const map = {};
+    candidates.forEach(c => {
+      const r = c.route || "不明";
+      map[r] = (map[r] || 0) + 1;
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+  }, [candidates]);
+
+  const agentData = useMemo(() => {
+    const map = {};
+    candidates.forEach(c => {
+      if (c.agent && c.agent.trim()) map[c.agent.trim()] = (map[c.agent.trim()] || 0) + 1;
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+  }, [candidates]);
+
+  // エージェント別ステージ進捗
+  const agentStageData = useMemo(() => {
+    const advancedStages = new Set(["二次面接", "最終面接", "内定", "内定承諾"]);
+    const map = {};
+    candidates.forEach(c => {
+      if (!c.agent || !c.agent.trim()) return;
+      const a = c.agent.trim();
+      if (!map[a]) map[a] = { total: 0, advanced: 0 };
+      map[a].total++;
+      if (advancedStages.has(c.stage)) map[a].advanced++;
+    });
+    return Object.entries(map)
+      .filter(([, v]) => v.total >= 1)
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([name, v]) => ({ name, total: v.total, advanced: v.advanced, rate: v.total > 0 ? Math.round((v.advanced / v.total) * 100) : 0 }));
+  }, [candidates]);
+
+  // ===== 大学別分析 =====
+  const universityData = useMemo(() => {
+    const map = {};
+    candidates.forEach(c => {
+      const u = c.university || "不明";
+      if (!map[u]) map[u] = { total: 0, advanced: 0 };
+      map[u].total++;
+      const si = STAGE_DEFINITIONS.findIndex(s => s.name === c.stage);
+      if (si >= 4) map[u].advanced++; // 二次面接以降
+    });
+    return Object.entries(map)
+      .filter(([, v]) => v.total >= 2)
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 10)
+      .map(([name, v]) => ({ name: name.length > 8 ? name.slice(0, 8) + ".." : name, fullName: name, total: v.total, advanced: v.advanced, rate: v.total > 0 ? Math.round((v.advanced / v.total) * 100) : 0 }));
+  }, [candidates]);
+
+  // ===== 月別エントリー推移 =====
+  const monthlyData = useMemo(() => {
+    const map = {};
+    candidates.forEach(c => {
+      const d = c.entryDate || c.createdAt;
+      if (!d) return;
+      const m = d.replace(/-/g, "/").slice(0, 7); // "2025/01" or "2025-01"
+      map[m] = (map[m] || 0) + 1;
+    });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).map(([month, count]) => ({ month: month.replace(/^\d{4}[\/\-]/, "").replace(/^0/, "") + "月", count }));
+  }, [candidates]);
+
+  // ===== 性別分布 =====
+  const genderData = useMemo(() => {
+    const map = {};
+    candidates.forEach(c => {
+      const g = c.gender || "不明";
+      map[g] = (map[g] || 0) + 1;
+    });
+    return Object.entries(map).map(([name, value]) => ({ name, value }));
+  }, [candidates]);
+
+  // ===== KPIサマリー =====
+  const kpi = useMemo(() => {
+    const total = candidates.length;
+    const offerCount = candidates.filter(c => c.stage === "内定" || c.stage === "内定承諾").length;
+    const acceptedCount = candidates.filter(c => c.stage === "内定承諾").length;
+    const interviewCount = candidates.filter(c => ["一次面接", "二次面接", "最終面接"].includes(c.stage)).length;
+    const offerRate = total > 0 ? ((offerCount / total) * 100).toFixed(1) : "0";
+    const acceptRate = offerCount > 0 ? ((acceptedCount / offerCount) * 100).toFixed(1) : "0";
+    return { total, offerCount, acceptedCount, interviewCount, offerRate, acceptRate };
+  }, [candidates]);
+
+  const cardStyle = { background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" };
+  const tabBtnStyle = (active) => ({ padding: "8px 16px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer", background: active ? "white" : "transparent", color: active ? "#4338ca" : "#6b7280", fontWeight: active ? 600 : 400, boxShadow: active ? "0 1px 2px rgba(0,0,0,0.1)" : "none" });
+
   return (
     <div style={{ padding: 24, maxWidth: 1200 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", marginBottom: 20 }}>分析</h1>
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f3f4f6", borderRadius: 10, padding: 4, width: "fit-content" }}>
-        {[["bias", "選考官バイアス"], ["divergence", "メモvs録音 乖離"], ["traits", "通過者の特徴"], ["overview", "総合分析"]].map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)}
-            style={{ padding: "8px 16px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer", background: tab === id ? "white" : "transparent", color: tab === id ? "#4338ca" : "#6b7280", fontWeight: tab === id ? 600 : 400, boxShadow: tab === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>{label}</button>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>分析</h1>
+        <span style={{ fontSize: 12, color: "#9ca3af" }}>対象: {candidates.length}名</span>
+      </div>
+
+      {/* KPIカード */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
+        {[
+          { label: "総エントリー", value: kpi.total, unit: "名", color: "#6366f1", icon: "📋" },
+          { label: "面接中", value: kpi.interviewCount, unit: "名", color: "#a855f7", icon: "🎤" },
+          { label: "内定", value: kpi.offerCount, unit: "名", color: "#f59e0b", icon: "🎉" },
+          { label: "内定承諾", value: kpi.acceptedCount, unit: "名", color: "#10b981", icon: "✅" },
+          { label: "内定率", value: kpi.offerRate, unit: "%", color: "#ec4899", icon: "📊" },
+        ].map((item, i) => (
+          <div key={i} style={{ background: "white", borderRadius: 12, padding: "16px 14px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", borderLeft: `3px solid ${item.color}` }}>
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>{item.icon} {item.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: item.color }}>{item.value}<span style={{ fontSize: 12, fontWeight: 400, color: "#9ca3af", marginLeft: 2 }}>{item.unit}</span></div>
+          </div>
         ))}
       </div>
-      {tab === "bias" && (
+
+      {/* タブ */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f3f4f6", borderRadius: 10, padding: 4, width: "fit-content" }}>
+        {[["funnel", "ファネル分析"], ["route", "経路・エージェント"], ["university", "大学・属性"], ["timeline", "時系列"]].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={tabBtnStyle(tab === id)}>{label}</button>
+        ))}
+      </div>
+
+      {/* ===== ファネル分析 ===== */}
+      {tab === "funnel" && (
         <>
-          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>選考官ごとの評価傾向</h3>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "#f9fafb" }}>
-                  {["選考官", "平均点", "通過率", "甘/辛", "偏差", "評価件数"].map((h, i) => (
-                    <th key={i} style={{ padding: "10px 16px", fontSize: 11, fontWeight: 600, color: "#6b7280", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {EVALUATOR_BIAS.map((e, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                    <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#111827" }}>{e.name}</td>
-                    <td style={{ padding: "12px 16px", fontSize: 14, fontWeight: 700, color: e.avg >= 4 ? "#10b981" : e.avg >= 3.5 ? "#f59e0b" : "#ef4444" }}>{e.avg}</td>
-                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{e.passRate}%</td>
-                    <td style={{ padding: "12px 16px" }}>
-                      <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 10, background: e.tendency === "甘め" ? "#dcfce7" : e.tendency === "辛め" ? "#fee2e2" : "#f3f4f6", color: e.tendency === "甘め" ? "#15803d" : e.tendency === "辛め" ? "#dc2626" : "#6b7280" }}>{e.tendency}</span>
-                    </td>
-                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{e.variance}</td>
-                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{e.count}件</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>レーダーチャート（選考官比較）</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <RadarChart data={RADAR_DATA}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
-                  <PolarRadiusAxis domain={[0, 5]} tick={{ fontSize: 9 }} />
-                  <Radar name="安岡" dataKey="a" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} />
-                  <Radar name="鈴木" dataKey="b" stroke="#10b981" fill="#10b981" fillOpacity={0.15} />
-                  <Radar name="田中部長" dataKey="c" stroke="#ef4444" fill="#ef4444" fillOpacity={0.15} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-            <div style={{ background: "linear-gradient(135deg, #eef2ff, #f5f3ff)", borderRadius: 12, padding: 20, border: "1px solid #c7d2fe" }}>
-              <h4 style={{ fontSize: 14, fontWeight: 600, color: "#4338ca", marginBottom: 12 }}>🤖 AIインサイト</h4>
-              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8 }}>
-                <p style={{ marginBottom: 12 }}><strong>1.</strong> 田中部長は「論理的思考力」を重視する傾向が強く、コミュニケーション力の評価が他の面接官と比べ低めです。</p>
-                <p style={{ marginBottom: 12 }}><strong>2.</strong> 鈴木さんは全体的に高評価をつける傾向があります（平均+0.4）。</p>
-                <p><strong>3.</strong> 面接官間の評価一致率: <strong style={{ color: "#f59e0b" }}>68%</strong>（目標: 80%以上）</p>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-      {tab === "traits" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>通過者の共通特徴</h3>
-            {[
-              { trait: "論理的な回答構成（PREP法）", pct: 85 },
-              { trait: "具体的な数値を用いたエピソード", pct: 78 },
-              { trait: "チームワーク経験の言及", pct: 72 },
-              { trait: "自発的な質問（逆質問）", pct: 68 },
-              { trait: "業界理解の深さ", pct: 62 },
-            ].map((item, i) => (
-              <div key={i} style={{ marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ color: "#374151" }}>{item.trait}</span>
-                  <span style={{ fontWeight: 600, color: "#6366f1" }}>{item.pct}%</span>
-                </div>
-                <div style={{ height: 6, background: "#f3f4f6", borderRadius: 3 }}>
-                  <div style={{ height: "100%", background: "#6366f1", borderRadius: 3, width: `${item.pct}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>
-              {recruitFilter === "中途" ? "前職業界別通過率" : "大学別通過率"}
-            </h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={recruitFilter === "中途" ? [
-                { name: "コンサル", rate: 52 }, { name: "IT", rate: 45 }, { name: "メーカー", rate: 38 },
-                { name: "金融", rate: 35 }, { name: "商社", rate: 42 }, { name: "その他", rate: 28 },
-              ] : [
-                { name: "東京大学", rate: 45 }, { name: "慶應大学", rate: 38 }, { name: "早稲田大学", rate: 35 },
-                { name: "京都大学", rate: 42 }, { name: "一橋大学", rate: 30 }, { name: "その他", rate: 25 },
-              ]} margin={{ left: 10 }}>
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} unit="%" />
-                <Tooltip />
-                <Bar dataKey="rate" name="通過率" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-      {tab === "divergence" && (
-        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 20 }}>メモ vs 録音文字起こし 乖離分析</h3>
-          {[
-            { memo: "コミュ力が高い", analysis: "候補者の発話比率35%（面接官65%）", severity: "high", insight: "面接官が多く話しており、候補者のコミュ力を正確に測れていない可能性" },
-            { memo: "志望度が低い", analysis: "「御社」「ぜひ」など積極的ワード12回使用", severity: "high", insight: "言語データと主観評価にギャップ" },
-            { memo: "論理的思考力が高い", analysis: "PREP法での回答率80%、構造化スコア4.2/5.0", severity: "low", insight: "メモと客観分析が概ね一致" },
-          ].map((item, i) => (
-            <div key={i} style={{ padding: 16, background: i < 2 ? "#fef2f2" : "#f0fdf4", borderRadius: 10, marginBottom: 12, border: `1px solid ${i < 2 ? "#fecaca" : "#bbf7d0"}` }}>
-              <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>📋 面接官メモ</div>
-                  <div style={{ fontSize: 13, color: "#111827" }}>「{item.memo}」</div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>🎙️ 文字起こし分析</div>
-                  <div style={{ fontSize: 13, color: "#111827" }}>{item.analysis}</div>
-                </div>
-              </div>
-              <div style={{ fontSize: 12, color: i < 2 ? "#dc2626" : "#15803d", display: "flex", alignItems: "center", gap: 4 }}>
-                <Icon name={i < 2 ? "alert-circle" : "check-circle"} size={14} />
-                {i < 2 ? "⚠️ 乖離あり" : "✅ 一致"}: {item.insight}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {tab === "overview" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>選考通過率（ステージ別）</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={[
-                { stage: "書類→一次", rate: 62 }, { stage: "一次→二次", rate: 44 },
-                { stage: "二次→最終", rate: 46 }, { stage: "最終→内定", rate: 14 },
-                { stage: "内定→承諾", rate: 42 },
-              ]}>
+          <div style={{ ...cardStyle, marginBottom: 16 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>選考ファネル（現在の候補者分布）</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={funnelData} margin={{ left: 20 }}>
                 <XAxis dataKey="stage" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} unit="%" />
-                <Tooltip />
-                <Bar dataKey="rate" name="通過率" radius={[4, 4, 0, 0]}>
-                  {[0, 1, 2, 3, 4].map(i => <Cell key={i} fill={COLORS[i]} />)}
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip formatter={(v, name) => [v + "名", name === "reached" ? "到達人数" : "現在人数"]} />
+                <Bar dataKey="reached" name="到達人数" fill="#e0e7ff" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="current" name="現在人数" radius={[4, 4, 0, 0]}>
+                  {funnelData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <div style={{ ...cardStyle }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>ステージ間通過率</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+              {conversionData.map((item, i) => (
+                <div key={i} style={{ padding: 14, background: item.rate >= 50 ? "#f0fdf4" : item.rate >= 30 ? "#fffbeb" : "#fef2f2", borderRadius: 10, border: `1px solid ${item.rate >= 50 ? "#bbf7d0" : item.rate >= 30 ? "#fde68a" : "#fecaca"}` }}>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>{item.label}</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: item.rate >= 50 ? "#15803d" : item.rate >= 30 ? "#b45309" : "#dc2626" }}>{item.rate}%</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{item.from}名 → {item.to}名</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ===== 経路・エージェント ===== */}
+      {tab === "route" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={cardStyle}>
             <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>エントリー経路別分布</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={recruitFilter === "中途" ? [
-                  { name: "ビズリーチ", value: 120 }, { name: "エージェント", value: 95 },
-                  { name: "Green", value: 60 }, { name: "リファラル", value: 40 }, { name: "その他", value: 15 },
-                ] : [
-                  { name: "リクナビ", value: 320 }, { name: "マイナビ", value: 210 },
-                  { name: "エージェント", value: 130 }, { name: "自社サイト", value: 60 }, { name: "その他", value: 31 },
-                ]} cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine fontSize={10}>
-                  {[0, 1, 2, 3, 4].map(i => <Cell key={i} fill={COLORS[i]} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {routeData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <PieChart>
+                  <Pie data={routeData} cx="50%" cy="50%" outerRadius={85} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine fontSize={10}>
+                    {routeData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => v + "名"} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>経路データなし</div>}
+          </div>
+          <div style={cardStyle}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>紹介会社別候補者数</h3>
+            {agentData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={agentData.slice(0, 8)} layout="vertical" margin={{ left: 80 }}>
+                  <XAxis type="number" tick={{ fontSize: 10 }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={80} />
+                  <Tooltip formatter={(v) => v + "名"} />
+                  <Bar dataKey="value" name="候補者数" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>エージェントデータなし</div>}
+          </div>
+          {agentStageData.length > 0 && (
+            <div style={{ ...cardStyle, gridColumn: "1 / -1" }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>紹介会社別 選考進捗率（二次面接以降）</h3>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ background: "#f9fafb" }}>
+                    {["紹介会社", "紹介数", "二次以降", "進捗率", ""].map((h, i) => (
+                      <th key={i} style={{ padding: "10px 16px", fontSize: 11, fontWeight: 600, color: "#6b7280", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {agentStageData.map((a, i) => (
+                    <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                      <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#111827" }}>{a.name}</td>
+                      <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{a.total}名</td>
+                      <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{a.advanced}名</td>
+                      <td style={{ padding: "12px 16px", fontSize: 14, fontWeight: 700, color: a.rate >= 30 ? "#10b981" : a.rate >= 15 ? "#f59e0b" : "#ef4444" }}>{a.rate}%</td>
+                      <td style={{ padding: "12px 16px", width: 120 }}>
+                        <div style={{ height: 6, background: "#f3f4f6", borderRadius: 3 }}>
+                          <div style={{ height: "100%", background: a.rate >= 30 ? "#10b981" : a.rate >= 15 ? "#f59e0b" : "#ef4444", borderRadius: 3, width: `${Math.min(a.rate, 100)}%`, transition: "width 0.3s" }} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== 大学・属性分析 ===== */}
+      {tab === "university" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={cardStyle}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>大学別候補者数 & 二次以降到達率</h3>
+            {universityData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={universityData} margin={{ left: 10 }}>
+                  <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-20} textAnchor="end" height={50} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v, name) => [name === "total" ? v + "名" : v + "名", name === "total" ? "総数" : "二次以降"]} />
+                  <Bar dataKey="total" name="総数" fill="#e0e7ff" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="advanced" name="二次以降" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>大学データが不足</div>}
+          </div>
+          <div style={cardStyle}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>性別分布</h3>
+            {genderData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie data={genderData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine fontSize={11}>
+                    {genderData.map((_, i) => <Cell key={i} fill={["#6366f1", "#ec4899", "#9ca3af", "#f59e0b"][i % 4]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => v + "名"} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>性別データなし</div>}
+          </div>
+          {/* ステージ×大学 ヒートマップ風テーブル */}
+          {universityData.length > 0 && (
+            <div style={{ ...cardStyle, gridColumn: "1 / -1" }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>大学別ランキング（二次以降到達率）</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+                {universityData.filter(u => u.total >= 2).sort((a, b) => b.rate - a.rate).map((u, i) => (
+                  <div key={i} style={{ padding: 12, background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{i + 1}. {u.fullName}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: u.rate >= 30 ? "#10b981" : "#f59e0b" }}>{u.rate}%</span>
+                    </div>
+                    <div style={{ height: 5, background: "#e5e7eb", borderRadius: 3 }}>
+                      <div style={{ height: "100%", background: u.rate >= 30 ? "#10b981" : "#f59e0b", borderRadius: 3, width: `${Math.min(u.rate, 100)}%` }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>{u.total}名中 {u.advanced}名が二次以降</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== 時系列 ===== */}
+      {tab === "timeline" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
+          <div style={cardStyle}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>月別エントリー推移</h3>
+            {monthlyData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={monthlyData}>
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v) => v + "名"} />
+                  <Bar dataKey="count" name="エントリー数" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>日付データなし</div>}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={cardStyle}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>ステージ別 現在の在籍人数</h3>
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie data={funnelData.filter(d => d.current > 0)} dataKey="current" cx="50%" cy="50%" outerRadius={85} label={({ stage, current }) => `${stage} ${current}`} labelLine fontSize={10}>
+                    {funnelData.filter(d => d.current > 0).map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => v + "名"} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ ...cardStyle, background: "linear-gradient(135deg, #eef2ff, #f5f3ff)", border: "1px solid #c7d2fe" }}>
+              <h4 style={{ fontSize: 14, fontWeight: 600, color: "#4338ca", marginBottom: 12 }}>📊 サマリー</h4>
+              <div style={{ fontSize: 13, color: "#374151", lineHeight: 2.0 }}>
+                <p>総エントリー: <strong>{kpi.total}</strong>名</p>
+                <p>内定率: <strong style={{ color: "#10b981" }}>{kpi.offerRate}%</strong></p>
+                <p>内定承諾率: <strong style={{ color: "#10b981" }}>{kpi.acceptRate}%</strong></p>
+                {agentStageData.length > 0 && <p>最優秀エージェント: <strong style={{ color: "#6366f1" }}>{agentStageData[0]?.name}</strong>（{agentStageData[0]?.total}名紹介）</p>}
+                {monthlyData.length > 0 && <p>ピーク月: <strong>{monthlyData.reduce((a, b) => a.count > b.count ? a : b).month}</strong>（{monthlyData.reduce((a, b) => a.count > b.count ? a : b).count}名）</p>}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -4554,7 +4713,7 @@ function App() {
       case "schedule": return <SchedulePage recruitFilter={recruitFilter} />;
       case "interview-fb": return <InterviewFBPage onNavigate={navigate} />;
       case "automation": return <AutomationPage />;
-      case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} />;
+      case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} candidates={candidates} />;
       case "tasks": return <TasksPage tasks={tasks} onUpdateTasks={saveTasks} candidates={candidates} onNavigate={navigate} />;
       case "agents": return <AgentsPage candidates={candidates} />;
       case "accounts": return can("manageAccounts") ? <AccountsPage currentUser={user} onRefreshProfile={() => loadProfile(user?.id, user?.email)} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
