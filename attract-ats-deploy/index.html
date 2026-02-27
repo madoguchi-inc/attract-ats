@@ -762,10 +762,16 @@ function FormatBadge({ format }) {
 // PAGES
 // ============================================================
 
-function DashboardPage({ onNavigate, recruitFilter }) {
+function DashboardPage({ onNavigate, recruitFilter, tasks = [] }) {
   const filteredCandidates = recruitFilter === "all" ? CANDIDATES : CANDIDATES.filter(c => c.recruitType === recruitFilter);
   const newCount = CANDIDATES.filter(c => c.recruitType === "新卒").length;
   const midCount = CANDIDATES.filter(c => c.recruitType === "中途").length;
+  const today = new Date().toISOString().split("T")[0];
+  const overdueTaskCount = tasks.filter(t => !t.done && t.dueAt < today).length;
+  const todayTaskCount = tasks.filter(t => !t.done && t.dueAt === today).length;
+  const pendingHighCount = tasks.filter(t => !t.done && t.priority === "high").length;
+  const pendingTaskCount = tasks.filter(t => !t.done).length;
+  const upcomingTasks = tasks.filter(t => !t.done).sort((a, b) => (a.dueAt || "9999") < (b.dueAt || "9999") ? -1 : 1).slice(0, 5);
   return (
     <div style={{ padding: 24, maxWidth: 1200 }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", marginBottom: 20 }}>ダッシュボード</h1>
@@ -780,23 +786,37 @@ function DashboardPage({ onNavigate, recruitFilter }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
         <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
           <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}>
-            <Icon name="alert-circle" size={16} color="#f59e0b" /> 今日のアクション
+            <Icon name="check-square" size={16} color="#f59e0b" /> タスク状況
           </h3>
-          {[
-            { icon: "🔴", text: "面接FB未入力", count: "3件", action: "入力する" },
-            { icon: "🟡", text: "リマインド送信待ち", count: "5件", action: "確認" },
-            { icon: "🟢", text: "今日の面接", count: "2件", action: "詳細" },
-            { icon: "⚪", text: "ステータス承認待ち", count: "1件", action: "承認" },
-          ].map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: i < 3 ? "1px solid #f3f4f6" : "none" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span>{item.icon}</span>
-                <span style={{ fontSize: 13, color: "#374151" }}>{item.text}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#6366f1" }}>{item.count}</span>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {overdueTaskCount > 0 && <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 8, background: "#fee2e2", color: "#dc2626", fontWeight: 600 }}>🔴 期限超過 {overdueTaskCount}件</span>}
+            {todayTaskCount > 0 && <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 8, background: "#fef3c7", color: "#92400e", fontWeight: 600 }}>🟡 今日が期限 {todayTaskCount}件</span>}
+            {pendingHighCount > 0 && <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 8, background: "#eef2ff", color: "#4338ca", fontWeight: 600 }}>🔵 高優先度 {pendingHighCount}件</span>}
+            {pendingTaskCount === 0 && <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 8, background: "#dcfce7", color: "#15803d", fontWeight: 600 }}>✅ 未完了タスクなし</span>}
+          </div>
+          {upcomingTasks.length > 0 ? upcomingTasks.map((task, i) => {
+            const isOverdue = task.dueAt < today;
+            const isToday = task.dueAt === today;
+            const dt = task.dueAt ? new Date(task.dueAt + "T00:00:00") : null;
+            const dateStr = dt ? (dt.getMonth()+1) + "/" + dt.getDate() : "";
+            return (
+              <div key={task.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: i < upcomingTasks.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                  <span>{isOverdue ? "🔴" : isToday ? "🟡" : "⚪"}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.label}</div>
+                    <div style={{ fontSize: 10, color: "#9ca3af" }}>{task.candidateName} {dateStr && "・" + dateStr}</div>
+                  </div>
+                </div>
+                <button onClick={() => onNavigate("tasks")} style={{ fontSize: 11, color: "#6366f1", background: "#eef2ff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", flexShrink: 0 }}>タスクへ</button>
               </div>
-              <button style={{ fontSize: 11, color: "#6366f1", background: "#eef2ff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>{item.action}</button>
+            );
+          }) : (
+            <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#9ca3af" }}>
+              {pendingTaskCount === 0 ? "タスクはすべて完了しています 🎉" : "直近のタスクはありません"}
             </div>
-          ))}
+          )}
+          {pendingTaskCount > 5 && <div style={{ textAlign: "right", marginTop: 8 }}><button onClick={() => onNavigate("tasks")} style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer" }}>すべてのタスクを表示 →</button></div>}
         </div>
         <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
           <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}>
@@ -3340,6 +3360,297 @@ function AnalyticsPage({ recruitFilter }) {
 }
 
 // ============================================================
+// ステージ別タスク定義（自動生成用）
+// ============================================================
+const STAGE_TASKS = {
+  "エントリー": [
+    { label: "応募書類の確認", priority: "high", daysDue: 2 },
+    { label: "エントリー受領メール送信", priority: "high", daysDue: 1 },
+  ],
+  "説明会": [
+    { label: "説明会の案内メール送信", priority: "high", daysDue: 1 },
+    { label: "参加可否の確認", priority: "medium", daysDue: 3 },
+  ],
+  "一次面接": [
+    { label: "面接日程の調整・候補日連絡", priority: "high", daysDue: 2 },
+    { label: "面接リマインドメール送信", priority: "medium", daysDue: 0, note: "面接前日" },
+    { label: "面接FBの入力", priority: "high", daysDue: 1, note: "面接実施後" },
+  ],
+  "適性テスト": [
+    { label: "適性テスト受検案内メール送信", priority: "high", daysDue: 1 },
+    { label: "受検状況の確認", priority: "medium", daysDue: 5 },
+    { label: "テスト結果の確認・評価", priority: "high", daysDue: 2, note: "受検完了後" },
+  ],
+  "二次面接": [
+    { label: "二次面接の日程調整", priority: "high", daysDue: 2 },
+    { label: "面接リマインドメール送信", priority: "medium", daysDue: 0, note: "面接前日" },
+    { label: "面接FBの入力", priority: "high", daysDue: 1, note: "面接実施後" },
+  ],
+  "最終面接": [
+    { label: "最終面接の日程調整", priority: "high", daysDue: 2 },
+    { label: "面接リマインドメール送信", priority: "medium", daysDue: 0, note: "面接前日" },
+    { label: "面接FBの入力・合否判定", priority: "high", daysDue: 1, note: "面接実施後" },
+  ],
+  "内定": [
+    { label: "内定通知メールの送信", priority: "high", daysDue: 1 },
+    { label: "オファー面談の日程調整", priority: "high", daysDue: 3 },
+    { label: "フォローアップ連絡", priority: "medium", daysDue: 7 },
+  ],
+  "内定承諾": [
+    { label: "入社手続き書類の案内", priority: "high", daysDue: 3 },
+    { label: "入社前フォロー連絡", priority: "medium", daysDue: 14 },
+    { label: "入社日・配属の確認", priority: "medium", daysDue: 7 },
+  ],
+};
+
+function generateTasksForStage(candidate, stageName) {
+  const defs = STAGE_TASKS[stageName];
+  if (!defs) return [];
+  const now = new Date();
+  return defs.map((def, i) => ({
+    id: "task_" + candidate.id + "_" + stageName + "_" + i + "_" + Date.now(),
+    candidateId: candidate.id,
+    candidateName: (candidate.lastName || "") + " " + (candidate.firstName || ""),
+    recruitType: candidate.recruitType,
+    stage: stageName,
+    label: def.label,
+    priority: def.priority,
+    note: def.note || "",
+    done: false,
+    createdAt: now.toISOString(),
+    dueAt: new Date(now.getTime() + def.daysDue * 86400000).toISOString().split("T")[0],
+  }));
+}
+
+// ============================================================
+// タスクページ
+// ============================================================
+function TasksPage({ tasks, onUpdateTasks, candidates, onNavigate }) {
+  const [filter, setFilter] = useState("pending"); // pending | all | done | overdue
+  const [sortBy, setSortBy] = useState("dueAt"); // dueAt | priority | stage
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newTask, setNewTask] = useState({ candidateId: "", label: "", priority: "medium", dueAt: "", note: "" });
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const filteredTasks = useMemo(() => {
+    let list = [...(tasks || [])];
+    if (filter === "pending") list = list.filter(t => !t.done);
+    else if (filter === "done") list = list.filter(t => t.done);
+    else if (filter === "overdue") list = list.filter(t => !t.done && t.dueAt < today);
+
+    list.sort((a, b) => {
+      if (sortBy === "dueAt") return (a.dueAt || "9999") < (b.dueAt || "9999") ? -1 : 1;
+      if (sortBy === "priority") {
+        const p = { high: 0, medium: 1, low: 2 };
+        return (p[a.priority] || 1) - (p[b.priority] || 1);
+      }
+      if (sortBy === "stage") {
+        const si = (n) => STAGE_DEFINITIONS.findIndex(s => s.name === n);
+        return si(a.stage) - si(b.stage);
+      }
+      return 0;
+    });
+    return list;
+  }, [tasks, filter, sortBy, today]);
+
+  const toggleDone = (taskId) => {
+    const updated = (tasks || []).map(t => t.id === taskId ? { ...t, done: !t.done, doneAt: !t.done ? new Date().toISOString() : null } : t);
+    onUpdateTasks(updated);
+  };
+
+  const deleteTask = (taskId) => {
+    onUpdateTasks((tasks || []).filter(t => t.id !== taskId));
+  };
+
+  const addTask = () => {
+    if (!newTask.label.trim()) return;
+    const cand = candidates.find(c => c.id == newTask.candidateId);
+    const task = {
+      id: "task_manual_" + Date.now(),
+      candidateId: newTask.candidateId ? Number(newTask.candidateId) : null,
+      candidateName: cand ? (cand.lastName + " " + cand.firstName) : "（共通）",
+      recruitType: cand?.recruitType || "",
+      stage: cand?.stage || "",
+      label: newTask.label.trim(),
+      priority: newTask.priority,
+      note: newTask.note,
+      done: false,
+      createdAt: new Date().toISOString(),
+      dueAt: newTask.dueAt || today,
+    };
+    onUpdateTasks([...(tasks || []), task]);
+    setNewTask({ candidateId: "", label: "", priority: "medium", dueAt: "", note: "" });
+    setShowAddModal(false);
+  };
+
+  const overdueCount = (tasks || []).filter(t => !t.done && t.dueAt < today).length;
+  const todayCount = (tasks || []).filter(t => !t.done && t.dueAt === today).length;
+  const pendingCount = (tasks || []).filter(t => !t.done).length;
+  const doneCount = (tasks || []).filter(t => t.done).length;
+
+  const prioStyle = (p) => p === "high" ? { bg: "#fee2e2", color: "#dc2626", label: "高" } : p === "medium" ? { bg: "#fef3c7", color: "#92400e", label: "中" } : { bg: "#f3f4f6", color: "#6b7280", label: "低" };
+
+  const dueStyle = (dueAt, done) => {
+    if (done) return { color: "#9ca3af" };
+    if (dueAt < today) return { color: "#dc2626", fontWeight: 600 };
+    if (dueAt === today) return { color: "#f59e0b", fontWeight: 600 };
+    return { color: "#6b7280" };
+  };
+
+  const formatDate = (d) => {
+    if (!d) return "";
+    const dt = new Date(d + "T00:00:00");
+    const mm = dt.getMonth() + 1, dd = dt.getDate();
+    const days = ["日","月","火","水","木","金","土"];
+    return mm + "/" + dd + "(" + days[dt.getDay()] + ")";
+  };
+
+  // グループ化（候補者ごと）
+  const grouped = useMemo(() => {
+    const map = {};
+    filteredTasks.forEach(t => {
+      const key = t.candidateId || "__common__";
+      if (!map[key]) map[key] = { name: t.candidateName, recruitType: t.recruitType, stage: t.stage, tasks: [] };
+      map[key].tasks.push(t);
+    });
+    return Object.entries(map);
+  }, [filteredTasks]);
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1000 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>✅ タスク</h1>
+        <button onClick={() => setShowAddModal(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", background: "#4338ca", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          <Icon name="plus" size={14} color="white" /> 新規タスク
+        </button>
+      </div>
+
+      {/* サマリーカード */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "期限超過", count: overdueCount, bg: "#fee2e2", color: "#dc2626", icon: "🔴", fKey: "overdue" },
+          { label: "今日が期限", count: todayCount, bg: "#fef3c7", color: "#92400e", icon: "🟡", fKey: "pending" },
+          { label: "未完了", count: pendingCount, bg: "#eef2ff", color: "#4338ca", icon: "📋", fKey: "pending" },
+          { label: "完了", count: doneCount, bg: "#dcfce7", color: "#15803d", icon: "✅", fKey: "done" },
+        ].map((c, i) => (
+          <div key={i} onClick={() => setFilter(c.fKey)} style={{ flex: 1, padding: "14px 16px", background: c.bg, borderRadius: 10, cursor: "pointer", border: filter === c.fKey ? "2px solid " + c.color : "2px solid transparent", transition: "all 0.15s" }}>
+            <div style={{ fontSize: 11, color: c.color, marginBottom: 4 }}>{c.icon} {c.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: c.color }}>{c.count}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* フィルタ＆ソート */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center" }}>
+        {[
+          { id: "pending", label: "未完了" },
+          { id: "overdue", label: "期限超過" },
+          { id: "done", label: "完了済み" },
+          { id: "all", label: "すべて" },
+        ].map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)}
+            style={{ padding: "5px 14px", border: "1px solid " + (filter === f.id ? "#4338ca" : "#e5e7eb"), borderRadius: 8, background: filter === f.id ? "#eef2ff" : "white", color: filter === f.id ? "#4338ca" : "#6b7280", fontSize: 12, cursor: "pointer", fontWeight: filter === f.id ? 600 : 400 }}>
+            {f.label}
+          </button>
+        ))}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 11, color: "#9ca3af" }}>並び替え:</span>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ padding: "4px 8px", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 12, color: "#374151" }}>
+            <option value="dueAt">期限日</option>
+            <option value="priority">優先度</option>
+            <option value="stage">ステージ</option>
+          </select>
+        </div>
+      </div>
+
+      {/* タスク一覧 */}
+      {grouped.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: "#9ca3af" }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>{filter === "done" ? "🎉" : "📭"}</div>
+          <div style={{ fontSize: 14 }}>{filter === "done" ? "完了タスクはありません" : "未完了のタスクはありません"}</div>
+        </div>
+      ) : (
+        grouped.map(([key, group]) => (
+          <div key={key} style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 0" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{group.name}</span>
+              {group.recruitType && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: group.recruitType === "新卒" ? "#eef2ff" : "#fffbeb", color: group.recruitType === "新卒" ? "#4338ca" : "#92400e" }}>{group.recruitType}</span>}
+              {group.stage && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: "#f3f4f6", color: "#6b7280" }}>{group.stage}</span>}
+            </div>
+            <div style={{ background: "white", borderRadius: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+              {group.tasks.map((task, ti) => {
+                const ps = prioStyle(task.priority);
+                const ds = dueStyle(task.dueAt, task.done);
+                const stDef = getStageDefByName(task.stage);
+                return (
+                  <div key={task.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: ti < group.tasks.length - 1 ? "1px solid #f3f4f6" : "none", opacity: task.done ? 0.5 : 1, transition: "opacity 0.2s" }}>
+                    <input type="checkbox" checked={task.done} onChange={() => toggleDone(task.id)}
+                      style={{ width: 18, height: 18, accentColor: "#4338ca", cursor: "pointer", flexShrink: 0 }} />
+                    <div style={{ width: 4, height: 32, borderRadius: 2, background: stDef?.color || "#9ca3af", flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: task.done ? "#9ca3af" : "#111827", textDecoration: task.done ? "line-through" : "none", fontWeight: 500 }}>{task.label}</div>
+                      {task.note && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>💡 {task.note}</div>}
+                    </div>
+                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: ps.bg, color: ps.color, fontWeight: 600, flexShrink: 0 }}>{ps.label}</span>
+                    <span style={{ fontSize: 11, ...ds, flexShrink: 0, minWidth: 65 }}>{task.dueAt < today && !task.done ? "⚠ " : ""}{formatDate(task.dueAt)}</span>
+                    <button onClick={() => deleteTask(task.id)} style={{ background: "none", border: "none", color: "#d1d5db", cursor: "pointer", fontSize: 16, padding: "0 4px", flexShrink: 0 }} title="削除">×</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      )}
+
+      {/* 新規タスク追加モーダル */}
+      {showAddModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div style={{ background: "white", borderRadius: 14, padding: 28, width: 480, maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700 }}>新規タスク作成</h2>
+              <button onClick={() => setShowAddModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9ca3af" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>候補者（任意）</label>
+                <select value={newTask.candidateId} onChange={e => setNewTask(p => ({ ...p, candidateId: e.target.value }))} style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13 }}>
+                  <option value="">-- 共通タスク --</option>
+                  {(candidates || []).map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName}（{c.stage}）</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>タスク内容 *</label>
+                <input value={newTask.label} onChange={e => setNewTask(p => ({ ...p, label: e.target.value }))} placeholder="例: 面接日程を調整する" style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>優先度</label>
+                  <select value={newTask.priority} onChange={e => setNewTask(p => ({ ...p, priority: e.target.value }))} style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13 }}>
+                    <option value="high">高</option>
+                    <option value="medium">中</option>
+                    <option value="low">低</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>期限日</label>
+                  <input type="date" value={newTask.dueAt} onChange={e => setNewTask(p => ({ ...p, dueAt: e.target.value }))} style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>メモ</label>
+                <input value={newTask.note} onChange={e => setNewTask(p => ({ ...p, note: e.target.value }))} placeholder="補足情報" style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <button onClick={addTask} disabled={!newTask.label.trim()} style={{ padding: "10px 0", background: newTask.label.trim() ? "#4338ca" : "#d1d5db", color: "white", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: newTask.label.trim() ? "pointer" : "not-allowed" }}>作成</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // 設定ページ（テンプレート管理）
 // ============================================================
 function SettingsPage({ emailTemplates, onSaveTemplates }) {
@@ -3802,6 +4113,24 @@ function App() {
     try { const saved = localStorage.getItem('ats_email_templates'); return saved ? JSON.parse(saved) : DEFAULT_EMAIL_TEMPLATES; } catch(e) { return DEFAULT_EMAIL_TEMPLATES; }
   });
   const saveEmailTemplates = (tpls) => { setEmailTemplates(tpls); localStorage.setItem('ats_email_templates', JSON.stringify(tpls)); };
+
+  // タスク管理
+  const [tasks, setTasks] = useState(() => {
+    try { const saved = localStorage.getItem('ats_tasks'); return saved ? JSON.parse(saved) : []; } catch(e) { return []; }
+  });
+  const saveTasks = useCallback((newTasks) => { setTasks(newTasks); localStorage.setItem('ats_tasks', JSON.stringify(newTasks)); }, []);
+
+  // ステージ変更時にタスクを自動生成
+  const autoGenerateTasks = useCallback((candidate, newStage) => {
+    const newTasks = generateTasksForStage(candidate, newStage);
+    if (newTasks.length > 0) {
+      setTasks(prev => {
+        const updated = [...prev, ...newTasks];
+        localStorage.setItem('ats_tasks', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  }, []);
   const [profileEditName, setProfileEditName] = useState("");
   const [migrationStatus, setMigrationStatus] = useState(null);
   const [migrationMsg, setMigrationMsg] = useState('');
@@ -3849,7 +4178,16 @@ function App() {
   };
 
   // データフック
-  const { candidates, loading: dataLoading, addCandidate, updateCandidate, bulkUpdateStatus, refresh } = useSupabaseCandidates(recruitFilter);
+  const { candidates, loading: dataLoading, addCandidate, updateCandidate: rawUpdateCandidate, bulkUpdateStatus, refresh } = useSupabaseCandidates(recruitFilter);
+
+  // ステージ変更時にタスクも自動生成するラッパー
+  const updateCandidate = useCallback(async (id, updates) => {
+    await rawUpdateCandidate(id, updates);
+    if (updates.stage) {
+      const cand = candidates.find(c => c.id === id);
+      if (cand) autoGenerateTasks({ ...cand, ...updates }, updates.stage);
+    }
+  }, [rawUpdateCandidate, candidates, autoGenerateTasks]);
 
   const handleMigration = async () => {
     if (!window.confirm('候補者データを新しい8ステージ形式に一括変換します。\\n（既存のステージ・サブステータスが上書きされます）\\n\\n実行しますか？')) return;
@@ -3903,7 +4241,7 @@ function App() {
 
   const renderPage = () => {
     switch (currentPage) {
-      case "dashboard": return <DashboardPage onNavigate={navigate} recruitFilter={recruitFilter} />;
+      case "dashboard": return <DashboardPage onNavigate={navigate} recruitFilter={recruitFilter} tasks={tasks} />;
       case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} can={can} emailTemplates={emailTemplates} />;
       case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} can={can} />;
       case "pipeline": return <PipelinePage recruitFilter={recruitFilter} onNavigateFromPipeline={navigateFromPipeline} candidates={candidates} />;
@@ -3911,6 +4249,7 @@ function App() {
       case "interview-fb": return <InterviewFBPage onNavigate={navigate} />;
       case "automation": return <AutomationPage />;
       case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} />;
+      case "tasks": return <TasksPage tasks={tasks} onUpdateTasks={saveTasks} candidates={candidates} onNavigate={navigate} />;
       case "accounts": return can("manageAccounts") ? <AccountsPage currentUser={user} onRefreshProfile={() => loadProfile(user?.id, user?.email)} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
       case "settings": return can("editSettings") ? <SettingsPage emailTemplates={emailTemplates} onSaveTemplates={saveEmailTemplates} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
       default: return (
@@ -3964,7 +4303,7 @@ function App() {
       </div>
 
       {/* 候補者追加モーダル */}
-      {showAddModal && <AddCandidateModal onClose={() => setShowAddModal(false)} onAdd={async (c) => { await addCandidate(c); setShowAddModal(false); }} />}
+      {showAddModal && <AddCandidateModal onClose={() => setShowAddModal(false)} onAdd={async (c) => { const result = await addCandidate(c); if (result) autoGenerateTasks({ ...c, id: result.id || result[0]?.id || Date.now() }, c.stage || "エントリー"); setShowAddModal(false); }} />}
 
       {/* プロフィール編集モーダル */}
       {showProfileModal && (
