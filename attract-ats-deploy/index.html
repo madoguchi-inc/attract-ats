@@ -1193,6 +1193,77 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setEditingStage(false);
   };
 
+  // 評価・FB関連
+  const EVAL_CRITERIA = [
+    { key: "logic", label: "論理的思考力", icon: "💡" },
+    { key: "communication", label: "コミュニケーション力", icon: "🗣️" },
+    { key: "motivation", label: "志望度・熱意", icon: "🔥" },
+    { key: "culture", label: "カルチャーフィット", icon: "🤝" },
+    { key: "skill", label: "スキル・経験", icon: "⚙️" },
+  ];
+  const INTERVIEW_STAGES = ["一次面接", "二次面接", "最終面接"];
+
+  // FB用ダミーデータ（Supabase連携時に置き換え）
+  const [feedbacks, setFeedbacks] = useState(() => {
+    const stageOrder = STAGE_DEFINITIONS.map(s => s.name);
+    const currentIdx = stageOrder.indexOf(c.stage);
+    const passedInterviews = INTERVIEW_STAGES.filter(s => {
+      const idx = stageOrder.indexOf(s);
+      return idx < currentIdx || (idx === currentIdx && ["実施済", "合格"].includes(c.substatus));
+    });
+    // 通過済みの面接にはダミーFBを生成
+    const interviewers = { "一次面接": "佐々木", "二次面接": "安岡", "最終面接": "田中部長" };
+    const dummyComments = {
+      "一次面接": "第一印象が良く、基本的なコミュニケーション能力は高い。業界理解はやや浅い部分もあるが、学習意欲は感じられる。",
+      "二次面接": "前回からの成長が見られた。具体的なエピソードを交えた自己PRが効果的。チームワークの経験についてもう少し深掘りしたい。",
+      "最終面接": "経営ビジョンへの共感度が高く、長期的なキャリアプランが明確。入社後の活躍が期待できる人材。",
+    };
+    return passedInterviews.map(stage => ({
+      stage,
+      interviewer: interviewers[stage] || "未定",
+      date: "2026/02/" + (10 + passedInterviews.indexOf(stage) * 7).toString().padStart(2, "0"),
+      format: Math.random() > 0.5 ? "WEB" : "対面",
+      scores: {
+        logic: Math.floor(Math.random() * 2) + 3,
+        communication: Math.floor(Math.random() * 2) + 3,
+        motivation: Math.floor(Math.random() * 2) + 3,
+        culture: Math.floor(Math.random() * 2) + 3,
+        skill: Math.floor(Math.random() * 2) + 3,
+      },
+      overall: +(3 + Math.random() * 1.5).toFixed(1),
+      result: "合格",
+      comment: dummyComments[stage] || "",
+      strengths: stage === "一次面接" ? "コミュニケーション力、第一印象" : stage === "二次面接" ? "論理的思考力、成長意欲" : "ビジョン共感度、キャリアプラン",
+      concerns: stage === "一次面接" ? "業界理解がやや浅い" : stage === "二次面接" ? "チームワーク経験の深掘りが必要" : "特になし",
+    }));
+  });
+
+  const [fbFormOpen, setFbFormOpen] = useState(false); // FB入力フォーム表示
+  const [fbFormStage, setFbFormStage] = useState(""); // 入力中のステージ
+  const [fbFormData, setFbFormData] = useState({
+    interviewer: "", date: new Date().toISOString().slice(0, 10), format: "WEB",
+    scores: { logic: 3, communication: 3, motivation: 3, culture: 3, skill: 3 },
+    overall: 3, result: "合格", comment: "", strengths: "", concerns: "",
+  });
+
+  const openFbForm = (stage) => {
+    setFbFormStage(stage || INTERVIEW_STAGES.find(s => !feedbacks.some(f => f.stage === s)) || "一次面接");
+    setFbFormData({ interviewer: "", date: new Date().toISOString().slice(0, 10), format: "WEB",
+      scores: { logic: 3, communication: 3, motivation: 3, culture: 3, skill: 3 },
+      overall: 3, result: "合格", comment: "", strengths: "", concerns: "" });
+    setFbFormOpen(true);
+  };
+
+  const saveFb = () => {
+    const newFb = { ...fbFormData, stage: fbFormStage };
+    setFeedbacks(prev => {
+      const existing = prev.findIndex(f => f.stage === fbFormStage);
+      if (existing >= 0) { const updated = [...prev]; updated[existing] = newFb; return updated; }
+      return [...prev, newFb].sort((a, b) => INTERVIEW_STAGES.indexOf(a.stage) - INTERVIEW_STAGES.indexOf(b.stage));
+    });
+    setFbFormOpen(false);
+  };
+
   // メール送信関連
   const [showCompose, setShowCompose] = useState(false);
   const [emailSubject, setEmailSubject] = useState("");
@@ -1478,23 +1549,226 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
       {/* ===== 評価・FBタブ ===== */}
       {activeTab === "evaluation" && (
-        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-          <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 20 }}>評価・フィードバック</h3>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20, padding: 16, background: "#f9fafb", borderRadius: 10 }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 32, fontWeight: 700, color: c.score >= 4 ? "#10b981" : c.score >= 3 ? "#f59e0b" : "#ef4444" }}>{c.score ? c.score.toFixed(1) : "—"}</div>
-              <div style={{ fontSize: 11, color: "#9ca3af" }}>総合評価</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* サマリーカード */}
+          <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>評価サマリー</h3>
+              <button onClick={() => openFbForm()} style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>＋ FB入力</button>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 4 }}>志望度: {[...Array(5)].map((_, i) => <span key={i} style={{ color: i < c.aspiration ? "#f59e0b" : "#e5e7eb" }}>★</span>)}</div>
-              <div style={{ fontSize: 13, color: "#6b7280" }}>選考形態: {c.format || "—"}</div>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              {/* 総合スコア */}
+              <div style={{ textAlign: "center", padding: 16, background: "#f9fafb", borderRadius: 10, minWidth: 100 }}>
+                <div style={{ fontSize: 36, fontWeight: 700, color: (() => { const avg = feedbacks.length ? (feedbacks.reduce((s,f) => s + f.overall, 0) / feedbacks.length) : (c.score || 0); return avg >= 4 ? "#10b981" : avg >= 3 ? "#f59e0b" : "#ef4444"; })() }}>
+                  {feedbacks.length ? (feedbacks.reduce((s,f) => s + f.overall, 0) / feedbacks.length).toFixed(1) : (c.score ? c.score.toFixed(1) : "—")}
+                </div>
+                <div style={{ fontSize: 11, color: "#9ca3af" }}>総合評価</div>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{feedbacks.length}件のFB</div>
+              </div>
+              {/* 項目別レーダー的表示 */}
+              <div style={{ flex: 1, minWidth: 200 }}>
+                {EVAL_CRITERIA.map(cr => {
+                  const avg = feedbacks.length ? feedbacks.reduce((s,f) => s + (f.scores[cr.key] || 0), 0) / feedbacks.length : 0;
+                  return (
+                    <div key={cr.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, width: 16 }}>{cr.icon}</span>
+                      <span style={{ fontSize: 12, color: "#6b7280", width: 120 }}>{cr.label}</span>
+                      <div style={{ flex: 1, height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ width: `${(avg / 5) * 100}%`, height: "100%", background: avg >= 4 ? "#10b981" : avg >= 3 ? "#f59e0b" : avg >= 2 ? "#f97316" : "#ef4444", borderRadius: 4, transition: "width 0.3s" }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#374151", width: 28, textAlign: "right" }}>{avg ? avg.toFixed(1) : "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* 志望度・形態 */}
+              <div style={{ padding: 16, background: "#f9fafb", borderRadius: 10, minWidth: 120 }}>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>志望度</div>
+                <div style={{ fontSize: 13, marginBottom: 12 }}>{[...Array(5)].map((_, i) => <span key={i} style={{ color: i < c.aspiration ? "#f59e0b" : "#e5e7eb" }}>★</span>)}</div>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>選考形態</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{c.format || "—"}</div>
+              </div>
             </div>
           </div>
-          <div style={{ padding: 20, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
-            <Icon name="file-text" size={24} color="#d1d5db" />
-            <div style={{ marginTop: 8 }}>面接フィードバックはまだ登録されていません</div>
-            <button onClick={() => onNavigate("interview-fb")} style={{ marginTop: 12, padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer" }}>FB入力</button>
-          </div>
+
+          {/* 面接ごとのFBカード */}
+          {feedbacks.length > 0 ? feedbacks.map((fb, idx) => (
+            <div key={idx} style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", borderLeft: `4px solid ${fb.result === "合格" ? "#10b981" : fb.result === "不合格" ? "#ef4444" : "#f59e0b"}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>{fb.stage}</span>
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: fb.result === "合格" ? "#dcfce7" : fb.result === "不合格" ? "#fee2e2" : "#fef3c7", color: fb.result === "合格" ? "#15803d" : fb.result === "不合格" ? "#dc2626" : "#92400e" }}>{fb.result}</span>
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: fb.format === "WEB" ? "#dbeafe" : "#fce7f3", color: fb.format === "WEB" ? "#1d4ed8" : "#be185d" }}>{fb.format}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>面接官: {fb.interviewer}　|　{fb.date}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: fb.overall >= 4 ? "#10b981" : fb.overall >= 3 ? "#f59e0b" : "#ef4444" }}>{fb.overall}</div>
+                    <div style={{ fontSize: 10, color: "#9ca3af" }}>総合</div>
+                  </div>
+                  <button onClick={() => { setFbFormStage(fb.stage); setFbFormData({...fb}); setFbFormOpen(true); }}
+                    style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", color: "#6b7280", cursor: "pointer" }}>編集</button>
+                </div>
+              </div>
+              {/* 項目別スコア */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                {EVAL_CRITERIA.map(cr => (
+                  <div key={cr.key} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "#f9fafb", borderRadius: 8, fontSize: 12 }}>
+                    <span>{cr.icon}</span>
+                    <span style={{ color: "#6b7280" }}>{cr.label}</span>
+                    <span style={{ fontWeight: 600, color: (fb.scores[cr.key] || 0) >= 4 ? "#10b981" : (fb.scores[cr.key] || 0) >= 3 ? "#f59e0b" : "#ef4444" }}>
+                      {fb.scores[cr.key] || "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {/* コメント */}
+              {fb.comment && <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, marginBottom: 10, padding: 12, background: "#f9fafb", borderRadius: 8 }}>{fb.comment}</div>}
+              {/* 良い点・懸念点 */}
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {fb.strengths && (
+                  <div style={{ flex: 1, minWidth: 150, padding: 10, background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>✅ 良い点</div>
+                    <div style={{ fontSize: 12, color: "#374151" }}>{fb.strengths}</div>
+                  </div>
+                )}
+                {fb.concerns && (
+                  <div style={{ flex: 1, minWidth: 150, padding: 10, background: "#fff7ed", borderRadius: 8, border: "1px solid #fed7aa" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#c2410c", marginBottom: 4 }}>⚠️ 懸念点</div>
+                    <div style={{ fontSize: 12, color: "#374151" }}>{fb.concerns}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )) : (
+            <div style={{ background: "white", borderRadius: 12, padding: 40, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", textAlign: "center", color: "#9ca3af" }}>
+              <Icon name="file-text" size={32} color="#d1d5db" />
+              <div style={{ marginTop: 12, fontSize: 14 }}>面接フィードバックはまだ登録されていません</div>
+              <button onClick={() => openFbForm()} style={{ marginTop: 16, padding: "10px 24px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>最初のFBを入力する</button>
+            </div>
+          )}
+
+          {/* ===== FB入力フォーム（インライン） ===== */}
+          {fbFormOpen && (
+            <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 4px 12px rgba(0,0,0,0.12)", border: "2px solid #6366f1" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 600, color: "#4338ca" }}>📝 フィードバック入力 — {fbFormStage}</h3>
+                <button onClick={() => setFbFormOpen(false)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#9ca3af" }}>✕</button>
+              </div>
+
+              {/* 基本情報行 */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>ステージ</label>
+                  <select value={fbFormStage} onChange={e => setFbFormStage(e.target.value)}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13 }}>
+                    {INTERVIEW_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>面接官</label>
+                  <input value={fbFormData.interviewer} onChange={e => setFbFormData({...fbFormData, interviewer: e.target.value})}
+                    placeholder="面接官名" style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>実施日</label>
+                  <input type="date" value={fbFormData.date} onChange={e => setFbFormData({...fbFormData, date: e.target.value})}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>形態</label>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {["WEB", "対面"].map(f => (
+                      <button key={f} onClick={() => setFbFormData({...fbFormData, format: f})}
+                        style={{ flex: 1, padding: "8px 0", border: fbFormData.format === f ? "2px solid #6366f1" : "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, background: fbFormData.format === f ? "#eef2ff" : "white", color: fbFormData.format === f ? "#4338ca" : "#6b7280", cursor: "pointer", fontWeight: fbFormData.format === f ? 600 : 400 }}>{f}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 項目別評価 */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 10 }}>項目別評価</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {EVAL_CRITERIA.map(cr => (
+                    <div key={cr.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#f9fafb", borderRadius: 8 }}>
+                      <span style={{ fontSize: 14 }}>{cr.icon}</span>
+                      <span style={{ fontSize: 12, color: "#6b7280", flex: 1 }}>{cr.label}</span>
+                      <div style={{ display: "flex", gap: 2 }}>
+                        {[1,2,3,4,5].map(n => (
+                          <button key={n} onClick={() => setFbFormData({...fbFormData, scores: {...fbFormData.scores, [cr.key]: n}})}
+                            style={{ width: 28, height: 28, border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                              background: fbFormData.scores[cr.key] === n ? (n >= 4 ? "#10b981" : n >= 3 ? "#f59e0b" : "#ef4444") : "#f3f4f6",
+                              color: fbFormData.scores[cr.key] === n ? "white" : "#9ca3af" }}>{n}</button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 総合評価・結果 */}
+              <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 8 }}>総合評価</label>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {[1,2,3,4,5].map(n => (
+                      <button key={n} onClick={() => setFbFormData({...fbFormData, overall: n})}
+                        style={{ flex: 1, padding: "10px 0", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 700, cursor: "pointer",
+                          background: fbFormData.overall === n ? (n >= 4 ? "#10b981" : n >= 3 ? "#f59e0b" : "#ef4444") : "#f3f4f6",
+                          color: fbFormData.overall === n ? "white" : "#d1d5db" }}>{n}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 8 }}>判定</label>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {["合格", "保留", "不合格"].map(r => (
+                      <button key={r} onClick={() => setFbFormData({...fbFormData, result: r})}
+                        style={{ flex: 1, padding: "10px 0", border: fbFormData.result === r ? "2px solid" : "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                          background: fbFormData.result === r ? (r === "合格" ? "#dcfce7" : r === "不合格" ? "#fee2e2" : "#fef3c7") : "white",
+                          color: r === "合格" ? "#15803d" : r === "不合格" ? "#dc2626" : "#92400e",
+                          borderColor: fbFormData.result === r ? (r === "合格" ? "#86efac" : r === "不合格" ? "#fca5a5" : "#fcd34d") : "#e5e7eb" }}>{r}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* コメント */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>コメント・所感</label>
+                <textarea value={fbFormData.comment} onChange={e => setFbFormData({...fbFormData, comment: e.target.value})}
+                  rows={3} placeholder="面接の所感、候補者の印象などを記入..."
+                  style={{ width: "100%", padding: 12, border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, resize: "vertical", boxSizing: "border-box", lineHeight: 1.6 }} />
+              </div>
+
+              {/* 良い点・懸念点 */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#15803d", display: "block", marginBottom: 6 }}>✅ 良い点</label>
+                  <input value={fbFormData.strengths} onChange={e => setFbFormData({...fbFormData, strengths: e.target.value})}
+                    placeholder="評価できるポイント" style={{ width: "100%", padding: "8px 12px", border: "1px solid #bbf7d0", borderRadius: 8, fontSize: 13, background: "#f0fdf4", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#c2410c", display: "block", marginBottom: 6 }}>⚠️ 懸念点</label>
+                  <input value={fbFormData.concerns} onChange={e => setFbFormData({...fbFormData, concerns: e.target.value})}
+                    placeholder="気になる点・課題" style={{ width: "100%", padding: "8px 12px", border: "1px solid #fed7aa", borderRadius: 8, fontSize: 13, background: "#fff7ed", boxSizing: "border-box" }} />
+                </div>
+              </div>
+
+              {/* 保存ボタン */}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => setFbFormOpen(false)}
+                  style={{ padding: "10px 24px", border: "1px solid #e5e7eb", borderRadius: 8, background: "white", color: "#6b7280", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+                <button onClick={saveFb}
+                  style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                  <Icon name="check-circle" size={14} /> 保存する
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
