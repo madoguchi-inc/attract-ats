@@ -3653,19 +3653,39 @@ function TasksPage({ tasks, onUpdateTasks, candidates, onNavigate }) {
 // ============================================================
 // 紹介会社（エージェント）管理ページ
 // ============================================================
-const DEFAULT_AGENTS = [
-  { id: "ag1", name: "○○エージェント", contactPerson: "佐々木 誠", email: "sasaki@agent1.co.jp", phone: "03-1111-2222", contractType: "成功報酬型", feePercent: 35, contractStart: "2025-04-01", contractEnd: "2026-03-31", notes: "新卒・中途ともに対応可。IT系に強い。", active: true },
-  { id: "ag2", name: "△△人材", contactPerson: "田村 恵子", email: "tamura@agent2.co.jp", phone: "03-2222-3333", contractType: "成功報酬型", feePercent: 30, contractStart: "2025-06-01", contractEnd: "2026-05-31", notes: "理系人材の紹介に定評あり。", active: true },
-  { id: "ag3", name: "□□キャリア", contactPerson: "中島 大輔", email: "nakajima@agent3.co.jp", phone: "03-3333-4444", contractType: "リテーナー型", feePercent: 25, contractStart: "2025-10-01", contractEnd: "2026-09-30", notes: "新卒特化型。大学との繋がりが広い。", active: true },
-  { id: "ag4", name: "★★キャリア", contactPerson: "吉川 真理", email: "yoshikawa@agent4.co.jp", phone: "03-4444-5555", contractType: "成功報酬型", feePercent: 35, contractStart: "2025-07-01", contractEnd: "2026-06-30", notes: "中途・ハイクラス人材に強い。", active: true },
-  { id: "ag5", name: "◎◎エージェント", contactPerson: "松田 健太", email: "matsuda@agent5.co.jp", phone: "03-5555-6666", contractType: "成功報酬型", feePercent: 30, contractStart: "2025-01-01", contractEnd: "2025-12-31", notes: "コンサル・金融業界出身者が多い。", active: false },
-];
-
 function AgentsPage({ candidates = [] }) {
   const [agents, setAgents] = useState(() => {
-    try { const saved = localStorage.getItem('ats_agents'); return saved ? JSON.parse(saved) : DEFAULT_AGENTS; } catch(e) { return DEFAULT_AGENTS; }
+    try { const saved = localStorage.getItem('ats_agents'); return saved ? JSON.parse(saved) : []; } catch(e) { return []; }
   });
   const save = (list) => { setAgents(list); localStorage.setItem('ats_agents', JSON.stringify(list)); };
+
+  // 候補者データから紹介会社名を自動検出し、未登録なら追加
+  useEffect(() => {
+    const agentNames = new Set(agents.map(a => a.name));
+    const newAgents = [];
+    candidates.forEach(c => {
+      if (c.agent && c.agent.trim() && !agentNames.has(c.agent.trim())) {
+        agentNames.add(c.agent.trim());
+        newAgents.push({
+          id: "ag_auto_" + Date.now() + "_" + newAgents.length,
+          name: c.agent.trim(),
+          contactPerson: "",
+          email: "",
+          phone: "",
+          contractType: "成功報酬型",
+          feePercent: 35,
+          contractStart: "",
+          contractEnd: "",
+          notes: "候補者データから自動検出",
+          active: true,
+        });
+      }
+    });
+    if (newAgents.length > 0) {
+      const updated = [...agents, ...newAgents];
+      save(updated);
+    }
+  }, [candidates]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [showEditor, setShowEditor] = useState(false);
   const [editing, setEditing] = useState(null); // null = new
@@ -3728,9 +3748,12 @@ function AgentsPage({ candidates = [] }) {
     <div style={{ padding: 24, maxWidth: 1100 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>🏢 紹介会社管理</h1>
-        <button onClick={openNew} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", background: "#4338ca", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          <Icon name="plus" size={14} color="white" /> 新規登録
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { if (window.confirm("紹介会社データをリセットし、候補者データから再検出しますか？")) { localStorage.removeItem('ats_agents'); setAgents([]); setSelectedAgent(null); } }} style={{ padding: "8px 12px", border: "1px solid #e5e7eb", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>🔄 再検出</button>
+          <button onClick={openNew} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", background: "#4338ca", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <Icon name="plus" size={14} color="white" /> 新規登録
+          </button>
+        </div>
       </div>
 
       {/* サマリー */}
