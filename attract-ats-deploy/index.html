@@ -1650,9 +1650,10 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
             </div>
           )}
 
-          {/* ===== FB入力フォーム（インライン） ===== */}
+          {/* ===== FB入力フォーム（モーダル） ===== */}
           {fbFormOpen && (
-            <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 4px 12px rgba(0,0,0,0.12)", border: "2px solid #6366f1" }}>
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={e => { if (e.target === e.currentTarget) setFbFormOpen(false); }}>
+            <div style={{ background: "white", borderRadius: 16, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: "2px solid #6366f1", width: "100%", maxWidth: 680, maxHeight: "90vh", overflowY: "auto" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
                 <h3 style={{ fontSize: 15, fontWeight: 600, color: "#4338ca" }}>📝 フィードバック入力 — {fbFormStage}</h3>
                 <button onClick={() => setFbFormOpen(false)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#9ca3af" }}>✕</button>
@@ -1767,6 +1768,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                   <Icon name="check-circle" size={14} /> 保存する
                 </button>
               </div>
+            </div>
             </div>
           )}
         </div>
