@@ -876,6 +876,16 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkStatus, setShowBulkStatus] = useState(false);
   const [bulkToast, setBulkToast] = useState(null);
+  // メール一括送信モーダル
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [bulkEmailData, setBulkEmailData] = useState({ subject: "", body: "", cc: "" });
+  const [bulkEmailSending, setBulkEmailSending] = useState(false);
+  const [bulkEmailStep, setBulkEmailStep] = useState("compose"); // compose | preview | done
+  // LINE一括送信モーダル
+  const [bulkLineOpen, setBulkLineOpen] = useState(false);
+  const [bulkLineData, setBulkLineData] = useState({ message: "" });
+  const [bulkLineSending, setBulkLineSending] = useState(false);
+  const [bulkLineStep, setBulkLineStep] = useState("compose");
 
   // パイプラインステージ名でフィルタに使えるステージ一覧
   const stages = ["all", ...STAGE_NAMES];
@@ -1083,14 +1093,59 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
   };
   const allSelected = filtered.length > 0 && selectedIds.size === filtered.length;
 
+  // 選択中の候補者リスト
+  const selectedCandidates = useMemo(() => {
+    const CANDS_ALL = propCandidates || [];
+    return CANDS_ALL.filter(c => selectedIds.has(c.id));
+  }, [selectedIds, propCandidates]);
+
   const handleBulkAction = (action) => {
-    const count = selectedIds.size;
-    let msg = "";
-    if (action === "email") msg = `${count}名にメールを送信しました（デモ）`;
-    if (action === "line") msg = `${count}名にLINEを送信しました（デモ）`;
+    if (action === "email") {
+      setBulkEmailData({ subject: "", body: "", cc: "" });
+      setBulkEmailStep("compose");
+      setBulkEmailOpen(true);
+      return;
+    }
+    if (action === "line") {
+      setBulkLineData({ message: "" });
+      setBulkLineStep("compose");
+      setBulkLineOpen(true);
+      return;
+    }
     if (action === "status") { setShowBulkStatus(true); return; }
-    setBulkToast(msg);
-    setTimeout(() => setBulkToast(null), 3000);
+  };
+
+  const handleBulkEmailSend = async () => {
+    setBulkEmailSending(true);
+    // デモ: 実際にはAPI呼び出し
+    await new Promise(r => setTimeout(r, 1200));
+    setBulkEmailSending(false);
+    setBulkEmailStep("done");
+  };
+
+  const handleBulkLineSend = async () => {
+    setBulkLineSending(true);
+    await new Promise(r => setTimeout(r, 1000));
+    setBulkLineSending(false);
+    setBulkLineStep("done");
+  };
+
+  const closeBulkEmail = () => {
+    setBulkEmailOpen(false);
+    if (bulkEmailStep === "done") {
+      setBulkToast(`${selectedIds.size}名にメールを送信しました`);
+      setSelectedIds(new Set());
+      setTimeout(() => setBulkToast(null), 3000);
+    }
+  };
+
+  const closeBulkLine = () => {
+    setBulkLineOpen(false);
+    if (bulkLineStep === "done") {
+      setBulkToast(`${selectedIds.size}名にLINEを送信しました`);
+      setSelectedIds(new Set());
+      setTimeout(() => setBulkToast(null), 3000);
+    }
   };
 
   const handleBulkStatusChange = async (newStatus) => {
@@ -1100,6 +1155,17 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
     setShowBulkStatus(false);
     setSelectedIds(new Set());
     setTimeout(() => setBulkToast(null), 3000);
+  };
+
+  // メールテンプレート挿入
+  const EMAIL_TEMPLATES = [
+    { label: "面接日程のご案内", subject: "【{{company}}】面接日程のご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\nこの度は弊社の選考にご応募いただき、誠にありがとうございます。\n下記の日程で面接をお願いできればと思います。\n\n【日時】\n【場所】\n【持ち物】\n\nご都合が合わない場合は、お気軽にご連絡ください。\n\n何卒よろしくお願いいたします。" },
+    { label: "書類選考通過のご連絡", subject: "【{{company}}】書類選考結果のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n慎重に選考を進めさせていただきました結果、\nぜひ次のステップに進んでいただきたくご連絡いたしました。\n\n今後の選考スケジュールにつきまして、\n追ってご連絡させていただきます。\n\n何卒よろしくお願いいたします。" },
+    { label: "内定通知", subject: "【{{company}}】内定のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n選考の結果、{{name}}様に内定をお出しさせていただきたくご連絡いたしました。\n\n入社条件等の詳細につきましては、\n別途ご案内させていただきます。\n\nご不明な点がございましたらお気軽にお問い合わせください。\n\n何卒よろしくお願いいたします。" },
+  ];
+
+  const applyEmailTemplate = (tpl) => {
+    setBulkEmailData({ ...bulkEmailData, subject: tpl.subject, body: tpl.body });
   };
 
   return (
@@ -1200,24 +1266,25 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
             {selectedIds.size}名選択中
           </span>
           <div style={{ flex: 1 }} />
-          <button onClick={() => handleBulkAction("email")}
+          {can("sendMessage") && <button onClick={() => handleBulkAction("email")}
             style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
             <Icon name="mail" size={13} color="white" /> メール一括送信
-          </button>
-          <button onClick={() => handleBulkAction("line")}
-            style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+          </button>}
+          {can("sendMessage") && <button onClick={() => handleBulkAction("line")}
+            style={{ display: "flex", alignItems: "center", gap: 5, background: "#06c755", color: "white", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
             <Icon name="message-square" size={13} color="white" /> LINE一括送信
-          </button>
-          <div style={{ position: "relative" }}>
+          </button>}
+          {can("changeStage") && <div style={{ position: "relative" }}>
             <button onClick={() => handleBulkAction("status")}
               style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
-              <Icon name="check-square" size={13} color="white" /> ステータス一括変更
+              <Icon name="check-square" size={13} color="white" /> ステージ一括変更
             </button>
             {showBulkStatus && (
-              <div style={{ position: "absolute", right: 0, top: "110%", background: "white", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", padding: 6, zIndex: 100, minWidth: 160 }}>
-                {["通過", "不合格", "保留", "辞退", "内定"].map(s => (
+              <div style={{ position: "absolute", right: 0, top: "110%", background: "white", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", padding: 6, zIndex: 100, minWidth: 180 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#9ca3af", padding: "4px 14px" }}>ステージを選択</div>
+                {STAGE_NAMES.map(s => (
                   <button key={s} onClick={() => handleBulkStatusChange(s)}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", border: "none", background: "none", fontSize: 13, cursor: "pointer", borderRadius: 6, color: s === "不合格" ? "#dc2626" : s === "辞退" ? "#9ca3af" : "#111827" }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 14px", border: "none", background: "none", fontSize: 12, cursor: "pointer", borderRadius: 6, color: "#111827" }}
                     onMouseOver={e => e.target.style.background = "#f3f4f6"} onMouseOut={e => e.target.style.background = "none"}>
                     {s}
                   </button>
@@ -1229,7 +1296,7 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
                 </button>
               </div>
             )}
-          </div>
+          </div>}
           <button onClick={() => setSelectedIds(new Set())}
             style={{ background: "none", color: "rgba(255,255,255,0.7)", border: "none", fontSize: 18, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>
             ×
@@ -1306,6 +1373,198 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
           <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>該当する候補者がいません</div>
         )}
       </div>
+
+      {/* ===== メール一括送信モーダル ===== */}
+      {bulkEmailOpen && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={e => { if (e.target === e.currentTarget && bulkEmailStep !== "done") closeBulkEmail(); }}>
+          <div style={{ background: "white", borderRadius: 16, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", width: "100%", maxWidth: 720, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* ヘッダー */}
+            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: "#111827", margin: 0 }}>✉️ メール一括送信</h3>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>送信先: {selectedCandidates.length}名</div>
+              </div>
+              <button onClick={closeBulkEmail} style={{ background: "none", border: "none", fontSize: 20, color: "#9ca3af", cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+              {bulkEmailStep === "compose" && (<>
+                {/* 宛先プレビュー */}
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 6 }}>宛先</label>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", padding: "8px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb", maxHeight: 80, overflowY: "auto" }}>
+                    {selectedCandidates.map(c => (
+                      <span key={c.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", background: "#eef2ff", color: "#4338ca", borderRadius: 4, fontSize: 11, fontWeight: 500 }}>
+                        {c.lastName || ""}{c.firstName || ""} {c.email ? `<${c.email}>` : "(メール未登録)"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* テンプレート */}
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 6 }}>テンプレートから選択</label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {EMAIL_TEMPLATES.map((tpl, i) => (
+                      <button key={i} onClick={() => applyEmailTemplate(tpl)}
+                        style={{ padding: "5px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}
+                        onMouseOver={e => { e.target.style.background = "#f3f4f6"; e.target.style.borderColor = "#6366f1"; }} onMouseOut={e => { e.target.style.background = "white"; e.target.style.borderColor = "#d1d5db"; }}>
+                        {tpl.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* CC */}
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>CC（任意）</label>
+                  <input value={bulkEmailData.cc} onChange={e => setBulkEmailData({...bulkEmailData, cc: e.target.value})}
+                    placeholder="cc@example.com" style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+
+                {/* 件名 */}
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>件名 *</label>
+                  <input value={bulkEmailData.subject} onChange={e => setBulkEmailData({...bulkEmailData, subject: e.target.value})}
+                    placeholder="メールの件名を入力" style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+
+                {/* 本文 */}
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>本文 *</label>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 4 }}>{"{{name}}"} = 候補者氏名 / {"{{company}}"} = 自社名 が自動置換されます</div>
+                  <textarea value={bulkEmailData.body} onChange={e => setBulkEmailData({...bulkEmailData, body: e.target.value})}
+                    rows={10} placeholder="メール本文を入力..." style={{ width: "100%", padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", lineHeight: 1.6 }} />
+                </div>
+              </>)}
+
+              {bulkEmailStep === "preview" && (<>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", marginBottom: 8 }}>プレビュー（1人目: {selectedCandidates[0] ? `${selectedCandidates[0].lastName || ""}${selectedCandidates[0].firstName || ""}` : "—"}）</div>
+                  <div style={{ background: "#f9fafb", borderRadius: 10, padding: 16, border: "1px solid #e5e7eb" }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>件名:</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#111827", marginBottom: 12 }}>
+                      {bulkEmailData.subject.replace(/\{\{name\}\}/g, `${selectedCandidates[0]?.lastName || ""}${selectedCandidates[0]?.firstName || ""}`).replace(/\{\{company\}\}/g, "株式会社madoguchi")}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>本文:</div>
+                    <div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-wrap", lineHeight: 1.7, background: "white", padding: 14, borderRadius: 8, border: "1px solid #e5e7eb" }}>
+                      {bulkEmailData.body.replace(/\{\{name\}\}/g, `${selectedCandidates[0]?.lastName || ""}${selectedCandidates[0]?.firstName || ""}`).replace(/\{\{company\}\}/g, "株式会社madoguchi")}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ padding: "10px 14px", background: "#fef3c7", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
+                  ⚠️ {selectedCandidates.length}名に同じ内容のメールが送信されます。候補者名は自動で差し替わります。
+                </div>
+              </>)}
+
+              {bulkEmailStep === "done" && (
+                <div style={{ textAlign: "center", padding: 40 }}>
+                  <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 4 }}>送信完了</div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>{selectedCandidates.length}名にメールを送信しました</div>
+                </div>
+              )}
+            </div>
+
+            {/* フッターボタン */}
+            <div style={{ padding: "16px 24px", borderTop: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              {bulkEmailStep === "compose" && (<>
+                <button onClick={closeBulkEmail} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", color: "#374151", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+                <button onClick={() => { if (!bulkEmailData.subject || !bulkEmailData.body) { alert("件名と本文は必須です"); return; } setBulkEmailStep("preview"); }}
+                  style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                  プレビュー →
+                </button>
+              </>)}
+              {bulkEmailStep === "preview" && (<>
+                <button onClick={() => setBulkEmailStep("compose")} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", color: "#374151", fontSize: 13, cursor: "pointer" }}>← 編集に戻る</button>
+                <button onClick={handleBulkEmailSend} disabled={bulkEmailSending}
+                  style={{ padding: "8px 24px", border: "none", borderRadius: 8, background: "#dc2626", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: bulkEmailSending ? 0.6 : 1 }}>
+                  {bulkEmailSending ? "送信中..." : `${selectedCandidates.length}名に送信する`}
+                </button>
+              </>)}
+              {bulkEmailStep === "done" && (
+                <button onClick={closeBulkEmail} style={{ marginLeft: "auto", padding: "8px 24px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>閉じる</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== LINE一括送信モーダル ===== */}
+      {bulkLineOpen && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={e => { if (e.target === e.currentTarget) closeBulkLine(); }}>
+          <div style={{ background: "white", borderRadius: 16, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", width: "100%", maxWidth: 520, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: "#111827", margin: 0 }}>💬 LINE一括送信</h3>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>送信先: {selectedCandidates.length}名</div>
+              </div>
+              <button onClick={closeBulkLine} style={{ background: "none", border: "none", fontSize: 20, color: "#9ca3af", cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+              {bulkLineStep === "compose" && (<>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 6 }}>宛先</label>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", padding: "8px 12px", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0", maxHeight: 60, overflowY: "auto" }}>
+                    {selectedCandidates.map(c => (
+                      <span key={c.id} style={{ display: "inline-flex", padding: "2px 8px", background: "#dcfce7", color: "#15803d", borderRadius: 4, fontSize: 11, fontWeight: 500 }}>
+                        {c.lastName || ""}{c.firstName || ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>メッセージ *</label>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 4 }}>{"{{name}}"} = 候補者氏名</div>
+                  <textarea value={bulkLineData.message} onChange={e => setBulkLineData({...bulkLineData, message: e.target.value})}
+                    rows={6} placeholder="LINEメッセージを入力..." style={{ width: "100%", padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", lineHeight: 1.6 }} />
+                </div>
+              </>)}
+              {bulkLineStep === "preview" && (<>
+                <div style={{ background: "#f0fdf4", borderRadius: 10, padding: 16, border: "1px solid #bbf7d0" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#15803d", marginBottom: 8 }}>プレビュー</div>
+                  <div style={{ background: "white", borderRadius: 12, padding: 14, fontSize: 13, color: "#374151", whiteSpace: "pre-wrap", lineHeight: 1.7, border: "1px solid #e5e7eb", borderBottomLeftRadius: 4 }}>
+                    {bulkLineData.message.replace(/\{\{name\}\}/g, `${selectedCandidates[0]?.lastName || ""}${selectedCandidates[0]?.firstName || ""}`)}
+                  </div>
+                </div>
+                <div style={{ marginTop: 12, padding: "10px 14px", background: "#fef3c7", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
+                  ⚠️ {selectedCandidates.length}名に同じメッセージが送信されます。
+                </div>
+              </>)}
+              {bulkLineStep === "done" && (
+                <div style={{ textAlign: "center", padding: 40 }}>
+                  <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 4 }}>送信完了</div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>{selectedCandidates.length}名にLINEを送信しました</div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "16px 24px", borderTop: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between" }}>
+              {bulkLineStep === "compose" && (<>
+                <button onClick={closeBulkLine} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", color: "#374151", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+                <button onClick={() => { if (!bulkLineData.message) { alert("メッセージを入力してください"); return; } setBulkLineStep("preview"); }}
+                  style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#06c755", color: "white", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                  プレビュー →
+                </button>
+              </>)}
+              {bulkLineStep === "preview" && (<>
+                <button onClick={() => setBulkLineStep("compose")} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", color: "#374151", fontSize: 13, cursor: "pointer" }}>← 編集に戻る</button>
+                <button onClick={handleBulkLineSend} disabled={bulkLineSending}
+                  style={{ padding: "8px 24px", border: "none", borderRadius: 8, background: "#06c755", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: bulkLineSending ? 0.6 : 1 }}>
+                  {bulkLineSending ? "送信中..." : `${selectedCandidates.length}名に送信`}
+                </button>
+              </>)}
+              {bulkLineStep === "done" && (
+                <button onClick={closeBulkLine} style={{ marginLeft: "auto", padding: "8px 24px", border: "none", borderRadius: 8, background: "#06c755", color: "white", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>閉じる</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== CSVインポートモーダル ===== */}
       {csvModalOpen && (
