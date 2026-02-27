@@ -312,6 +312,11 @@ const PERMISSIONS = {
 };
 const hasPermission = (role, permission) => PERMISSIONS[role]?.[permission] ?? false;
 const getRoleDef = (roleId) => ROLES.find(r => r.id === roleId) || ROLES[3];
+const PERMISSION_LABELS = {
+  viewDashboard: "ダッシュボード閲覧", viewCandidates: "候補者一覧閲覧", editCandidates: "候補者編集・登録",
+  changeStage: "ステージ変更", inputFB: "面接FB入力", csvImport: "CSVインポート",
+  sendMessage: "メッセージ送信", manageAccounts: "アカウント管理", editSettings: "設定変更",
+};
 
 // 共通の離脱ステータス判定
 const EXIT_STATUSES = ["辞退", "不合格", "保留", "承諾後辞退"];
@@ -3230,7 +3235,7 @@ function AccountsPage({ currentUser, onRefreshProfile }) {
           <tbody>
             {Object.keys(PERMISSIONS.admin).map(perm => (
               <tr key={perm} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                <td style={{ padding: "6px 12px", color: "#374151" }}>{perm}</td>
+                <td style={{ padding: "6px 12px", color: "#374151" }}>{PERMISSION_LABELS[perm] || perm}</td>
                 {ROLES.map(r => (
                   <td key={r.id} style={{ padding: "6px 12px", textAlign: "center" }}>
                     {PERMISSIONS[r.id][perm] ? <span style={{ color: "#22c55e" }}>✓</span> : <span style={{ color: "#d1d5db" }}>—</span>}
@@ -3262,10 +3267,10 @@ function App() {
   const [migrationMsg, setMigrationMsg] = useState('');
 
   // profile取得
-  const loadProfile = useCallback(async (userId) => {
+  const loadProfile = useCallback(async (userId, email) => {
     if (!SUPABASE_READY || !userId) {
-      setUserRole("admin"); // デモモードは管理者
-      setUserProfile({ display_name: "デモユーザー", role: "admin" });
+      setUserRole("admin");
+      setUserProfile({ display_name: email || "デモユーザー", role: "admin" });
       return;
     }
     const { data } = await sbApi.select('profiles', 'id=eq.' + userId);
@@ -3274,7 +3279,8 @@ function App() {
       setUserRole(data[0].role || "admin");
     } else {
       // profileがない場合は最初のユーザー→admin として自動作成
-      const profile = { id: userId, role: "admin", display_name: user?.email?.split("@")[0] || "管理者", is_active: true };
+      const displayName = email ? email.split("@")[0] : "管理者";
+      const profile = { id: userId, role: "admin", display_name: displayName, email: email || "", is_active: true };
       await sbApi.insert('profiles', profile).catch(() => {});
       setUserProfile(profile);
       setUserRole("admin");
@@ -3304,7 +3310,7 @@ function App() {
     if (SUPABASE_READY) {
       sbApi.getUser().then(async u => {
         setUser(u || null);
-        if (u) await loadProfile(u.id);
+        if (u) await loadProfile(u.id, u.email);
         setAuthChecked(true);
       });
     } else {
@@ -3319,7 +3325,7 @@ function App() {
 
   // 未ログイン → ログイン画面
   if (authChecked && !user) {
-    return <LoginPage onLogin={async (u) => { setUser(u); await loadProfile(u.id); }} />;
+    return <LoginPage onLogin={async (u) => { setUser(u); await loadProfile(u.id, u.email); }} />;
   }
   if (!authChecked) {
     return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f5f7" }}><div style={{ fontSize: 14, color: "#6b7280" }}>読み込み中...</div></div>;
@@ -3346,7 +3352,7 @@ function App() {
       case "interview-fb": return <InterviewFBPage onNavigate={navigate} />;
       case "automation": return <AutomationPage />;
       case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} />;
-      case "accounts": return can("manageAccounts") ? <AccountsPage currentUser={user} onRefreshProfile={() => loadProfile(user?.id)} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
+      case "accounts": return can("manageAccounts") ? <AccountsPage currentUser={user} onRefreshProfile={() => loadProfile(user?.id, user?.email)} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
       default: return (
         <div style={{ padding: 24, display: "flex", alignItems: "center", justifyContent: "center", height: "60vh" }}>
           <div style={{ textAlign: "center" }}>
@@ -3391,6 +3397,7 @@ function App() {
               <Icon name="bell" size={18} color="#6b7280" />
               <div style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, borderRadius: "50%", background: "#ef4444" }} />
             </button>
+            <span style={{ fontSize: 12, color: "#374151", fontWeight: 500 }}>{userProfile?.display_name || user?.email || ""}</span>
             <button onClick={handleLogout} style={{ fontSize: 11, color: "#6b7280", background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>ログアウト</button>
           </div>
         </div>
