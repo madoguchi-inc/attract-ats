@@ -318,6 +318,37 @@ const PERMISSION_LABELS = {
   sendMessage: "メッセージ送信", manageAccounts: "アカウント管理", editSettings: "設定変更",
 };
 
+// ============================================================
+// メールテンプレート（デフォルト）
+// ============================================================
+const DEFAULT_EMAIL_TEMPLATES = [
+  // --- エントリー ---
+  { id: "t01", category: "エントリー", label: "エントリー受領の御礼", subject: "【{{company}}】エントリー受領のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\nこの度は弊社にエントリーいただき、誠にありがとうございます。\nいただいた内容を確認のうえ、今後の選考についてご連絡いたします。\n\n今しばらくお待ちくださいませ。\n\n何卒よろしくお願いいたします。" },
+  { id: "t02", category: "エントリー", label: "応募書類提出のお願い", subject: "【{{company}}】応募書類ご提出のお願い", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\nエントリーいただきありがとうございます。\n選考を進めるにあたり、下記の書類をご提出いただけますでしょうか。\n\n【提出書類】\n・履歴書\n・職務経歴書（中途の場合）\n\n【提出方法】メール添付 or 指定フォーム\n【提出期限】○月○日（○）まで\n\nご不明な点がございましたらお気軽にご連絡ください。\n\n何卒よろしくお願いいたします。" },
+  // --- 説明会 ---
+  { id: "t03", category: "説明会", label: "説明会のご案内", subject: "【{{company}}】会社説明会のご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n下記の日程で会社説明会を開催いたします。\nぜひご参加いただけますと幸いです。\n\n【日時】○月○日（○）○:○○〜○:○○\n【場所】○○（オンラインの場合はURL）\n【内容】会社概要・事業紹介・質疑応答\n【持ち物】特になし\n\nご参加の可否を○月○日までにご返信ください。\n\n何卒よろしくお願いいたします。" },
+  { id: "t04", category: "説明会", label: "説明会参加御礼", subject: "【{{company}}】説明会ご参加の御礼", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n先日は会社説明会にご参加いただき、誠にありがとうございました。\n弊社の事業内容や雰囲気について、少しでもお伝えできていれば幸いです。\n\n今後の選考にお進みいただける場合は、\n追って詳細をご案内いたしますので、今しばらくお待ちください。\n\nご質問等ございましたら、お気軽にご連絡ください。\n\n何卒よろしくお願いいたします。" },
+  // --- 一次面接 ---
+  { id: "t05", category: "一次面接", label: "一次面接日程のご案内", subject: "【{{company}}】一次面接日程のご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n書類選考の結果、ぜひ一次面接にお進みいただきたくご連絡いたしました。\n下記の日程からご都合の良い日時をお知らせください。\n\n【候補日時】\n① ○月○日（○）○:○○〜\n② ○月○日（○）○:○○〜\n③ ○月○日（○）○:○○〜\n\n【場所】○○（オンラインの場合はURL）\n【所要時間】約60分\n【面接官】○○部 ○○\n\nご都合が合わない場合は、別日程も調整可能です。\n\n何卒よろしくお願いいたします。" },
+  { id: "t06", category: "一次面接", label: "一次面接リマインド", subject: "【{{company}}】一次面接のリマインド", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n明日の面接について、改めてご案内いたします。\n\n【日時】○月○日（○）○:○○〜\n【場所】○○\n【面接官】○○\n\n当日はどうぞリラックスしてお越しください。\nお会いできることを楽しみにしております。\n\n何卒よろしくお願いいたします。" },
+  // --- 適性テスト ---
+  { id: "t07", category: "適性テスト", label: "適性テスト受検のご案内", subject: "【{{company}}】適性テスト受検のご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n選考の一環として、適性テストの受検をお願いしております。\n下記の要領でご受検ください。\n\n【テスト種別】○○\n【受検URL】○○\n【受検期限】○月○日（○）まで\n【所要時間】約○○分\n【備考】静かな環境でPC・タブレットからご受検ください\n\nご不明な点がございましたらお気軽にお問い合わせください。\n\n何卒よろしくお願いいたします。" },
+  // --- 二次面接 ---
+  { id: "t08", category: "二次面接", label: "二次面接日程のご案内", subject: "【{{company}}】二次面接日程のご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n一次面接の結果、ぜひ二次面接にお進みいただきたくご連絡いたしました。\n\n【候補日時】\n① ○月○日（○）○:○○〜\n② ○月○日（○）○:○○〜\n③ ○月○日（○）○:○○〜\n\n【場所】○○\n【所要時間】約60分\n【面接官】○○部 部長 ○○\n\nご都合をお知らせいただけますと幸いです。\n\n何卒よろしくお願いいたします。" },
+  // --- 最終面接 ---
+  { id: "t09", category: "最終面接", label: "最終面接日程のご案内", subject: "【{{company}}】最終面接日程のご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n二次面接の結果を踏まえ、ぜひ最終面接にお進みいただきたくご連絡いたしました。\n\n【候補日時】\n① ○月○日（○）○:○○〜\n② ○月○日（○）○:○○〜\n\n【場所】○○（本社）\n【所要時間】約45分\n【面接官】代表取締役 ○○\n\nお忙しいところ恐れ入りますが、ご都合をお知らせください。\n\n何卒よろしくお願いいたします。" },
+  // --- 内定 ---
+  { id: "t10", category: "内定", label: "内定通知", subject: "【{{company}}】内定のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n慎重に選考を重ねました結果、{{name}}様に内定をお出しさせていただく運びとなりました。\n心よりお祝い申し上げます。\n\n入社条件等の詳細につきましては、\n別途「内定通知書」をお送りいたしますのでご確認ください。\n\n【回答期限】○月○日（○）まで\n\nご不明な点やご相談がございましたら、\nいつでもお気軽にご連絡ください。\n\n{{name}}様と一緒に働けることを楽しみにしております。\n\n何卒よろしくお願いいたします。" },
+  { id: "t11", category: "内定", label: "内定後フォローアップ", subject: "【{{company}}】入社に向けたご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n内定のご承諾をいただき、誠にありがとうございます。\n入社に向けて、いくつかご案内がございます。\n\n【入社日】○月○日（○）\n【入社時の持ち物】\n・身分証明書\n・印鑑\n・○○\n\n【事前提出書類】\n・○○\n\n入社までの間にご不安な点がございましたら、\nいつでもご連絡ください。\n\nお会いできる日を楽しみにしております。\n\n何卒よろしくお願いいたします。" },
+  // --- 内定承諾 ---
+  { id: "t12", category: "内定承諾", label: "入社手続きのご案内", subject: "【{{company}}】入社手続きについてのご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n内定承諾のご連絡をいただき、誠にありがとうございます。\n入社に向けて、下記の手続きをお願いいたします。\n\n【提出書類】\n1. 入社誓約書（同封）\n2. 身元保証書\n3. 給与振込口座届\n4. 年金手帳のコピー\n5. 源泉徴収票（前職がある場合）\n\n【提出期限】○月○日（○）まで\n【提出方法】郵送 or メール添付\n\nその他ご不明な点がございましたら\nお気軽にお問い合わせください。\n\n何卒よろしくお願いいたします。" },
+  // --- 共通（不合格・辞退） ---
+  { id: "t13", category: "共通", label: "選考結果（不合格）のご連絡", subject: "【{{company}}】選考結果のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\nこの度は弊社の選考にご参加いただき、\n誠にありがとうございました。\n\n慎重に検討いたしました結果、\n誠に残念ではございますが、今回はご期待に沿えない結果となりました。\n\n{{name}}様の今後のご活躍を心よりお祈り申し上げます。\n\n何卒ご了承いただけますようお願いいたします。" },
+  { id: "t14", category: "共通", label: "選考辞退の受理", subject: "【{{company}}】選考辞退の受理について", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n選考辞退のご連絡を承りました。\nお忙しい中ご連絡いただき、ありがとうございます。\n\nまたご縁がございましたら、ぜひお気軽にご応募ください。\n{{name}}様の今後のご活躍を心よりお祈り申し上げます。\n\n何卒よろしくお願いいたします。" },
+  { id: "t15", category: "共通", label: "選考スケジュール変更のお願い", subject: "【{{company}}】選考スケジュール変更のお願い", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n大変申し訳ございませんが、\n諸事情により選考スケジュールを変更させていただきたくご連絡いたしました。\n\n【変更内容】\n（旧）○月○日（○）○:○○\n（新）○月○日（○）○:○○\n\nご迷惑をおかけし誠に恐縮ですが、\nご了承いただけますと幸いです。\n\n何卒よろしくお願いいたします。" },
+  { id: "t16", category: "共通", label: "選考通過のご連絡（汎用）", subject: "【{{company}}】選考結果のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n先日の選考結果についてご連絡いたします。\n慎重に検討いたしました結果、\nぜひ次のステップにお進みいただきたく存じます。\n\n次回の選考については、改めてご案内いたします。\n\n何卒よろしくお願いいたします。" },
+];
+
 // 共通の離脱ステータス判定
 const EXIT_STATUSES = ["辞退", "不合格", "保留", "承諾後辞退"];
 const isExitStatus = (sub) => EXIT_STATUSES.includes(sub);
@@ -867,7 +898,7 @@ function DashboardPage({ onNavigate, recruitFilter }) {
 }
 
 // Candidates List - 新卒/中途対応
-function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipelineFilter, candidates: propCandidates, onUpdateCandidate, onBulkUpdateStatus, onShowAddModal, can = () => true }) {
+function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipelineFilter, candidates: propCandidates, onUpdateCandidate, onBulkUpdateStatus, onShowAddModal, can = () => true, emailTemplates = [] }) {
   // propCandidatesが渡されればそれを使用、なければフォールバック
   const CANDS = propCandidates || CANDIDATES;
   const [searchTerm, setSearchTerm] = useState("");
@@ -1157,16 +1188,19 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
     setTimeout(() => setBulkToast(null), 3000);
   };
 
-  // メールテンプレート挿入
-  const EMAIL_TEMPLATES = [
-    { label: "面接日程のご案内", subject: "【{{company}}】面接日程のご案内", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\nこの度は弊社の選考にご応募いただき、誠にありがとうございます。\n下記の日程で面接をお願いできればと思います。\n\n【日時】\n【場所】\n【持ち物】\n\nご都合が合わない場合は、お気軽にご連絡ください。\n\n何卒よろしくお願いいたします。" },
-    { label: "書類選考通過のご連絡", subject: "【{{company}}】書類選考結果のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n慎重に選考を進めさせていただきました結果、\nぜひ次のステップに進んでいただきたくご連絡いたしました。\n\n今後の選考スケジュールにつきまして、\n追ってご連絡させていただきます。\n\n何卒よろしくお願いいたします。" },
-    { label: "内定通知", subject: "【{{company}}】内定のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n選考の結果、{{name}}様に内定をお出しさせていただきたくご連絡いたしました。\n\n入社条件等の詳細につきましては、\n別途ご案内させていただきます。\n\nご不明な点がございましたらお気軽にお問い合わせください。\n\n何卒よろしくお願いいたします。" },
-  ];
-
   const applyEmailTemplate = (tpl) => {
     setBulkEmailData({ ...bulkEmailData, subject: tpl.subject, body: tpl.body });
   };
+
+  // テンプレートをカテゴリでグルーピング
+  const templatesByCategory = useMemo(() => {
+    const map = {};
+    (emailTemplates || []).forEach(t => {
+      if (!map[t.category]) map[t.category] = [];
+      map[t.category].push(t);
+    });
+    return map;
+  }, [emailTemplates]);
 
   return (
     <div style={{ padding: 24, maxWidth: 1200 }}>
@@ -1405,14 +1439,23 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
                 {/* テンプレート */}
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 6 }}>テンプレートから選択</label>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {EMAIL_TEMPLATES.map((tpl, i) => (
-                      <button key={i} onClick={() => applyEmailTemplate(tpl)}
-                        style={{ padding: "5px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}
-                        onMouseOver={e => { e.target.style.background = "#f3f4f6"; e.target.style.borderColor = "#6366f1"; }} onMouseOut={e => { e.target.style.background = "white"; e.target.style.borderColor = "#d1d5db"; }}>
-                        {tpl.label}
-                      </button>
+                  <div style={{ maxHeight: 140, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 8, padding: 8 }}>
+                    {Object.entries(templatesByCategory).map(([cat, tpls]) => (
+                      <div key={cat} style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", padding: "2px 4px", textTransform: "uppercase" }}>{cat}</div>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          {tpls.map(tpl => (
+                            <button key={tpl.id} onClick={() => applyEmailTemplate(tpl)}
+                              style={{ padding: "3px 10px", border: "1px solid #d1d5db", borderRadius: 5, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}
+                              onMouseOver={e => { e.currentTarget.style.background = "#eef2ff"; e.currentTarget.style.borderColor = "#6366f1"; }}
+                              onMouseOut={e => { e.currentTarget.style.background = "white"; e.currentTarget.style.borderColor = "#d1d5db"; }}>
+                              {tpl.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ))}
+                    {Object.keys(templatesByCategory).length === 0 && <div style={{ fontSize: 11, color: "#9ca3af", padding: 8 }}>テンプレートがありません（設定画面から作成できます）</div>}
                   </div>
                 </div>
 
@@ -3297,6 +3340,236 @@ function AnalyticsPage({ recruitFilter }) {
 }
 
 // ============================================================
+// 設定ページ（テンプレート管理）
+// ============================================================
+function SettingsPage({ emailTemplates, onSaveTemplates }) {
+  const [tab, setTab] = useState("templates");
+  const [templates, setTemplates] = useState(emailTemplates || []);
+  const [editingTpl, setEditingTpl] = useState(null); // null | template object
+  const [filterCat, setFilterCat] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [toast, setToast] = useState(null);
+
+  const categories = useMemo(() => {
+    const cats = new Set(templates.map(t => t.category));
+    return ["all", ...Array.from(cats)];
+  }, [templates]);
+
+  const filtered = useMemo(() => {
+    return templates.filter(t => {
+      if (filterCat !== "all" && t.category !== filterCat) return false;
+      if (searchTerm && !t.label.includes(searchTerm) && !t.subject.includes(searchTerm) && !t.category.includes(searchTerm)) return false;
+      return true;
+    });
+  }, [templates, filterCat, searchTerm]);
+
+  const grouped = useMemo(() => {
+    const map = {};
+    filtered.forEach(t => { if (!map[t.category]) map[t.category] = []; map[t.category].push(t); });
+    return map;
+  }, [filtered]);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const openNew = () => {
+    setEditingTpl({ id: "t_" + Date.now(), category: "", label: "", subject: "", body: "", isNew: true });
+  };
+
+  const openEdit = (tpl) => {
+    setEditingTpl({ ...tpl, isNew: false });
+  };
+
+  const saveTemplate = () => {
+    if (!editingTpl.label || !editingTpl.subject || !editingTpl.category) { alert("カテゴリ・テンプレート名・件名は必須です"); return; }
+    let updated;
+    if (editingTpl.isNew) {
+      updated = [...templates, { id: editingTpl.id, category: editingTpl.category, label: editingTpl.label, subject: editingTpl.subject, body: editingTpl.body }];
+    } else {
+      updated = templates.map(t => t.id === editingTpl.id ? { id: t.id, category: editingTpl.category, label: editingTpl.label, subject: editingTpl.subject, body: editingTpl.body } : t);
+    }
+    setTemplates(updated);
+    onSaveTemplates(updated);
+    setEditingTpl(null);
+    showToast(editingTpl.isNew ? "テンプレートを作成しました" : "テンプレートを更新しました");
+  };
+
+  const deleteTemplate = (id) => {
+    if (!window.confirm("このテンプレートを削除しますか？")) return;
+    const updated = templates.filter(t => t.id !== id);
+    setTemplates(updated);
+    onSaveTemplates(updated);
+    showToast("テンプレートを削除しました");
+  };
+
+  const duplicateTemplate = (tpl) => {
+    const newTpl = { ...tpl, id: "t_" + Date.now(), label: tpl.label + "（コピー）" };
+    const updated = [...templates, newTpl];
+    setTemplates(updated);
+    onSaveTemplates(updated);
+    showToast("テンプレートを複製しました");
+  };
+
+  const resetToDefault = () => {
+    if (!window.confirm("全テンプレートをデフォルトに戻しますか？\n（カスタムテンプレートは失われます）")) return;
+    setTemplates(DEFAULT_EMAIL_TEMPLATES);
+    onSaveTemplates(DEFAULT_EMAIL_TEMPLATES);
+    showToast("デフォルトに戻しました");
+  };
+
+  const inputStyle = { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" };
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1000 }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", marginBottom: 20 }}>⚙️ 設定</h1>
+
+      {/* タブ */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid #e5e7eb", paddingBottom: 0 }}>
+        {[{ id: "templates", label: "📧 メールテンプレート" }, { id: "company", label: "🏢 会社情報" }].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ padding: "8px 16px", border: "none", borderBottom: tab === t.id ? "2px solid #6366f1" : "2px solid transparent", background: "none", fontSize: 13, fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? "#6366f1" : "#6b7280", cursor: "pointer" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "templates" && !editingTpl && (<>
+        {/* ツールバー */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ position: "relative" }}>
+              <Icon name="search" size={14} color="#9ca3af" style={{ position: "absolute", left: 8, top: 9 }} />
+              <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="テンプレートを検索..."
+                style={{ ...inputStyle, paddingLeft: 28, width: 220 }} />
+            </div>
+            <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
+              style={{ ...inputStyle, width: 150, cursor: "pointer" }}>
+              {categories.map(c => <option key={c} value={c}>{c === "all" ? "全カテゴリ" : c}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={resetToDefault}
+              style={{ padding: "7px 14px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
+              デフォルトに戻す
+            </button>
+            <button onClick={openNew}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+              <Icon name="plus" size={14} /> 新規テンプレート
+            </button>
+          </div>
+        </div>
+
+        {/* テンプレート一覧 */}
+        <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10 }}>{filtered.length}件のテンプレート</div>
+        {Object.entries(grouped).map(([cat, tpls]) => (
+          <div key={cat} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#4338ca", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ padding: "2px 8px", background: "#eef2ff", borderRadius: 4 }}>{cat}</span>
+              <span style={{ color: "#9ca3af", fontWeight: 400 }}>({tpls.length})</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {tpls.map(tpl => (
+                <div key={tpl.id} style={{ background: "white", borderRadius: 10, border: "1px solid #e5e7eb", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, transition: "box-shadow 0.15s" }}
+                  onMouseOver={e => e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)"} onMouseOut={e => e.currentTarget.style.boxShadow = "none"}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 2 }}>{tpl.label}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tpl.subject}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={() => openEdit(tpl)} style={{ padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}>編集</button>
+                    <button onClick={() => duplicateTemplate(tpl)} style={{ padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>複製</button>
+                    <button onClick={() => deleteTemplate(tpl.id)} style={{ padding: "4px 10px", border: "1px solid #fecaca", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#dc2626" }}>削除</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>テンプレートがありません</div>}
+      </>)}
+
+      {/* テンプレート編集フォーム */}
+      {tab === "templates" && editingTpl && (
+        <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{editingTpl.isNew ? "✨ 新規テンプレート作成" : "✏️ テンプレート編集"}</h3>
+            <button onClick={() => setEditingTpl(null)} style={{ background: "none", border: "none", fontSize: 18, color: "#9ca3af", cursor: "pointer" }}>×</button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>カテゴリ *</label>
+              <input value={editingTpl.category} onChange={e => setEditingTpl({...editingTpl, category: e.target.value})}
+                placeholder="例: 一次面接" style={inputStyle} list="cat-suggestions" />
+              <datalist id="cat-suggestions">
+                {STAGE_NAMES.map(s => <option key={s} value={s} />)}
+                <option value="共通" />
+              </datalist>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>テンプレート名 *</label>
+              <input value={editingTpl.label} onChange={e => setEditingTpl({...editingTpl, label: e.target.value})}
+                placeholder="例: 面接日程のご案内" style={inputStyle} />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>件名 *</label>
+            <input value={editingTpl.subject} onChange={e => setEditingTpl({...editingTpl, subject: e.target.value})}
+              placeholder="【{{company}}】○○のご案内" style={inputStyle} />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>本文</label>
+            <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 4 }}>差し込み変数: {"{{name}}"} = 候補者氏名 / {"{{company}}"} = 自社名</div>
+            <textarea value={editingTpl.body} onChange={e => setEditingTpl({...editingTpl, body: e.target.value})}
+              rows={12} placeholder="メール本文を入力..."
+              style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit", lineHeight: 1.7 }} />
+          </div>
+
+          {/* プレビュー */}
+          {editingTpl.body && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>プレビュー</label>
+              <div style={{ background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb", padding: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 8 }}>
+                  {editingTpl.subject.replace(/\{\{name\}\}/g, "山田太郎").replace(/\{\{company\}\}/g, "株式会社madoguchi")}
+                </div>
+                <div style={{ fontSize: 12, color: "#374151", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                  {editingTpl.body.replace(/\{\{name\}\}/g, "山田太郎").replace(/\{\{company\}\}/g, "株式会社madoguchi")}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setEditingTpl(null)}
+              style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", color: "#374151", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+            <button onClick={saveTemplate}
+              style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+              {editingTpl.isNew ? "作成" : "保存"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === "company" && (
+        <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 24 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, color: "#374151", marginBottom: 16 }}>会社情報</h3>
+          <div style={{ fontSize: 13, color: "#9ca3af" }}>この機能は次のフェーズで実装予定です。</div>
+        </div>
+      )}
+
+      {/* トースト */}
+      {toast && (
+        <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#111827", color: "white", padding: "10px 24px", borderRadius: 10, fontSize: 13, fontWeight: 500, zIndex: 10000, boxShadow: "0 4px 16px rgba(0,0,0,0.2)" }}>
+          ✅ {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // アカウント管理ページ（Admin専用）
 // ============================================================
 function AccountsPage({ currentUser, onRefreshProfile }) {
@@ -3524,6 +3797,11 @@ function App() {
   const [pipelineFilter, setPipelineFilter] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  // メールテンプレート管理
+  const [emailTemplates, setEmailTemplates] = useState(() => {
+    try { const saved = localStorage.getItem('ats_email_templates'); return saved ? JSON.parse(saved) : DEFAULT_EMAIL_TEMPLATES; } catch(e) { return DEFAULT_EMAIL_TEMPLATES; }
+  });
+  const saveEmailTemplates = (tpls) => { setEmailTemplates(tpls); localStorage.setItem('ats_email_templates', JSON.stringify(tpls)); };
   const [profileEditName, setProfileEditName] = useState("");
   const [migrationStatus, setMigrationStatus] = useState(null);
   const [migrationMsg, setMigrationMsg] = useState('');
@@ -3626,7 +3904,7 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "dashboard": return <DashboardPage onNavigate={navigate} recruitFilter={recruitFilter} />;
-      case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} can={can} />;
+      case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} can={can} emailTemplates={emailTemplates} />;
       case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} can={can} />;
       case "pipeline": return <PipelinePage recruitFilter={recruitFilter} onNavigateFromPipeline={navigateFromPipeline} candidates={candidates} />;
       case "schedule": return <SchedulePage recruitFilter={recruitFilter} />;
@@ -3634,6 +3912,7 @@ function App() {
       case "automation": return <AutomationPage />;
       case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} />;
       case "accounts": return can("manageAccounts") ? <AccountsPage currentUser={user} onRefreshProfile={() => loadProfile(user?.id, user?.email)} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
+      case "settings": return can("editSettings") ? <SettingsPage emailTemplates={emailTemplates} onSaveTemplates={saveEmailTemplates} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
       default: return (
         <div style={{ padding: 24, display: "flex", alignItems: "center", justifyContent: "center", height: "60vh" }}>
           <div style={{ textAlign: "center" }}>
