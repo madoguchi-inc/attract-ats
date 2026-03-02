@@ -2062,6 +2062,74 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 </span>
               )}
             </div>
+            {/* インラインステージバッジ＋展開 */}
+            <div style={{ marginTop: 10 }}>
+              {!can("changeStage") ? (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, background: (currentStageDef ? currentStageDef.color : "#6366f1") + "14", border: `1.5px solid ${currentStageDef ? currentStageDef.color : "#6366f1"}44`, fontSize: 13, fontWeight: 600, color: currentStageDef ? currentStageDef.color : "#6366f1" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
+                  {c.stage}{c.substatus ? ` / ${c.substatus}` : ""}
+                </div>
+              ) : (
+                <button onClick={() => setEditingStage(!editingStage)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, background: editingStage ? (currentStageDef ? currentStageDef.color : "#6366f1") + "22" : (currentStageDef ? currentStageDef.color : "#6366f1") + "14", border: `1.5px solid ${currentStageDef ? currentStageDef.color : "#6366f1"}${editingStage ? "88" : "44"}`, fontSize: 13, fontWeight: 600, color: currentStageDef ? currentStageDef.color : "#6366f1", cursor: "pointer", transition: "all 0.2s" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
+                  {c.stage}{c.substatus ? ` / ${c.substatus}` : ""}
+                  <span style={{ fontSize: 9, opacity: 0.7, marginLeft: 2, transition: "transform 0.2s", transform: editingStage ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
+                </button>
+              )}
+
+              {/* インライン展開パネル */}
+              {editingStage && can("changeStage") && (
+                <div style={{ marginTop: 10, padding: 16, background: "#fafbfc", borderRadius: 12, border: "1px solid #e5e7eb", maxWidth: 520, animation: "fadeIn 0.15s ease" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>ステージ</div>
+                    <select value={selectedStage} onChange={e => handleStageChange(e.target.value)}
+                      style={{ flex: 1, padding: "7px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", background: "white", cursor: "pointer" }}>
+                      {STAGE_DEFINITIONS.map(def => (
+                        <option key={def.id} value={def.name}>{def.order}. {def.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>サブステータス</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 12 }}>
+                    {availableSubs.map(sub => {
+                      const isExit = isExitStatus(sub);
+                      const isActive = selectedSub === sub;
+                      return (
+                        <button key={sub} onClick={() => setSelectedSub(sub)}
+                          style={{
+                            padding: "5px 12px", border: isActive ? "1.5px solid" : "1px solid",
+                            borderColor: isActive ? (isExit ? "#ef4444" : "#6366f1") : (isExit ? "#fecaca" : "#e5e7eb"),
+                            borderRadius: 20, fontSize: 12, cursor: "pointer", fontWeight: isActive ? 600 : 400,
+                            background: isActive ? (isExit ? "#fef2f2" : "#eef2ff") : (isExit ? "#fff5f5" : "white"),
+                            color: isExit ? "#dc2626" : (isActive ? "#4338ca" : "#374151"),
+                            transition: "all 0.15s",
+                          }}>
+                          {sub}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* 変更プレビュー */}
+                  {(selectedStage !== c.stage || selectedSub !== (c.substatus || "")) && (
+                    <div style={{ padding: "8px 12px", background: "white", borderRadius: 8, fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, border: "1px solid #e5e7eb" }}>
+                      <span style={{ color: "#9ca3af" }}>{c.stage} / {c.substatus || "—"}</span>
+                      <span style={{ color: "#6366f1", fontWeight: 700 }}>→</span>
+                      <strong style={{ color: isExitStatus(selectedSub) ? "#dc2626" : "#4338ca" }}>{selectedStage} / {selectedSub}</strong>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button onClick={handleCancelStage}
+                      style={{ padding: "6px 18px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>キャンセル</button>
+                    <button onClick={handleSaveStage} disabled={savingStage || (selectedStage === c.stage && selectedSub === (c.substatus || ""))}
+                      style={{ padding: "6px 18px", border: "none", borderRadius: 8, background: (selectedStage === c.stage && selectedSub === (c.substatus || "")) ? "#d1d5db" : "#6366f1", color: "white", fontSize: 12, cursor: savingStage ? "default" : "pointer", fontWeight: 600 }}>
+                      {savingStage ? "保存中..." : "保存"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#eef2ff", color: "#4338ca" }}>経路: {c.route}</span>
               {c.entryDate && <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#e0e7ff", color: "#3730a3" }}>エントリー日: {c.entryDate}</span>}
@@ -2076,70 +2144,9 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
             )}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
-            {/* ステージ変更UI */}
-            {!can("changeStage") ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", border: "2px solid #e5e7eb", borderRadius: 10, background: "#f9fafb", fontSize: 13, color: "#111827", fontWeight: 600, minWidth: 200, justifyContent: "center" }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
-                {c.stage} {c.substatus ? `/ ${c.substatus}` : ""}
-              </div>
-            ) : !editingStage ? (
-              <button onClick={() => setEditingStage(true)}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", border: `2px solid ${currentStageDef ? currentStageDef.color : "#6366f1"}`, borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#111827", fontWeight: 600, minWidth: 200, justifyContent: "center" }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
-                {c.stage} {c.substatus ? `/ ${c.substatus}` : ""}
-                <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 4 }}>▼ 変更</span>
-              </button>
-            ) : (
-              <div style={{ background: "white", border: "2px solid #6366f1", borderRadius: 12, padding: 14, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", minWidth: 280 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 8 }}>ステージを変更</div>
-                <select value={selectedStage} onChange={e => handleStageChange(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, marginBottom: 10, outline: "none", background: "white", cursor: "pointer" }}>
-                  {STAGE_DEFINITIONS.map(def => (
-                    <option key={def.id} value={def.name}>{def.order}. {def.name}</option>
-                  ))}
-                </select>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 6 }}>サブステータス</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
-                  {availableSubs.map(sub => {
-                    const isExit = isExitStatus(sub);
-                    const isActive = selectedSub === sub;
-                    return (
-                      <button key={sub} onClick={() => setSelectedSub(sub)}
-                        style={{
-                          padding: "5px 10px", border: isActive ? "2px solid" : "1px solid",
-                          borderColor: isActive ? (isExit ? "#ef4444" : "#6366f1") : (isExit ? "#fecaca" : "#e5e7eb"),
-                          borderRadius: 8, fontSize: 11, cursor: "pointer", fontWeight: isActive ? 700 : 400,
-                          background: isActive ? (isExit ? "#fef2f2" : "#eef2ff") : (isExit ? "#fff5f5" : "white"),
-                          color: isExit ? "#dc2626" : (isActive ? "#4338ca" : "#374151"),
-                        }}>
-                        {sub}
-                      </button>
-                    );
-                  })}
-                </div>
-                {/* 変更前 → 変更後プレビュー */}
-                {(selectedStage !== c.stage || selectedSub !== (c.substatus || "")) && (
-                  <div style={{ padding: "8px 10px", background: "#f9fafb", borderRadius: 8, fontSize: 11, marginBottom: 10, lineHeight: 1.8 }}>
-                    <span style={{ color: "#9ca3af" }}>{c.stage}/{c.substatus || "—"}</span>
-                    <span style={{ margin: "0 6px", color: "#6366f1" }}>→</span>
-                    <strong style={{ color: isExitStatus(selectedSub) ? "#dc2626" : "#4338ca" }}>{selectedStage}/{selectedSub}</strong>
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <button onClick={handleCancelStage}
-                    style={{ padding: "6px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>キャンセル</button>
-                  <button onClick={handleSaveStage} disabled={savingStage || (selectedStage === c.stage && selectedSub === (c.substatus || ""))}
-                    style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: (selectedStage === c.stage && selectedSub === (c.substatus || "")) ? "#d1d5db" : "#6366f1", color: "white", fontSize: 12, cursor: savingStage ? "default" : "pointer", fontWeight: 600 }}>
-                    {savingStage ? "保存中..." : "保存"}
-                  </button>
-                </div>
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>LINE送信</button>
-              <button onClick={() => onNavigate("interview-fb")} style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer" }}>FB入力</button>
-            </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>LINE送信</button>
+            <button onClick={() => onNavigate("interview-fb")} style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer" }}>FB入力</button>
           </div>
         </div>
       </div>
