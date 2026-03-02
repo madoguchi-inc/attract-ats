@@ -525,6 +525,9 @@ function useSupabaseCandidates(recruitFilter) {
   const [candidates, setCandidates] = useState(CANDIDATES);
   const [loading, setLoading] = useState(false);
 
+  // LINE連携の紐付け画面で候補者一覧を参照できるようにグローバルに公開
+  useEffect(() => { window.__ats_candidates = candidates; }, [candidates]);
+
   const fetchCandidates = useCallback(async () => {
     if (!SUPABASE_READY) { setCandidates(CANDIDATES); return; }
     setLoading(true);
@@ -5163,6 +5166,71 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [toast, setToast] = useState(null);
 
+  // LINE連携 state
+  const [lineStatus, setLineStatus] = useState(null); // { configured, friendCount, unlinkedCount }
+  const [lineUnlinked, setLineUnlinked] = useState([]);
+  const [lineLinkCandidate, setLineLinkCandidate] = useState({}); // { [line_user_id]: candidate_id }
+  const [lineLoading, setLineLoading] = useState(false);
+  const [lineSaving, setLineSaving] = useState(null);
+  const NETLIFY_DOMAIN = (() => { try { return new URL(window.location.href).hostname.includes('netlify') || window.location.hostname.includes('attract') ? window.location.origin : ''; } catch(e) { return ''; } })();
+
+  const loadLineStatus = useCallback(async () => {
+    if (!NETLIFY_DOMAIN) return;
+    setLineLoading(true);
+    try {
+      const res = await fetch(NETLIFY_DOMAIN + '/.netlify/functions/line-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (tokenStore.accessToken || 'demo') },
+        body: JSON.stringify({ action: 'unlinked' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLineUnlinked(data.users || []);
+        // line_usersテーブルからステータス集計
+        if (SUPABASE_READY) {
+          const { data: allLineUsers } = await sbApi.select('line_users', 'select=id,status');
+          if (allLineUsers) {
+            const total = allLineUsers.length;
+            const linked = allLineUsers.filter(u => u.status === 'linked').length;
+            const pending = allLineUsers.filter(u => u.status === 'pending').length;
+            setLineStatus({ configured: true, friendCount: total, linkedCount: linked, unlinkedCount: pending });
+          }
+        } else {
+          setLineStatus({ configured: true, friendCount: data.users?.length || 0, unlinkedCount: data.users?.length || 0, linkedCount: 0 });
+        }
+      } else {
+        setLineStatus({ configured: false });
+      }
+    } catch (e) {
+      console.warn('[LINE status error]', e);
+      setLineStatus({ configured: false });
+    }
+    setLineLoading(false);
+  }, [NETLIFY_DOMAIN]);
+
+  useEffect(() => { if (tab === 'line') loadLineStatus(); }, [tab]);
+
+  const linkLineUser = async (lineUserId, candidateId) => {
+    if (!candidateId) { alert('候補者を選択してください'); return; }
+    setLineSaving(lineUserId);
+    try {
+      const res = await fetch(NETLIFY_DOMAIN + '/.netlify/functions/line-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (tokenStore.accessToken || 'demo') },
+        body: JSON.stringify({ action: 'link', line_user_id: lineUserId, candidate_id: candidateId }),
+      });
+      if (res.ok) {
+        showToast('紐付けが完了しました');
+        loadLineStatus();
+      } else {
+        alert('紐付けに失敗しました');
+      }
+    } catch (e) {
+      alert('エラーが発生しました');
+    }
+    setLineSaving(null);
+  };
+
   const categories = useMemo(() => {
     const cats = new Set(templates.map(t => t.category));
     return ["all", ...Array.from(cats)];
@@ -5237,7 +5305,7 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
 
       {/* タブ */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid #e5e7eb", paddingBottom: 0 }}>
-        {[{ id: "templates", label: "📧 メールテンプレート" }, { id: "company", label: "🏢 会社情報" }].map(t => (
+        {[{ id: "templates", label: "📧 メールテンプレート" }, { id: "line", label: "💬 LINE連携" }, { id: "company", label: "🏢 会社情報" }].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{ padding: "8px 16px", border: "none", borderBottom: tab === t.id ? "2px solid #6366f1" : "2px solid transparent", background: "none", fontSize: 13, fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? "#6366f1" : "#6b7280", cursor: "pointer" }}>
             {t.label}
@@ -5361,6 +5429,120 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
               style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
               {editingTpl.isNew ? "作成" : "保存"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* LINE連携タブ */}
+      {tab === "line" && (
+        <div>
+          {/* ステータスカード */}
+          <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 24, marginBottom: 20 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#374151", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 20 }}>💬</span> LINE連携ステータス
+            </h3>
+            {lineLoading ? (
+              <div style={{ fontSize: 13, color: "#9ca3af" }}>読み込み中...</div>
+            ) : lineStatus?.configured ? (
+              <div>
+                <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+                  <div style={{ flex: 1, background: "#f0fdf4", borderRadius: 10, padding: 16, textAlign: "center" }}>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#16a34a" }}>{lineStatus.friendCount}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>友だち数</div>
+                  </div>
+                  <div style={{ flex: 1, background: "#eff6ff", borderRadius: 10, padding: 16, textAlign: "center" }}>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#2563eb" }}>{lineStatus.linkedCount}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>紐付け済み</div>
+                  </div>
+                  <div style={{ flex: 1, background: "#fffbeb", borderRadius: 10, padding: 16, textAlign: "center" }}>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#d97706" }}>{lineStatus.unlinkedCount}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>未紐付け</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#16a34a" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#16a34a", display: "inline-block" }}></span>
+                  LINE連携が有効です
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#d97706", marginBottom: 12 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#d97706", display: "inline-block" }}></span>
+                  LINE連携が未設定、または接続できません
+                </div>
+                <div style={{ background: "#fffbeb", borderRadius: 8, padding: 14, fontSize: 12, color: "#92400e", lineHeight: 1.7 }}>
+                  <strong>設定手順:</strong><br />
+                  1. Netlify の環境変数に以下を設定してください:<br />
+                  &nbsp;&nbsp;• <code>LINE_CHANNEL_ACCESS_TOKEN</code><br />
+                  &nbsp;&nbsp;• <code>LINE_CHANNEL_SECRET</code><br />
+                  &nbsp;&nbsp;• <code>SUPABASE_SERVICE_ROLE_KEY</code><br />
+                  2. LINE Developers コンソールで Webhook URL を設定:<br />
+                  &nbsp;&nbsp;• <code>{NETLIFY_DOMAIN || 'https://your-site.netlify.app'}/.netlify/functions/line-webhook</code><br />
+                  3. Supabase で <code>line_users</code> / <code>line_messages</code> テーブルを作成してください
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 未紐付けLINEユーザー一覧 */}
+          {lineStatus?.configured && lineUnlinked.length > 0 && (
+            <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 24, marginBottom: 20 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: "#374151", marginBottom: 16 }}>
+                未紐付けLINEユーザー ({lineUnlinked.length}人)
+              </h3>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 12 }}>
+                友だち追加したが、候補者とまだ紐付けされていないLINEユーザーです。手動で紐付けできます。
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {lineUnlinked.map(u => (
+                  <div key={u.line_user_id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+                    {u.picture_url ? (
+                      <img src={u.picture_url} style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover" }} />
+                    ) : (
+                      <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>👤</div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{u.display_name || '不明'}</div>
+                      <div style={{ fontSize: 10, color: "#9ca3af" }}>追加日: {u.created_at ? new Date(u.created_at).toLocaleDateString('ja-JP') : '不明'}</div>
+                    </div>
+                    <select
+                      value={lineLinkCandidate[u.line_user_id] || ""}
+                      onChange={e => setLineLinkCandidate(prev => ({ ...prev, [u.line_user_id]: e.target.value }))}
+                      style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, maxWidth: 200 }}>
+                      <option value="">候補者を選択...</option>
+                      {(window.__ats_candidates || []).map(c => (
+                        <option key={c.id} value={c.id}>{c.lastName} {c.firstName}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => linkLineUser(u.line_user_id, lineLinkCandidate[u.line_user_id])}
+                      disabled={lineSaving === u.line_user_id || !lineLinkCandidate[u.line_user_id]}
+                      style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: lineLinkCandidate[u.line_user_id] ? "#6366f1" : "#d1d5db", color: "white", fontSize: 12, cursor: lineLinkCandidate[u.line_user_id] ? "pointer" : "not-allowed", fontWeight: 500, opacity: lineSaving === u.line_user_id ? 0.6 : 1 }}>
+                      {lineSaving === u.line_user_id ? '紐付け中...' : '紐付け'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Webhook URL 表示 */}
+          <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 24 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#374151", marginBottom: 16 }}>Webhook URL / API情報</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>Webhook URL（LINE Developersに設定）</div>
+                <code style={{ display: "block", background: "#f3f4f6", padding: "8px 12px", borderRadius: 6, fontSize: 12, color: "#374151", wordBreak: "break-all" }}>
+                  {NETLIFY_DOMAIN || 'https://your-site.netlify.app'}/.netlify/functions/line-webhook
+                </code>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>送信API（ATS内部で使用）</div>
+                <code style={{ display: "block", background: "#f3f4f6", padding: "8px 12px", borderRadius: 6, fontSize: 12, color: "#374151", wordBreak: "break-all" }}>
+                  {NETLIFY_DOMAIN || 'https://your-site.netlify.app'}/.netlify/functions/line-send
+                </code>
+              </div>
+            </div>
           </div>
         </div>
       )}
