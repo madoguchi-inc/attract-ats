@@ -5398,6 +5398,8 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
   const [copiedId, setCopiedId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [showPermissions, setShowPermissions] = useState(false);
 
@@ -5492,10 +5494,14 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
     await loadAccounts();
   };
 
-  const saveDisplayName = async (profileId) => {
+  const saveProfile = async (profileId) => {
     if (!editName.trim()) return;
-    await sbApi.update('profiles', 'id=eq.' + profileId, { display_name: editName.trim() });
+    setEditSaving(true);
+    const updates = { display_name: editName.trim() };
+    if (editEmail.trim()) updates.email = editEmail.trim();
+    await sbApi.update('profiles', 'id=eq.' + profileId, updates);
     setEditingId(null);
+    setEditSaving(false);
     await loadAccounts();
     if (profileId === currentUser?.id && onRefreshProfile) onRefreshProfile();
   };
@@ -5621,40 +5627,53 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
                 const roleDef = getRoleDef(acc.role);
                 const isMe = acc.id === currentUser?.id;
                 const isDisabled = acc.is_active === false;
+                const isEditing = editingId === acc.id;
                 return (
-                  <tr key={acc.id} style={{ borderBottom: "1px solid #f3f4f6", opacity: isDisabled ? 0.5 : 1 }}>
+                  <tr key={acc.id} style={{ borderBottom: "1px solid #f3f4f6", opacity: isDisabled ? 0.5 : 1, background: isEditing ? "#fafaff" : "transparent" }}>
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div style={{ width: 36, height: 36, borderRadius: 10, background: `${roleDef.color}18`, display: "flex", alignItems: "center", justifyContent: "center", color: roleDef.color, fontSize: 13, fontWeight: 700, border: `1.5px solid ${roleDef.color}44`, flexShrink: 0 }}>
                           {(acc.display_name || "?").charAt(0)}
                         </div>
-                        <div>
-                          {editingId === acc.id ? (
-                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                              <input value={editName} onChange={e => setEditName(e.target.value)} style={{ padding: "3px 8px", border: "1px solid #6366f1", borderRadius: 6, fontSize: 12, width: 120 }} autoFocus onKeyDown={e => { if (e.key === "Enter") saveDisplayName(acc.id); if (e.key === "Escape") setEditingId(null); }} />
-                              <button onClick={() => saveDisplayName(acc.id)} style={{ fontSize: 10, background: "#6366f1", color: "white", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer" }}>保存</button>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {isEditing ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 10, color: "#9ca3af", width: 40, flexShrink: 0 }}>名前</span>
+                                <input value={editName} onChange={e => setEditName(e.target.value)} style={{ padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, flex: 1, minWidth: 0 }} autoFocus onKeyDown={e => { if (e.key === "Enter") saveProfile(acc.id); if (e.key === "Escape") setEditingId(null); }} />
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 10, color: "#9ca3af", width: 40, flexShrink: 0 }}>メール</span>
+                                <input value={editEmail} onChange={e => setEditEmail(e.target.value)} style={{ padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, flex: 1, minWidth: 0 }} onKeyDown={e => { if (e.key === "Enter") saveProfile(acc.id); if (e.key === "Escape") setEditingId(null); }} />
+                              </div>
                             </div>
                           ) : (
-                            <div style={{ fontWeight: 500, color: "#111827", display: "flex", alignItems: "center", gap: 6 }}>
-                              {acc.display_name || "—"}
-                              {isMe && <span style={{ fontSize: 10, color: "#6366f1", fontWeight: 600, padding: "1px 6px", background: "#eef2ff", borderRadius: 4 }}>自分</span>}
-                              <button onClick={() => { setEditingId(acc.id); setEditName(acc.display_name || ""); }} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, opacity: 0.4 }} title="名前を編集">
-                                <Icon name="edit" size={11} color="#9ca3af" />
-                              </button>
-                            </div>
+                            <>
+                              <div style={{ fontWeight: 500, color: "#111827", display: "flex", alignItems: "center", gap: 6 }}>
+                                {acc.display_name || "—"}
+                                {isMe && <span style={{ fontSize: 10, color: "#6366f1", fontWeight: 600, padding: "1px 6px", background: "#eef2ff", borderRadius: 4 }}>自分</span>}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#9ca3af" }}>{acc.email || (isMe && currentUser?.email) || acc.id?.substring(0, 8)}</div>
+                            </>
                           )}
-                          <div style={{ fontSize: 11, color: "#9ca3af" }}>{acc.email || (isMe && currentUser?.email) || acc.id?.substring(0, 8)}</div>
                         </div>
                       </div>
                     </td>
                     <td style={{ padding: "12px 16px" }}>
-                      <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, fontWeight: 500,
-                        background: isDisabled ? "#fef2f2" : "#f0fdf4",
-                        color: isDisabled ? "#dc2626" : "#15803d",
-                        border: `1px solid ${isDisabled ? "#fecaca" : "#bbf7d0"}`
-                      }}>
-                        {isDisabled ? "無効" : "アクティブ"}
-                      </span>
+                      {isEditing && !isMe ? (
+                        <button onClick={() => toggleActive(acc.id, acc.is_active !== false)}
+                          style={{ fontSize: 11, padding: "4px 12px", border: "1px solid", borderColor: !isDisabled ? "#fecaca" : "#bbf7d0", borderRadius: 6, background: !isDisabled ? "#fff5f5" : "#f0fdf4", cursor: "pointer", color: !isDisabled ? "#dc2626" : "#15803d", fontWeight: 500 }}>
+                          {!isDisabled ? "→ 無効にする" : "→ 有効にする"}
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, fontWeight: 500,
+                          background: isDisabled ? "#fef2f2" : "#f0fdf4",
+                          color: isDisabled ? "#dc2626" : "#15803d",
+                          border: `1px solid ${isDisabled ? "#fecaca" : "#bbf7d0"}`
+                        }}>
+                          {isDisabled ? "無効" : "アクティブ"}
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       <select value={acc.role || "viewer"} onChange={e => updateRole(acc.id, e.target.value)}
@@ -5663,22 +5682,41 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
                       </select>
                     </td>
                     <td style={{ padding: "12px 16px", textAlign: "center" }}>
-                      <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                        {!isMe && (
-                          <button onClick={() => toggleActive(acc.id, acc.is_active !== false)}
-                            style={{ fontSize: 11, padding: "5px 12px", border: "1px solid", borderColor: !isDisabled ? "#fecaca" : "#bbf7d0", borderRadius: 6, background: !isDisabled ? "#fff5f5" : "#f0fdf4", cursor: "pointer", color: !isDisabled ? "#dc2626" : "#15803d", fontWeight: 500 }}>
-                            {!isDisabled ? "無効化" : "有効化"}
-                          </button>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+                        {isEditing ? (
+                          <>
+                            <button onClick={() => saveProfile(acc.id)} disabled={editSaving}
+                              style={{ fontSize: 11, padding: "5px 14px", background: "#6366f1", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, opacity: editSaving ? 0.6 : 1 }}>
+                              {editSaving ? "保存中..." : "✓ 保存"}
+                            </button>
+                            <button onClick={() => setEditingId(null)}
+                              style={{ fontSize: 11, padding: "5px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", cursor: "pointer", color: "#6b7280" }}>
+                              キャンセル
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => { setEditingId(acc.id); setEditName(acc.display_name || ""); setEditEmail(acc.email || (isMe ? currentUser?.email : "") || ""); }}
+                              style={{ fontSize: 11, padding: "5px 12px", border: "1px solid #e0e7ff", borderRadius: 6, background: "#eef2ff", cursor: "pointer", color: "#4338ca", fontWeight: 500 }}>
+                              ✏️ 編集
+                            </button>
+                            {!isMe && (
+                              <button onClick={() => toggleActive(acc.id, acc.is_active !== false)}
+                                style={{ fontSize: 11, padding: "5px 12px", border: "1px solid", borderColor: !isDisabled ? "#fecaca" : "#bbf7d0", borderRadius: 6, background: !isDisabled ? "#fff5f5" : "#f0fdf4", cursor: "pointer", color: !isDisabled ? "#dc2626" : "#15803d", fontWeight: 500 }}>
+                                {!isDisabled ? "無効化" : "有効化"}
+                              </button>
+                            )}
+                            {!isMe && deleteConfirm === acc.id ? (
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                <button onClick={() => deleteAccount(acc.id)} style={{ fontSize: 10, padding: "4px 8px", background: "#dc2626", color: "white", border: "none", borderRadius: 4, cursor: "pointer" }}>削除する</button>
+                                <button onClick={() => setDeleteConfirm(null)} style={{ fontSize: 10, padding: "4px 8px", background: "#f3f4f6", color: "#6b7280", border: "none", borderRadius: 4, cursor: "pointer" }}>やめる</button>
+                              </div>
+                            ) : !isMe ? (
+                              <button onClick={() => setDeleteConfirm(acc.id)}
+                                style={{ fontSize: 11, padding: "5px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", cursor: "pointer", color: "#9ca3af" }}>削除</button>
+                            ) : null}
+                          </>
                         )}
-                        {!isMe && deleteConfirm === acc.id ? (
-                          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                            <button onClick={() => deleteAccount(acc.id)} style={{ fontSize: 10, padding: "4px 8px", background: "#dc2626", color: "white", border: "none", borderRadius: 4, cursor: "pointer" }}>削除する</button>
-                            <button onClick={() => setDeleteConfirm(null)} style={{ fontSize: 10, padding: "4px 8px", background: "#f3f4f6", color: "#6b7280", border: "none", borderRadius: 4, cursor: "pointer" }}>やめる</button>
-                          </div>
-                        ) : !isMe ? (
-                          <button onClick={() => setDeleteConfirm(acc.id)}
-                            style={{ fontSize: 11, padding: "5px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", cursor: "pointer", color: "#9ca3af" }}>削除</button>
-                        ) : null}
                       </div>
                     </td>
                   </tr>
