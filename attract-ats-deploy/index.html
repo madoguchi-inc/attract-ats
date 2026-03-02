@@ -5600,6 +5600,68 @@ function App() {
   const [migrationStatus, setMigrationStatus] = useState(null);
   const [migrationMsg, setMigrationMsg] = useState('');
 
+  // ========== 通知機能 ==========
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState(() => {
+    try { const saved = localStorage.getItem('ats_notifications'); return saved ? JSON.parse(saved) : []; } catch(e) { return []; }
+  });
+  const notifRef = useRef(null);
+
+  // 外側クリックで閉じる
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifications(false);
+    };
+    if (showNotifications) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showNotifications]);
+
+  // 通知を追加するヘルパー
+  const addNotification = useCallback((notif) => {
+    setNotifications(prev => {
+      const updated = [{ id: Date.now(), time: new Date().toISOString(), read: false, ...notif }, ...prev].slice(0, 50);
+      localStorage.setItem('ats_notifications', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  // 既読にする
+  const markNotifRead = useCallback((id) => {
+    setNotifications(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, read: true } : n);
+      localStorage.setItem('ats_notifications', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  // 全て既読
+  const markAllRead = useCallback(() => {
+    setNotifications(prev => {
+      const updated = prev.map(n => ({ ...n, read: true }));
+      localStorage.setItem('ats_notifications', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  // 初回ロード時にデモ通知を生成（空なら）
+  useEffect(() => {
+    if (notifications.length === 0) {
+      const now = new Date();
+      const demoNotifs = [
+        { id: 1, type: "stage_change", title: "ステージ変更", message: "田中 太郎 さんが「一次面接」→「二次面接」に進みました", icon: "📋", time: new Date(now - 1000 * 60 * 5).toISOString(), read: false },
+        { id: 2, type: "new_entry", title: "新規エントリー", message: "山田 花子 さんがマイナビ経由でエントリーしました", icon: "🆕", time: new Date(now - 1000 * 60 * 30).toISOString(), read: false },
+        { id: 3, type: "schedule", title: "面接予定", message: "鈴木 一郎 さんの二次面接が明日 14:00 に予定されています", icon: "📅", time: new Date(now - 1000 * 60 * 60).toISOString(), read: false },
+        { id: 4, type: "task", title: "タスク期限", message: "「適性テスト案内送付」の期限が本日です", icon: "⏰", time: new Date(now - 1000 * 60 * 60 * 2).toISOString(), read: false },
+        { id: 5, type: "message", title: "メッセージ受信", message: "佐藤 美咲 さんからメールの返信がありました", icon: "✉️", time: new Date(now - 1000 * 60 * 60 * 3).toISOString(), read: true },
+        { id: 6, type: "stage_change", title: "ステージ変更", message: "高橋 翔太 さんが「最終面接」→「内定」になりました", icon: "📋", time: new Date(now - 1000 * 60 * 60 * 5).toISOString(), read: true },
+        { id: 7, type: "automation", title: "自動送信完了", message: "説明会案内メールを 5名 に自動送信しました", icon: "🤖", time: new Date(now - 1000 * 60 * 60 * 8).toISOString(), read: true },
+        { id: 8, type: "new_entry", title: "新規エントリー", message: "リクナビ経由で 3名 の新規エントリーがありました", icon: "🆕", time: new Date(now - 1000 * 60 * 60 * 24).toISOString(), read: true },
+      ];
+      setNotifications(demoNotifs);
+      localStorage.setItem('ats_notifications', JSON.stringify(demoNotifs));
+    }
+  }, []);
+
   // profile取得
   const loadProfile = useCallback(async (userId, email) => {
     if (!SUPABASE_READY || !userId) {
@@ -5645,14 +5707,19 @@ function App() {
   // データフック
   const { candidates, loading: dataLoading, addCandidate, updateCandidate: rawUpdateCandidate, bulkUpdateStatus, refresh } = useSupabaseCandidates(recruitFilter);
 
-  // ステージ変更時にタスクも自動生成するラッパー
+  // ステージ変更時にタスクも自動生成 + 通知するラッパー
   const updateCandidate = useCallback(async (id, updates) => {
     await rawUpdateCandidate(id, updates);
-    if (updates.stage) {
-      const cand = candidates.find(c => c.id === id);
-      if (cand) autoGenerateTasks({ ...cand, ...updates }, updates.stage);
+    const cand = candidates.find(c => c.id === id);
+    if (updates.stage && cand) {
+      autoGenerateTasks({ ...cand, ...updates }, updates.stage);
+      addNotification({
+        type: "stage_change", title: "ステージ変更",
+        message: `${cand.lastName} ${cand.firstName} さんが「${cand.stage}」→「${updates.stage}」に変更されました`,
+        icon: "📋",
+      });
     }
-  }, [rawUpdateCandidate, candidates, autoGenerateTasks]);
+  }, [rawUpdateCandidate, candidates, autoGenerateTasks, addNotification]);
 
   const handleMigration = async () => {
     if (!window.confirm('候補者データを新しい8ステージ形式に一括変換します。\\n（既存のステージ・サブステータスが上書きされます）\\n\\n実行しますか？')) return;
@@ -5759,10 +5826,93 @@ function App() {
             {migrationStatus === 'done' && (
               <span style={{ fontSize: 11, color: '#15803d', fontWeight: 600 }}>{migrationMsg}</span>
             )}
-            <button style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 4 }}>
-              <Icon name="bell" size={18} color="#6b7280" />
-              <div style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, borderRadius: "50%", background: "#ef4444" }} />
-            </button>
+            <div ref={notifRef} style={{ position: "relative" }}>
+              <button onClick={() => setShowNotifications(!showNotifications)} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+                <Icon name="bell" size={18} color={showNotifications ? "#6366f1" : "#6b7280"} />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <div style={{ position: "absolute", top: -2, right: -2, minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "white", fontWeight: 700, padding: "0 4px" }}>
+                    {notifications.filter(n => !n.read).length}
+                  </div>
+                )}
+              </button>
+
+              {/* 通知ドロップダウン */}
+              {showNotifications && (
+                <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: 380, background: "white", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.18)", border: "1px solid #e5e7eb", zIndex: 9999, overflow: "hidden" }}>
+                  {/* ヘッダー */}
+                  <div style={{ padding: "14px 18px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>通知</span>
+                      {notifications.filter(n => !n.read).length > 0 && (
+                        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#eef2ff", color: "#4338ca", fontWeight: 600 }}>
+                          {notifications.filter(n => !n.read).length}件 未読
+                        </span>
+                      )}
+                    </div>
+                    {notifications.filter(n => !n.read).length > 0 && (
+                      <button onClick={markAllRead} style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>
+                        すべて既読にする
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 通知リスト */}
+                  <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                    {notifications.length === 0 ? (
+                      <div style={{ padding: 40, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>通知はありません</div>
+                    ) : notifications.map(notif => {
+                      const timeAgo = (() => {
+                        const diff = Math.floor((Date.now() - new Date(notif.time).getTime()) / 1000);
+                        if (diff < 60) return "たった今";
+                        if (diff < 3600) return `${Math.floor(diff / 60)}分前`;
+                        if (diff < 86400) return `${Math.floor(diff / 3600)}時間前`;
+                        return `${Math.floor(diff / 86400)}日前`;
+                      })();
+                      const typeColors = {
+                        stage_change: { bg: "#eef2ff", border: "#c7d2fe" },
+                        new_entry: { bg: "#f0fdf4", border: "#bbf7d0" },
+                        schedule: { bg: "#fefce8", border: "#fde68a" },
+                        task: { bg: "#fff7ed", border: "#fed7aa" },
+                        message: { bg: "#f0f9ff", border: "#bae6fd" },
+                        automation: { bg: "#faf5ff", border: "#e9d5ff" },
+                      };
+                      const tc = typeColors[notif.type] || { bg: "#f9fafb", border: "#e5e7eb" };
+                      return (
+                        <div key={notif.id}
+                          onClick={() => { markNotifRead(notif.id); if (notif.type === "stage_change" || notif.type === "new_entry") navigate("candidates"); else if (notif.type === "schedule") navigate("schedule"); else if (notif.type === "task") navigate("tasks"); else if (notif.type === "message") navigate("messages"); setShowNotifications(false); }}
+                          style={{
+                            padding: "12px 18px", borderBottom: "1px solid #f3f4f6", cursor: "pointer",
+                            background: notif.read ? "white" : "#fafaff",
+                            display: "flex", gap: 12, alignItems: "flex-start",
+                            transition: "background 0.15s",
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = "#f9fafb"}
+                          onMouseLeave={(e) => e.currentTarget.style.background = notif.read ? "white" : "#fafaff"}>
+                          <div style={{ width: 36, height: 36, borderRadius: 10, background: tc.bg, border: `1px solid ${tc.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
+                            {notif.icon}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                              <span style={{ fontSize: 12, fontWeight: notif.read ? 500 : 700, color: "#111827" }}>{notif.title}</span>
+                              <span style={{ fontSize: 10, color: "#9ca3af", flexShrink: 0, marginLeft: 8 }}>{timeAgo}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{notif.message}</div>
+                          </div>
+                          {!notif.read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#6366f1", flexShrink: 0, marginTop: 4 }} />}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* フッター */}
+                  <div style={{ padding: "10px 18px", borderTop: "1px solid #e5e7eb", textAlign: "center" }}>
+                    <button onClick={() => { setShowNotifications(false); }} style={{ fontSize: 12, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>
+                      すべての通知を見る
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             <button onClick={handleLogout} style={{ fontSize: 11, color: "#6b7280", background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>ログアウト</button>
           </div>
         </div>
