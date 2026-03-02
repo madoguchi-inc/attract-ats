@@ -3051,86 +3051,463 @@ function InterviewFBPage({ onNavigate }) {
 }
 
 // Schedule Page - 本日の予約・スケジュール一覧
-function SchedulePage({ recruitFilter }) {
-  const todayEvents = [
-    { time: "10:00-10:30", name: "佐藤 太郎", stage: "説明会", format: "WEB", interviewer: null, type: "新卒", meetUrl: "https://meet.google.com/xxx", location: null },
-    { time: "11:00-11:45", name: "小林 由美", stage: "一次面接", format: "WEB", interviewer: "佐々木", type: "中途", meetUrl: "https://meet.google.com/yyy", location: null },
-    { time: "14:00-14:45", name: "山田 花子", stage: "二次面接", format: "対面", interviewer: "安岡", type: "新卒", meetUrl: null, location: "本社 3F 会議室A" },
-    { time: "15:30-16:15", name: "松本 大介", stage: "二次面接", format: "対面", interviewer: "鈴木", type: "中途", meetUrl: null, location: "本社 3F 会議室B" },
-    { time: "16:00-16:45", name: "田中 健一", stage: "最終面接", format: "対面", interviewer: "田中部長", type: "新卒", meetUrl: null, location: "本社 5F 役員室" },
-    { time: "17:00-17:30", name: "加藤 翔太", stage: "書類選考結果通知", format: "WEB", interviewer: null, type: "中途", meetUrl: "https://meet.google.com/zzz", location: null },
-  ];
+function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
+  const STORAGE_KEY = 'ats_schedule_events';
+  const [events, setEvents] = useState(() => {
+    try {
+      const s = localStorage.getItem(STORAGE_KEY);
+      if (s) return JSON.parse(s);
+    } catch(e) {}
+    // デフォルトサンプルデータ
+    const today = new Date(); const fmt = (d) => d.toISOString().slice(0,10);
+    const td = fmt(today);
+    const tom = fmt(new Date(today.getTime() + 86400000));
+    const d3 = fmt(new Date(today.getTime() + 86400000*2));
+    return [
+      { id: "ev1", date: td, startTime: "10:00", endTime: "10:30", title: "説明会", candidateName: "佐藤 太郎", candidateId: null, stage: "説明会", format: "WEB", interviewer: "", type: "新卒", location: "", memo: "" },
+      { id: "ev2", date: td, startTime: "11:00", endTime: "11:45", title: "一次面接", candidateName: "小林 由美", candidateId: null, stage: "一次面接", format: "WEB", interviewer: "佐々木", type: "中途", location: "", memo: "" },
+      { id: "ev3", date: td, startTime: "14:00", endTime: "14:45", title: "二次面接", candidateName: "山田 花子", candidateId: null, stage: "二次面接", format: "対面", interviewer: "安岡", type: "新卒", location: "本社 3F 会議室A", memo: "" },
+      { id: "ev4", date: tom, startTime: "10:00", endTime: "10:45", title: "一次面接", candidateName: "松本 大介", candidateId: null, stage: "一次面接", format: "対面", interviewer: "鈴木", type: "中途", location: "本社 3F 会議室B", memo: "" },
+      { id: "ev5", date: tom, startTime: "15:00", endTime: "15:45", title: "最終面接", candidateName: "田中 健一", candidateId: null, stage: "最終面接", format: "対面", interviewer: "田中部長", type: "新卒", location: "本社 5F 役員室", memo: "" },
+      { id: "ev6", date: d3, startTime: "13:00", endTime: "13:30", title: "適性テスト案内", candidateName: "加藤 翔太", candidateId: null, stage: "適性テスト", format: "WEB", interviewer: "", type: "中途", location: "", memo: "メール送信済み" },
+    ];
+  });
 
-  const filtered = recruitFilter === "all" ? todayEvents : todayEvents.filter(e => e.type === recruitFilter);
-  const webCount = filtered.filter(e => e.format === "WEB").length;
-  const inPersonCount = filtered.filter(e => e.format === "対面").length;
+  const save = (list) => { setEvents(list); localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); };
 
-  return (
-    <div style={{ padding: 24, maxWidth: 900 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>スケジュール</h1>
-          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-            本日の予定 <strong>{filtered.length}件</strong>（💻 WEB {webCount}件 ・ 🏢 対面 {inPersonCount}件）
+  // ビュー: calendar / week / list
+  const [view, setView] = useState("calendar");
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showModal, setShowModal] = useState(false);
+  const [editEvent, setEditEvent] = useState(null);
+  const [expandedEvent, setExpandedEvent] = useState(null);
+
+  // モーダル用フォーム
+  const emptyForm = { title: "", date: new Date().toISOString().slice(0,10), startTime: "10:00", endTime: "10:45", candidateName: "", candidateId: null, stage: "一次面接", format: "WEB", interviewer: "", type: "新卒", location: "", memo: "" };
+  const [form, setForm] = useState(emptyForm);
+
+  const openCreate = (date) => {
+    setEditEvent(null);
+    setForm({ ...emptyForm, date: date || new Date().toISOString().slice(0,10) });
+    setShowModal(true);
+  };
+  const openEdit = (ev) => {
+    setEditEvent(ev);
+    setForm({ ...ev });
+    setShowModal(true);
+  };
+  const handleSave = () => {
+    if (!form.title && !form.candidateName) return;
+    if (editEvent) {
+      save(events.map(e => e.id === editEvent.id ? { ...form, id: editEvent.id } : e));
+    } else {
+      save([...events, { ...form, id: "ev_" + Date.now() }]);
+    }
+    setShowModal(false);
+  };
+  const handleDelete = (id) => { save(events.filter(e => e.id !== id)); setExpandedEvent(null); };
+
+  // 候補者選択時の自動入力
+  const handleCandidateSelect = (cid) => {
+    const c = candidates.find(x => x.id == cid);
+    if (c) {
+      setForm(prev => ({
+        ...prev, candidateId: c.id,
+        candidateName: (c.lastName || "") + " " + (c.firstName || ""),
+        stage: c.stage || prev.stage,
+        type: c.recruitType || prev.type,
+        title: c.stage || prev.title,
+      }));
+    }
+  };
+
+  // カレンダー計算
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const calendarDays = [];
+  for (let i = 0; i < firstDay; i++) calendarDays.push(null);
+  for (let d = 1; d <= daysInMonth; d++) calendarDays.push(d);
+  while (calendarDays.length % 7 !== 0) calendarDays.push(null);
+
+  const prevMonth = () => setSelectedDate(new Date(year, month - 1, 1));
+  const nextMonth = () => setSelectedDate(new Date(year, month + 1, 1));
+  const goToday = () => setSelectedDate(new Date());
+
+  const dateStr = (d) => {
+    const dd = String(d).padStart(2, "0");
+    const mm = String(month + 1).padStart(2, "0");
+    return `${year}-${mm}-${dd}`;
+  };
+  const todayStr = new Date().toISOString().slice(0,10);
+  const dayNames = ["日","月","火","水","木","金","土"];
+  const monthNames = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+
+  // フィルター
+  const filteredEvents = recruitFilter === "all" ? events : events.filter(e => e.type === recruitFilter);
+  const getEventsForDate = (ds) => filteredEvents.filter(e => e.date === ds).sort((a,b) => a.startTime.localeCompare(b.startTime));
+
+  // 週ビュー用
+  const getWeekDates = () => {
+    const start = new Date(selectedDate);
+    start.setDate(start.getDate() - start.getDay());
+    return Array.from({length: 7}, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d; });
+  };
+
+  // 統計
+  const todayEvents = getEventsForDate(todayStr);
+  const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
+  const weekEvents = filteredEvents.filter(e => { const d = new Date(e.date); return d >= weekStart && d <= weekEnd; });
+  const webCount = todayEvents.filter(e => e.format === "WEB").length;
+  const inPersonCount = todayEvents.filter(e => e.format === "対面").length;
+
+  const cardStyle = { background: "white", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" };
+  const stageColor = (stage) => { const def = STAGE_DEFINITIONS.find(s => s.name === stage); return def ? def.color : "#6b7280"; };
+
+  // イベントカード
+  const EventCard = ({ ev, compact }) => {
+    const col = stageColor(ev.stage);
+    const isExpanded = expandedEvent === ev.id;
+    return (
+      <div onClick={() => setExpandedEvent(isExpanded ? null : ev.id)}
+        style={{ background: "white", borderRadius: compact ? 6 : 10, border: `1px solid ${isExpanded ? col : "#f3f4f6"}`, overflow: "hidden", cursor: "pointer", transition: "all 0.15s" }}
+        onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.borderColor = "#d1d5db"; }}
+        onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.borderColor = "#f3f4f6"; }}>
+        <div style={{ display: "flex" }}>
+          <div style={{ width: 3, background: col, flexShrink: 0 }} />
+          <div style={{ flex: 1, padding: compact ? "6px 10px" : "12px 16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: compact ? 11 : 13, fontWeight: 700, color: "#111827" }}>{ev.startTime}</span>
+                {!compact && <span style={{ fontSize: 11, color: "#9ca3af" }}>〜 {ev.endTime}</span>}
+                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: ev.format === "WEB" ? "#ecfdf5" : "#fdf2f8", color: ev.format === "WEB" ? "#059669" : "#db2777", fontWeight: 500 }}>
+                  {ev.format === "WEB" ? "💻 WEB" : "🏢 対面"}
+                </span>
+              </div>
+              {!compact && (
+                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: ev.type === "新卒" ? "#eef2ff" : "#fef3c7", color: ev.type === "新卒" ? "#4338ca" : "#92400e" }}>{ev.type}</span>
+              )}
+            </div>
+            <div style={{ fontSize: compact ? 12 : 14, fontWeight: 600, color: "#111827", marginTop: compact ? 2 : 4 }}>
+              {ev.candidateName || ev.title}
+            </div>
+            {!compact && (
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                {ev.stage}{ev.interviewer ? ` ・ 面接官: ${ev.interviewer}` : ""}
+                {ev.location ? ` ・ ${ev.location}` : ""}
+              </div>
+            )}
           </div>
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "#6366f1" }}>
-          <Icon name="calendar" size={16} color="#6366f1" style={{ marginRight: 4 }} /> 2026年2月26日（木）
-        </div>
+        {/* 展開エリア */}
+        {isExpanded && !compact && (
+          <div style={{ borderTop: "1px solid #f3f4f6", padding: "12px 16px", background: "#fafbfc" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, marginBottom: 12 }}>
+              <div><span style={{ color: "#9ca3af" }}>時間: </span><span style={{ color: "#111827" }}>{ev.startTime} 〜 {ev.endTime}</span></div>
+              <div><span style={{ color: "#9ca3af" }}>ステージ: </span><span style={{ color: col, fontWeight: 600 }}>{ev.stage}</span></div>
+              <div><span style={{ color: "#9ca3af" }}>形式: </span><span>{ev.format}</span></div>
+              <div><span style={{ color: "#9ca3af" }}>採用区分: </span><span>{ev.type}</span></div>
+              {ev.interviewer && <div><span style={{ color: "#9ca3af" }}>面接官: </span><span>{ev.interviewer}</span></div>}
+              {ev.location && <div><span style={{ color: "#9ca3af" }}>場所: </span><span>{ev.location}</span></div>}
+            </div>
+            {ev.memo && <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10, padding: "6px 10px", background: "#f0f0f0", borderRadius: 6 }}>📝 {ev.memo}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              {ev.candidateId && (
+                <button onClick={(e) => { e.stopPropagation(); onNavigate && onNavigate("candidate-detail", ev.candidateId); }}
+                  style={{ padding: "6px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}>👤 候補者詳細</button>
+              )}
+              <button onClick={(e) => { e.stopPropagation(); openEdit(ev); }}
+                style={{ padding: "6px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}>✏️ 編集</button>
+              <button onClick={(e) => { e.stopPropagation(); if (confirm("この予定を削除しますか？")) handleDelete(ev.id); }}
+                style={{ padding: "6px 12px", border: "1px solid #fecaca", borderRadius: 6, background: "#fff5f5", fontSize: 11, cursor: "pointer", color: "#dc2626" }}>🗑 削除</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1200 }}>
+      {/* ヘッダー */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>スケジュール</h1>
+        <button onClick={() => openCreate(todayStr)}
+          style={{ padding: "10px 24px", border: "none", borderRadius: 10, background: "#1d4aff", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+          <Icon name="plus" size={14} /> 予定を追加
+        </button>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {filtered.map((ev, i) => (
-          <div key={i} style={{ background: "white", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", overflow: "hidden", display: "flex", border: "1px solid #f3f4f6" }}>
-            {/* 左の色バー */}
-            <div style={{ width: 4, background: ev.format === "WEB" ? "#10b981" : "#ec4899", flexShrink: 0 }} />
-            <div style={{ flex: 1, padding: "14px 18px", display: "flex", alignItems: "center", gap: 16 }}>
-              {/* 時間 */}
-              <div style={{ width: 100, flexShrink: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{ev.time.split("-")[0]}</div>
-                <div style={{ fontSize: 10, color: "#9ca3af" }}>〜 {ev.time.split("-")[1]}</div>
-              </div>
-              {/* バッジ群 */}
-              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                <FormatBadge format={ev.format} />
-                <RecruitTypeBadge type={ev.type} />
-              </div>
-              {/* メイン情報 */}
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{ev.name}</div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-                  {ev.stage}{ev.interviewer ? ` ・ 面接官: ${ev.interviewer}` : ""}
-                </div>
-              </div>
-              {/* 場所/リンク */}
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                {ev.format === "WEB" ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#10b981", fontWeight: 500 }}>
-                    <Icon name="volume" size={12} color="#10b981" /> Google Meet
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 11, color: "#6b7280" }}>
-                    <Icon name="building" size={12} color="#9ca3af" style={{ marginRight: 3 }} />
-                    {ev.location}
-                  </div>
-                )}
-              </div>
-            </div>
+      {/* 統計カード */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "今日の予定", value: todayEvents.length, icon: "📅", color: "#6366f1" },
+          { label: "WEB面接", value: webCount, icon: "💻", color: "#10b981" },
+          { label: "対面面接", value: inPersonCount, icon: "🏢", color: "#ec4899" },
+          { label: "今週の予定", value: weekEvents.length, icon: "📋", color: "#f59e0b" },
+        ].map((item, i) => (
+          <div key={i} style={{ ...cardStyle, padding: "14px 16px", borderLeft: `3px solid ${item.color}` }}>
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>{item.icon} {item.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
           </div>
         ))}
       </div>
+
+      {/* ビュー切替 + ナビ */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 10, padding: 4 }}>
+          {[["calendar", "📅 カレンダー"], ["week", "📊 週間"], ["list", "📋 リスト"]].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)}
+              style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer",
+                background: view === id ? "white" : "transparent", color: view === id ? "#4338ca" : "#6b7280",
+                fontWeight: view === id ? 600 : 400, boxShadow: view === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>{label}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={prevMonth} style={{ border: "1px solid #e5e7eb", borderRadius: 6, background: "white", padding: "4px 10px", cursor: "pointer", fontSize: 13 }}>◀</button>
+          <button onClick={goToday} style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "white", padding: "4px 14px", cursor: "pointer", fontSize: 12, fontWeight: 500 }}>今日</button>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#111827", minWidth: 120, textAlign: "center" }}>{year}年{monthNames[month]}</span>
+          <button onClick={nextMonth} style={{ border: "1px solid #e5e7eb", borderRadius: 6, background: "white", padding: "4px 10px", cursor: "pointer", fontSize: 13 }}>▶</button>
+        </div>
+      </div>
+
+      {/* カレンダービュー */}
+      {view === "calendar" && (
+        <div style={{ ...cardStyle, overflow: "hidden" }}>
+          {/* 曜日ヘッダー */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: "1px solid #e5e7eb" }}>
+            {dayNames.map((d, i) => (
+              <div key={i} style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, fontWeight: 600, color: i === 0 ? "#ef4444" : i === 6 ? "#3b82f6" : "#6b7280", background: "#fafbfc" }}>{d}</div>
+            ))}
+          </div>
+          {/* 日付グリッド */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+            {calendarDays.map((day, i) => {
+              if (!day) return <div key={i} style={{ minHeight: 90, borderRight: "1px solid #f3f4f6", borderBottom: "1px solid #f3f4f6", background: "#fafbfc" }} />;
+              const ds = dateStr(day);
+              const isToday = ds === todayStr;
+              const dayEvents = getEventsForDate(ds);
+              const dow = i % 7;
+              return (
+                <div key={i} onClick={() => openCreate(ds)}
+                  style={{ minHeight: 90, borderRight: "1px solid #f3f4f6", borderBottom: "1px solid #f3f4f6", padding: 4, cursor: "pointer", background: isToday ? "#eef2ff" : "white", position: "relative" }}
+                  onMouseEnter={(e) => { if (!isToday) e.currentTarget.style.background = "#fafbfc"; }}
+                  onMouseLeave={(e) => { if (!isToday) e.currentTarget.style.background = "white"; }}>
+                  <div style={{ fontSize: 12, fontWeight: isToday ? 700 : 400, color: isToday ? "#4338ca" : dow === 0 ? "#ef4444" : dow === 6 ? "#3b82f6" : "#374151", marginBottom: 2, textAlign: "right", paddingRight: 2 }}>
+                    {isToday ? <span style={{ background: "#4338ca", color: "white", borderRadius: "50%", width: 22, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>{day}</span> : day}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {dayEvents.slice(0, 3).map(ev => (
+                      <div key={ev.id} onClick={(e) => { e.stopPropagation(); setExpandedEvent(expandedEvent === ev.id ? null : ev.id); }}
+                        style={{ fontSize: 10, padding: "2px 4px", borderRadius: 3, background: stageColor(ev.stage) + "18", color: stageColor(ev.stage), fontWeight: 500, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", cursor: "pointer" }}>
+                        {ev.startTime} {ev.candidateName || ev.title}
+                      </div>
+                    ))}
+                    {dayEvents.length > 3 && <div style={{ fontSize: 9, color: "#9ca3af", textAlign: "center" }}>+{dayEvents.length - 3}件</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 週間ビュー */}
+      {view === "week" && (
+        <div style={{ ...cardStyle, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+            {getWeekDates().map((wd, i) => {
+              const ds = wd.toISOString().slice(0,10);
+              const isToday = ds === todayStr;
+              const dayEvents = getEventsForDate(ds);
+              return (
+                <div key={i} style={{ borderRight: i < 6 ? "1px solid #f3f4f6" : "none", minHeight: 300 }}>
+                  <div style={{ padding: "10px 8px", textAlign: "center", borderBottom: "1px solid #f3f4f6", background: isToday ? "#eef2ff" : "#fafbfc" }}>
+                    <div style={{ fontSize: 10, color: i === 0 ? "#ef4444" : i === 6 ? "#3b82f6" : "#6b7280", fontWeight: 600 }}>{dayNames[i]}</div>
+                    <div style={{ fontSize: 16, fontWeight: isToday ? 700 : 400, color: isToday ? "#4338ca" : "#111827", marginTop: 2 }}>{wd.getDate()}</div>
+                  </div>
+                  <div style={{ padding: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {dayEvents.map(ev => <EventCard key={ev.id} ev={ev} compact={true} />)}
+                    {dayEvents.length === 0 && <div style={{ fontSize: 10, color: "#d1d5db", textAlign: "center", padding: 10 }}>予定なし</div>}
+                    <button onClick={() => openCreate(ds)}
+                      style={{ border: "1px dashed #d1d5db", borderRadius: 6, background: "transparent", padding: "4px 0", fontSize: 11, cursor: "pointer", color: "#9ca3af" }}>+ 追加</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* リストビュー */}
+      {view === "list" && (
+        <div>
+          {(() => {
+            const grouped = {};
+            filteredEvents.sort((a,b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)).forEach(ev => {
+              if (!grouped[ev.date]) grouped[ev.date] = [];
+              grouped[ev.date].push(ev);
+            });
+            const dates = Object.keys(grouped).sort();
+            if (dates.length === 0) return <div style={{ ...cardStyle, padding: 40, textAlign: "center" }}><div style={{ fontSize: 36, marginBottom: 8 }}>📅</div><div style={{ color: "#9ca3af", fontSize: 13 }}>登録されている予定がありません</div></div>;
+            return dates.map(d => {
+              const dt = new Date(d + "T00:00:00");
+              const isToday = d === todayStr;
+              const dow = dayNames[dt.getDay()];
+              return (
+                <div key={d} style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: isToday ? "#4338ca" : "#111827" }}>
+                      {dt.getMonth()+1}/{dt.getDate()}（{dow}）
+                    </div>
+                    {isToday && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "#eef2ff", color: "#4338ca", fontWeight: 600 }}>今日</span>}
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>{grouped[d].length}件</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {grouped[d].map(ev => <EventCard key={ev.id} ev={ev} compact={false} />)}
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
 
       {/* GCal連携ステータス */}
       <div style={{ marginTop: 24, padding: "16px 20px", background: "#f0fdf4", borderRadius: 12, border: "1px solid #bbf7d0", display: "flex", alignItems: "center", gap: 12 }}>
         <Icon name="check-circle" size={18} color="#16a34a" />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>Googleカレンダー連携中</div>
-          <div style={{ fontSize: 11, color: "#16a34a", marginTop: 2 }}>
-            タイトルに「WEB」「対面」が自動反映されます。リマインドメールも形態に応じて自動送信されます。
-          </div>
+          <div style={{ fontSize: 11, color: "#16a34a", marginTop: 2 }}>予定はGoogleカレンダーと同期されます。リマインドメールも形態に応じて自動送信されます。</div>
         </div>
         <button style={{ padding: "6px 14px", border: "1px solid #86efac", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#15803d" }}>設定</button>
       </div>
+
+      {/* 予定作成/編集モーダル */}
+      {showModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}>
+          <div style={{ background: "white", borderRadius: 16, width: 560, maxHeight: "90vh", overflow: "auto", padding: 28 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>{editEvent ? "予定を編集" : "予定を追加"}</h2>
+              <button onClick={() => setShowModal(false)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: "#9ca3af" }}>✕</button>
+            </div>
+
+            {/* 候補者選択 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>候補者（任意）</label>
+              <select value={form.candidateId || ""} onChange={(e) => handleCandidateSelect(e.target.value)}
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
+                <option value="">候補者を選択...</option>
+                {candidates.map(c => (
+                  <option key={c.id} value={c.id}>{c.lastName} {c.firstName} — {c.stage}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* タイトル */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>タイトル</label>
+              <input value={form.title} onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="例: 一次面接"
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            </div>
+
+            {/* 候補者名（手入力） */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>候補者名</label>
+              <input value={form.candidateName} onChange={(e) => setForm(prev => ({ ...prev, candidateName: e.target.value }))}
+                placeholder="候補者名を入力..."
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            </div>
+
+            {/* 日付 & 時間 */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>日付</label>
+                <input type="date" value={form.date} onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>開始時間</label>
+                <input type="time" value={form.startTime} onChange={(e) => setForm(prev => ({ ...prev, startTime: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>終了時間</label>
+                <input type="time" value={form.endTime} onChange={(e) => setForm(prev => ({ ...prev, endTime: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+
+            {/* ステージ & 形式 */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>ステージ</label>
+                <select value={form.stage} onChange={(e) => setForm(prev => ({ ...prev, stage: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
+                  {STAGE_DEFINITIONS.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>面接形式</label>
+                <select value={form.format} onChange={(e) => setForm(prev => ({ ...prev, format: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
+                  <option value="WEB">💻 WEB（オンライン）</option>
+                  <option value="対面">🏢 対面</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 採用区分 & 面接官 */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>採用区分</label>
+                <select value={form.type} onChange={(e) => setForm(prev => ({ ...prev, type: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
+                  <option value="新卒">新卒</option>
+                  <option value="中途">中途</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>面接官</label>
+                <input value={form.interviewer} onChange={(e) => setForm(prev => ({ ...prev, interviewer: e.target.value }))}
+                  placeholder="面接官名"
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+
+            {/* 場所 */}
+            {form.format === "対面" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>場所</label>
+                <input value={form.location} onChange={(e) => setForm(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="例: 本社 3F 会議室A"
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            )}
+
+            {/* メモ */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>メモ</label>
+              <textarea value={form.memo} onChange={(e) => setForm(prev => ({ ...prev, memo: e.target.value }))}
+                rows={3} placeholder="メモ・備考..."
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+            </div>
+
+            {/* ボタン */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setShowModal(false)}
+                style={{ padding: "10px 24px", border: "1px solid #d1d5db", borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#6b7280" }}>キャンセル</button>
+              <button onClick={handleSave}
+                style={{ padding: "10px 28px", border: "none", borderRadius: 10, background: "#1d4aff", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                {editEvent ? "更新する" : "追加する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5332,7 +5709,7 @@ function App() {
       case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} can={can} />;
       case "pipeline": return <PipelinePage recruitFilter={recruitFilter} onNavigateFromPipeline={navigateFromPipeline} candidates={candidates} />;
       case "messages": return <MessagesPage candidates={candidates} emailTemplates={emailTemplates} onNavigate={navigate} />;
-      case "schedule": return <SchedulePage recruitFilter={recruitFilter} />;
+      case "schedule": return <SchedulePage recruitFilter={recruitFilter} candidates={candidates} onNavigate={navigate} />;
       case "interview-fb": return <InterviewFBPage onNavigate={navigate} />;
       case "automation": return <AutomationPage emailTemplates={emailTemplates} />;
       case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} candidates={candidates} />;
