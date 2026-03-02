@@ -5819,6 +5819,7 @@ function App() {
 
   // ========== 通知機能 ==========
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showAllNotifications, setShowAllNotifications] = useState(false);
   const [notifications, setNotifications] = useState(() => {
     try { const saved = localStorage.getItem('ats_notifications'); return saved ? JSON.parse(saved) : []; } catch(e) { return []; }
   });
@@ -6123,7 +6124,7 @@ function App() {
 
                   {/* フッター */}
                   <div style={{ padding: "10px 18px", borderTop: "1px solid #e5e7eb", textAlign: "center" }}>
-                    <button onClick={() => { setShowNotifications(false); }} style={{ fontSize: 12, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>
+                    <button onClick={() => { setShowNotifications(false); setShowAllNotifications(true); }} style={{ fontSize: 12, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>
                       すべての通知を見る
                     </button>
                   </div>
@@ -6135,6 +6136,85 @@ function App() {
         </div>
         {renderPage()}
       </div>
+
+      {/* 全通知モーダル */}
+      {showAllNotifications && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}
+          onClick={e => { if (e.target === e.currentTarget) setShowAllNotifications(false); }}>
+          <div style={{ background: "white", borderRadius: 16, width: 600, maxWidth: "92vw", maxHeight: "85vh", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", animation: "fadeIn 0.2s", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* ヘッダー */}
+            <div style={{ padding: "18px 24px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>🔔 すべての通知</span>
+                <span style={{ fontSize: 12, padding: "2px 10px", borderRadius: 10, background: "#f3f4f6", color: "#6b7280", fontWeight: 500 }}>{notifications.length}件</span>
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span style={{ fontSize: 12, padding: "2px 10px", borderRadius: 10, background: "#eef2ff", color: "#4338ca", fontWeight: 600 }}>
+                    {notifications.filter(n => !n.read).length}件 未読
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <button onClick={markAllRead} style={{ fontSize: 11, color: "#6366f1", background: "none", border: "1px solid #e0e7ff", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontWeight: 500 }}>
+                    すべて既読にする
+                  </button>
+                )}
+                <button onClick={() => setShowAllNotifications(false)} style={{ border: "none", background: "#f3f4f6", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+              </div>
+            </div>
+            {/* 通知リスト */}
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {notifications.length === 0 ? (
+                <div style={{ padding: 60, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>通知はありません</div>
+              ) : notifications.map(notif => {
+                const timeAgo = (() => {
+                  const diff = Math.floor((Date.now() - new Date(notif.time).getTime()) / 1000);
+                  if (diff < 60) return "たった今";
+                  if (diff < 3600) return `${Math.floor(diff / 60)}分前`;
+                  if (diff < 86400) return `${Math.floor(diff / 3600)}時間前`;
+                  return `${Math.floor(diff / 86400)}日前`;
+                })();
+                const typeColors = {
+                  stage_change: { bg: "#eef2ff", border: "#c7d2fe", label: "ステージ変更" },
+                  new_entry: { bg: "#f0fdf4", border: "#bbf7d0", label: "新規エントリー" },
+                  schedule: { bg: "#fefce8", border: "#fde68a", label: "スケジュール" },
+                  task: { bg: "#fff7ed", border: "#fed7aa", label: "タスク" },
+                  message: { bg: "#f0f9ff", border: "#bae6fd", label: "メッセージ" },
+                  automation: { bg: "#faf5ff", border: "#e9d5ff", label: "自動化" },
+                };
+                const tc = typeColors[notif.type] || { bg: "#f9fafb", border: "#e5e7eb", label: "その他" };
+                return (
+                  <div key={notif.id}
+                    onClick={() => { markNotifRead(notif.id); if (notif.type === "stage_change" || notif.type === "new_entry") navigate("candidates"); else if (notif.type === "schedule") navigate("schedule"); else if (notif.type === "task") navigate("tasks"); else if (notif.type === "message") navigate("messages"); setShowAllNotifications(false); }}
+                    style={{
+                      padding: "14px 24px", borderBottom: "1px solid #f3f4f6", cursor: "pointer",
+                      background: notif.read ? "white" : "#fafaff",
+                      display: "flex", gap: 14, alignItems: "flex-start",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "#f9fafb"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = notif.read ? "white" : "#fafaff"}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: tc.bg, border: `1px solid ${tc.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                      {notif.icon}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: notif.read ? 500 : 700, color: "#111827" }}>{notif.title}</span>
+                          <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: tc.bg, color: "#6b7280", border: `1px solid ${tc.border}` }}>{tc.label}</span>
+                        </div>
+                        <span style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0, marginLeft: 8 }}>{timeAgo}</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.6 }}>{notif.message}</div>
+                    </div>
+                    {!notif.read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#6366f1", flexShrink: 0, marginTop: 6 }} />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 候補者追加モーダル */}
       {showAddModal && <AddCandidateModal onClose={() => setShowAddModal(false)} onAdd={async (c) => { const result = await addCandidate(c); if (result) autoGenerateTasks({ ...c, id: result.id || result[0]?.id || Date.now() }, c.stage || "エントリー"); setShowAddModal(false); }} />}
