@@ -5348,7 +5348,7 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
 // ============================================================
 // アカウント管理ページ（Admin専用）
 // ============================================================
-function AccountsPage({ currentUser, onRefreshProfile }) {
+function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -5374,10 +5374,31 @@ function AccountsPage({ currentUser, onRefreshProfile }) {
     setLoading(true);
     if (SUPABASE_READY) {
       const { data } = await sbApi.select('profiles', 'order=created_at.asc');
-      setAccounts(data || []);
+      let list = data || [];
+      // ログインユーザーがprofilesに存在しなければ自動追加を試みる
+      if (currentUser?.id && !list.find(a => a.id === currentUser.id)) {
+        const fallbackProfile = {
+          id: currentUser.id,
+          email: currentUser.email || "",
+          display_name: currentProfile?.display_name || currentUser.email?.split("@")[0] || "管理者",
+          role: currentProfile?.role || "admin",
+          is_active: true,
+          created_at: new Date().toISOString(),
+        };
+        // DB にも作成を試みる
+        await sbApi.insert('profiles', fallbackProfile).catch(() => {});
+        // 再取得
+        const { data: data2 } = await sbApi.select('profiles', 'order=created_at.asc');
+        list = data2 || [];
+        // それでもなければローカルで追加
+        if (!list.find(a => a.id === currentUser.id)) {
+          list = [fallbackProfile, ...list];
+        }
+      }
+      setAccounts(list);
     }
     setLoading(false);
-  }, []);
+  }, [currentUser, currentProfile]);
 
   useEffect(() => { loadAccounts(); }, []);
 
@@ -5561,7 +5582,7 @@ function AccountsPage({ currentUser, onRefreshProfile }) {
                               </button>
                             </div>
                           )}
-                          <div style={{ fontSize: 11, color: "#9ca3af" }}>{acc.email || acc.id?.substring(0, 8)}</div>
+                          <div style={{ fontSize: 11, color: "#9ca3af" }}>{acc.email || (isMe && currentUser?.email) || acc.id?.substring(0, 8)}</div>
                         </div>
                       </div>
                     </td>
@@ -5912,7 +5933,7 @@ function App() {
       case "analytics": return <AnalyticsPage recruitFilter={recruitFilter} candidates={candidates} />;
       case "tasks": return <TasksPage tasks={tasks} onUpdateTasks={saveTasks} candidates={candidates} onNavigate={navigate} />;
       case "agents": return <AgentsPage candidates={candidates} />;
-      case "accounts": return can("manageAccounts") ? <AccountsPage currentUser={user} onRefreshProfile={() => loadProfile(user?.id, user?.email)} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
+      case "accounts": return can("manageAccounts") ? <AccountsPage currentUser={user} currentProfile={userProfile} onRefreshProfile={() => loadProfile(user?.id, user?.email)} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
       case "settings": return can("editSettings") ? <SettingsPage emailTemplates={emailTemplates} onSaveTemplates={saveEmailTemplates} /> : <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>アクセス権限がありません</div>;
       default: return (
         <div style={{ padding: 24, display: "flex", alignItems: "center", justifyContent: "center", height: "60vh" }}>
