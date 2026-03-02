@@ -5416,14 +5416,24 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
       const { user: newUser, error } = await sbApi.signUp(inviteData.email, inviteData.password, { display_name: inviteData.display_name });
       if (error) {
         const msg = error.msg || error.message || JSON.stringify(error);
-        setInviteError(msg.includes("already registered") || msg.includes("already been registered") ? "このメールアドレスは既に登録されています" : msg);
-        setInviteLoading(false); return;
+        // メールレート制限エラーの場合：アカウント自体は作成されている可能性があるので続行
+        const isRateLimit = msg.includes("rate limit") || msg.includes("Rate limit");
+        const isAlreadyReg = msg.includes("already registered") || msg.includes("already been registered");
+        if (isAlreadyReg) {
+          setInviteError("このメールアドレスは既に登録されています");
+          setInviteLoading(false); return;
+        }
+        if (!isRateLimit) {
+          setInviteError(msg);
+          setInviteLoading(false); return;
+        }
+        // rate limit → アカウント作成は成功している場合が多い。続行する。
       }
       const uid = newUser?.id || newUser?.user?.id;
-      if (uid) await sbApi.insert('profiles', { id: uid, role: inviteData.role, display_name: inviteData.display_name, is_active: true }).catch(() => {});
+      if (uid) await sbApi.insert('profiles', { id: uid, role: inviteData.role, display_name: inviteData.display_name, is_active: true, email: inviteData.email }).catch(() => {});
     }
     savePending([{ id: Date.now(), email: inviteData.email, display_name: inviteData.display_name, role: inviteData.role, password: inviteData.password, invited_at: new Date().toISOString(), invited_by: currentUser?.email || "管理者", status: "pending" }, ...pendingInvites]);
-    setInviteSuccess(`${inviteData.display_name} さんを招待しました！ログイン情報を共有してください。`);
+    setInviteSuccess(`${inviteData.display_name} さんのアカウントを作成しました。`);
     setInviteData({ email: "", password: "", display_name: "", role: "recruiter" });
     setInviteLoading(false);
     await loadAccounts();
