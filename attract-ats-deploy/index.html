@@ -13,6 +13,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif; }
 @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 @keyframes expandDown { from { max-height: 0; opacity: 0; } to { max-height: 600px; opacity: 1; } }
 </style>
 </head>
@@ -5357,7 +5358,6 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState("");
   const [copiedId, setCopiedId] = useState(null);
-  const [resendingId, setResendingId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -5457,14 +5457,6 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
     navigator.clipboard.writeText(text).then(() => { setCopiedId(inv.id); setTimeout(() => setCopiedId(null), 2000); });
   };
 
-  const resendInvite = async (inv) => {
-    setResendingId(inv.id);
-    if (SUPABASE_READY) {
-      await fetch(SUPABASE_URL + '/auth/v1/recover', { method: 'POST', headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: inv.email }) });
-    }
-    setTimeout(() => setResendingId(null), 2000);
-  };
-
   const cancelInvite = (id) => savePending(pendingInvites.filter(p => p.id !== id));
   const markAccepted = (id) => savePending(pendingInvites.map(p => p.id === id ? { ...p, status: "accepted" } : p));
 
@@ -5475,12 +5467,6 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
   };
 
   const inputStyle = { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" };
-
-  // 全アカウント + 招待中を統合した一覧
-  const allItems = [
-    ...accounts.map(a => ({ ...a, _type: "account" })),
-    ...pendingInvites.filter(p => p.status !== "accepted").map(p => ({ ...p, _type: "pending" })),
-  ];
 
   return (
     <div style={{ padding: 24, maxWidth: 960 }}>
@@ -5496,46 +5482,73 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
         </button>
       </div>
 
-      {/* 招待フォーム */}
+      {/* 招待モーダル */}
       {inviteOpen && (
-        <div style={{ background: "white", borderRadius: 12, padding: 24, marginBottom: 20, border: "2px solid #6366f1", boxShadow: "0 4px 12px rgba(99,102,241,0.1)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: 0 }}>新しいメンバーを招待</h3>
-            <button onClick={() => setInviteOpen(false)} style={{ border: "none", background: "#f3f4f6", borderRadius: 8, width: 28, height: 28, cursor: "pointer", fontSize: 14, color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-          </div>
-          <div style={{ background: "#fefce8", padding: "10px 14px", borderRadius: 8, border: "1px solid #fde68a", fontSize: 12, color: "#92400e", marginBottom: 16, lineHeight: 1.6 }}>
-            💡 <strong>招待の流れ:</strong> アカウント作成後、ログイン情報をコピーして招待者に共有してください。Supabase無料プランではメール自動送信に制限があるため、手動共有を推奨しています。
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>表示名 *</label>
-              <input value={inviteData.display_name} onChange={e => setInviteData({...inviteData, display_name: e.target.value})} placeholder="山田 太郎" style={inputStyle} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>メールアドレス *</label>
-              <input value={inviteData.email} onChange={e => setInviteData({...inviteData, email: e.target.value})} placeholder="taro@example.com" style={inputStyle} type="email" />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>初期パスワード *</label>
-              <input value={inviteData.password} onChange={e => setInviteData({...inviteData, password: e.target.value})} placeholder="6文字以上" style={inputStyle} type="text" />
-              <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>※ 招待者に共有するため表示されています</div>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>ロール</label>
-              <select value={inviteData.role} onChange={e => setInviteData({...inviteData, role: e.target.value})} style={{ ...inputStyle, cursor: "pointer" }}>
-                {ROLES.map(r => <option key={r.id} value={r.id}>{r.icon} {r.label} — {r.description}</option>)}
-              </select>
-            </div>
-          </div>
-          {inviteError && <div style={{ background: "#fef2f2", color: "#dc2626", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 12, border: "1px solid #fecaca" }}>⚠️ {inviteError}</div>}
-          {inviteSuccess && <div style={{ background: "#f0fdf4", color: "#15803d", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 12, border: "1px solid #bbf7d0" }}>✅ {inviteSuccess}</div>}
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={handleInvite} disabled={inviteLoading}
-              style={{ background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "10px 24px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: inviteLoading ? 0.6 : 1 }}>
-              {inviteLoading ? "作成中..." : "アカウントを作成"}
-            </button>
-            <button onClick={() => setInviteOpen(false)}
-              style={{ background: "white", color: "#6b7280", border: "1px solid #d1d5db", borderRadius: 8, padding: "10px 20px", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}
+          onClick={e => { if (e.target === e.currentTarget && !inviteSuccess) { setInviteOpen(false); setInviteError(""); setInviteSuccess(""); } }}>
+          <div style={{ background: "white", borderRadius: 16, padding: 28, width: 480, maxWidth: "90vw", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", animation: "fadeIn 0.2s" }}>
+            {!inviteSuccess ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <h3 style={{ fontSize: 18, fontWeight: 700, color: "#111827", margin: 0 }}>新しいメンバーを追加</h3>
+                  <button onClick={() => { setInviteOpen(false); setInviteError(""); }} style={{ border: "none", background: "#f3f4f6", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                </div>
+                <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20, lineHeight: 1.6 }}>
+                  アカウントを作成後、ログイン情報をチャット等で担当者に直接お伝えください。
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>表示名 *</label>
+                    <input value={inviteData.display_name} onChange={e => setInviteData({...inviteData, display_name: e.target.value})} placeholder="山田 太郎" style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>メールアドレス（ログインID） *</label>
+                    <input value={inviteData.email} onChange={e => setInviteData({...inviteData, email: e.target.value})} placeholder="taro@example.com" style={inputStyle} type="email" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>初期パスワード *</label>
+                    <input value={inviteData.password} onChange={e => setInviteData({...inviteData, password: e.target.value})} placeholder="6文字以上" style={inputStyle} type="text" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>ロール</label>
+                    <select value={inviteData.role} onChange={e => setInviteData({...inviteData, role: e.target.value})} style={{ ...inputStyle, cursor: "pointer" }}>
+                      {ROLES.map(r => <option key={r.id} value={r.id}>{r.icon} {r.label} — {r.description}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {inviteError && <div style={{ background: "#fef2f2", color: "#dc2626", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 14, border: "1px solid #fecaca" }}>⚠️ {inviteError}</div>}
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button onClick={() => { setInviteOpen(false); setInviteError(""); }}
+                    style={{ background: "white", color: "#6b7280", border: "1px solid #d1d5db", borderRadius: 8, padding: "10px 20px", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+                  <button onClick={handleInvite} disabled={inviteLoading}
+                    style={{ background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "10px 24px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: inviteLoading ? 0.6 : 1 }}>
+                    {inviteLoading ? "作成中..." : "アカウントを作成"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: "center", padding: "8px 0" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 8px 0" }}>アカウントを作成しました</h3>
+                <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20, lineHeight: 1.6 }}>
+                  以下のログイン情報をチャット等で担当者にお伝えください。
+                </div>
+                <div style={{ background: "#f9fafb", borderRadius: 10, padding: 16, textAlign: "left", fontSize: 13, lineHeight: 1.8, marginBottom: 16, border: "1px solid #e5e7eb" }}>
+                  <div><strong>URL:</strong> {window.location.origin}</div>
+                  <div><strong>メール:</strong> {pendingInvites[0]?.email}</div>
+                  <div><strong>パスワード:</strong> {pendingInvites[0]?.password}</div>
+                  <div><strong>ロール:</strong> {getRoleDef(pendingInvites[0]?.role).label}</div>
+                </div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+                  <button onClick={() => { if (pendingInvites[0]) copyLoginInfo(pendingInvites[0]); }}
+                    style={{ background: copiedId === pendingInvites[0]?.id ? "#dcfce7" : "white", color: copiedId === pendingInvites[0]?.id ? "#15803d" : "#374151", border: "1px solid #d1d5db", borderRadius: 8, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", transition: "all 0.2s" }}>
+                    {copiedId === pendingInvites[0]?.id ? "✅ コピー済み" : "📋 ログイン情報をコピー"}
+                  </button>
+                  <button onClick={() => { setInviteOpen(false); setInviteSuccess(""); }}
+                    style={{ background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>閉じる</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
