@@ -1800,7 +1800,7 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
 }
 
 // Candidate Detail - 新卒/中途対応
-function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidates, onUpdateCandidate, can = () => true }) {
+function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidates, onUpdateCandidate, can = () => true, emailTemplates = [] }) {
   const CANDS = propCandidates || CANDIDATES;
   const c = CANDS.find(c => c.id === candidateId) || CANDS[0];
   const isNewGrad = c.recruitType === "新卒";
@@ -2463,6 +2463,37 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     {c.lastName} {c.firstName} &lt;{c.email || "メール未登録"}&gt;
                   </div>
                 </div>
+                {/* テンプレート選択 */}
+                {emailTemplates.length > 0 && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>テンプレート</label>
+                    <select
+                      onChange={e => {
+                        const tmpl = emailTemplates.find(t => t.id === e.target.value);
+                        if (tmpl) {
+                          let body = tmpl.body || "";
+                          body = body.replace(/\{候補者名\}/g, `${c.lastName || ""} ${c.firstName || ""}`.trim());
+                          body = body.replace(/\{姓\}/g, c.lastName || "");
+                          body = body.replace(/\{名\}/g, c.firstName || "");
+                          setEmailSubject(tmpl.subject || "");
+                          setEmailBody(body);
+                        }
+                      }}
+                      defaultValue=""
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box", color: "#374151", background: "white" }}>
+                      <option value="">テンプレートを選択（任意）...</option>
+                      {(() => {
+                        const cats = {};
+                        emailTemplates.forEach(t => { if (!cats[t.category]) cats[t.category] = []; cats[t.category].push(t); });
+                        return Object.entries(cats).map(([cat, tpls]) => (
+                          <optgroup key={cat} label={cat}>
+                            {tpls.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                          </optgroup>
+                        ));
+                      })()}
+                    </select>
+                  </div>
+                )}
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>件名</label>
                   <input
@@ -5961,7 +5992,7 @@ function App() {
     switch (currentPage) {
       case "dashboard": return <DashboardPage onNavigate={navigate} recruitFilter={recruitFilter} tasks={tasks} />;
       case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} can={can} emailTemplates={emailTemplates} />;
-      case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} can={can} />;
+      case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} can={can} emailTemplates={emailTemplates} />;
       case "pipeline": return <PipelinePage recruitFilter={recruitFilter} onNavigateFromPipeline={navigateFromPipeline} candidates={candidates} />;
       case "messages": return <MessagesPage candidates={candidates} emailTemplates={emailTemplates} onNavigate={navigate} />;
       case "schedule": return <SchedulePage recruitFilter={recruitFilter} candidates={candidates} onNavigate={navigate} />;
