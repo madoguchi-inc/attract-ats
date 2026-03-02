@@ -2448,49 +2448,56 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
             </div>
           )}
 
-          {/* メール作成フォーム */}
+          {/* メール作成モーダル */}
           {showCompose && (
-            <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 20, background: "#fafbfc" }}>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>宛先</label>
-                <div style={{ padding: "8px 12px", background: "#f3f4f6", borderRadius: 6, fontSize: 13, color: "#374151" }}>
-                  {c.lastName} {c.firstName} &lt;{c.email || "メール未登録"}&gt;
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}
+              onClick={e => { if (e.target === e.currentTarget) { setShowCompose(false); setSendError(""); } }}>
+              <div style={{ background: "white", borderRadius: 16, padding: 28, width: 560, maxWidth: "90vw", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", animation: "fadeIn 0.2s", maxHeight: "85vh", overflowY: "auto" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <h3 style={{ fontSize: 18, fontWeight: 700, color: "#111827", margin: 0 }}>メール作成</h3>
+                  <button onClick={() => { setShowCompose(false); setSendError(""); }} style={{ border: "none", background: "#f3f4f6", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 16, color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                 </div>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>件名</label>
-                <input
-                  type="text"
-                  value={emailSubject}
-                  onChange={e => setEmailSubject(e.target.value)}
-                  placeholder="件名を入力..."
-                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }}
-                />
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>本文</label>
-                <textarea
-                  value={emailBody}
-                  onChange={e => setEmailBody(e.target.value)}
-                  placeholder="メール本文を入力..."
-                  rows={8}
-                  style={{ width: "100%", padding: 12, border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, lineHeight: 1.7, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
-                />
-              </div>
-              {sendError && (
-                <div style={{ padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, color: "#dc2626", fontSize: 12, marginBottom: 12 }}>
-                  {sendError}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>宛先</label>
+                  <div style={{ padding: "8px 12px", background: "#f3f4f6", borderRadius: 6, fontSize: 13, color: "#374151" }}>
+                    {c.lastName} {c.firstName} &lt;{c.email || "メール未登録"}&gt;
+                  </div>
                 </div>
-              )}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button onClick={() => setShowCompose(false)}
-                  style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
-                  キャンセル
-                </button>
-                <button onClick={handleSendEmail} disabled={sending}
-                  style={{ padding: "8px 24px", border: "none", borderRadius: 8, background: sending ? "#93c5fd" : "#1d4aff", color: "white", fontSize: 12, cursor: sending ? "default" : "pointer", fontWeight: 500 }}>
-                  {sending ? "送信中..." : "送信する"}
-                </button>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>件名</label>
+                  <input
+                    type="text"
+                    value={emailSubject}
+                    onChange={e => setEmailSubject(e.target.value)}
+                    placeholder="件名を入力..."
+                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                  />
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>本文</label>
+                  <textarea
+                    value={emailBody}
+                    onChange={e => setEmailBody(e.target.value)}
+                    placeholder="メール本文を入力..."
+                    rows={10}
+                    style={{ width: "100%", padding: 12, border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, lineHeight: 1.7, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+                  />
+                </div>
+                {sendError && (
+                  <div style={{ padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, color: "#dc2626", fontSize: 12, marginBottom: 12 }}>
+                    {sendError}
+                  </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button onClick={() => { setShowCompose(false); setSendError(""); }}
+                    style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
+                    キャンセル
+                  </button>
+                  <button onClick={handleSendEmail} disabled={sending}
+                    style={{ padding: "8px 24px", border: "none", borderRadius: 8, background: sending ? "#93c5fd" : "#1d4aff", color: "white", fontSize: 12, cursor: sending ? "default" : "pointer", fontWeight: 500 }}>
+                    {sending ? "送信中..." : "送信する"}
+                  </button>
+                </div>
               </div>
             </div>
           )}
