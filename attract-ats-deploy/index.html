@@ -5351,21 +5351,42 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
 function AccountsPage({ currentUser, onRefreshProfile }) {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("active"); // active / pending / disabled
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteData, setInviteData] = useState({ email: "", password: "", display_name: "", role: "recruiter" });
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState("");
+  const [copiedId, setCopiedId] = useState(null);
+  const [resendingId, setResendingId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  // 招待中アカウント（localStorage管理）
+  const PENDING_KEY = 'ats_pending_invitations';
+  const [pendingInvites, setPendingInvites] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch(e) { return []; }
+  });
+  const savePending = (data) => { setPendingInvites(data); localStorage.setItem(PENDING_KEY, JSON.stringify(data)); };
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
-    const { data } = await sbApi.select('profiles', 'order=created_at.asc');
-    setAccounts(data || []);
+    if (SUPABASE_READY) {
+      const { data } = await sbApi.select('profiles', 'order=created_at.asc');
+      setAccounts(data || []);
+    }
     setLoading(false);
   }, []);
 
-  useEffect(() => { if (SUPABASE_READY) loadAccounts(); }, []);
+  useEffect(() => { loadAccounts(); }, []);
 
+  // 統計
+  const activeCount = accounts.filter(a => a.is_active !== false).length;
+  const disabledCount = accounts.filter(a => a.is_active === false).length;
+  const pendingCount = pendingInvites.length;
+
+  // 招待処理（signUp + profile作成 + 招待リンク生成）
   const handleInvite = async () => {
     setInviteError(""); setInviteSuccess("");
     if (!inviteData.email || !inviteData.password || !inviteData.display_name) {
@@ -5375,186 +5396,384 @@ function AccountsPage({ currentUser, onRefreshProfile }) {
       setInviteError("パスワードは6文字以上にしてください"); return;
     }
     setInviteLoading(true);
-    const { user: newUser, error } = await sbApi.signUp(inviteData.email, inviteData.password, { display_name: inviteData.display_name });
-    if (error) {
-      setInviteError(error.msg || error.message || JSON.stringify(error));
-      setInviteLoading(false); return;
+
+    if (SUPABASE_READY) {
+      const { user: newUser, error } = await sbApi.signUp(inviteData.email, inviteData.password, { display_name: inviteData.display_name });
+      if (error) {
+        const msg = error.msg || error.message || JSON.stringify(error);
+        if (msg.includes("already registered") || msg.includes("already been registered")) {
+          setInviteError("このメールアドレスは既に登録されています");
+        } else {
+          setInviteError(msg);
+        }
+        setInviteLoading(false); return;
+      }
+      const uid = newUser?.id || newUser?.user?.id;
+      if (uid) {
+        await sbApi.insert('profiles', { id: uid, role: inviteData.role, display_name: inviteData.display_name, is_active: true }).catch(() => {});
+      }
     }
-    const uid = newUser?.id || newUser?.user?.id;
-    if (uid) {
-      await sbApi.insert('profiles', { id: uid, role: inviteData.role, display_name: inviteData.display_name, is_active: true }).catch(() => {});
-    }
-    setInviteSuccess(inviteData.display_name + " を招待しました！");
+
+    // 招待中リストに追加
+    const newPending = {
+      id: Date.now(),
+      email: inviteData.email,
+      display_name: inviteData.display_name,
+      role: inviteData.role,
+      password: inviteData.password,
+      invited_at: new Date().toISOString(),
+      invited_by: currentUser?.email || "管理者",
+      status: "pending", // pending / accepted / expired
+    };
+    savePending([newPending, ...pendingInvites]);
+
+    setInviteSuccess(`${inviteData.display_name} さんを招待しました！ログイン情報を共有してください。`);
     setInviteData({ email: "", password: "", display_name: "", role: "recruiter" });
     setInviteLoading(false);
     await loadAccounts();
-    setTimeout(() => setInviteSuccess(""), 3000);
   };
 
+  // ロール変更
   const updateRole = async (profileId, newRole) => {
     if (profileId === currentUser?.id && newRole !== "admin") {
       if (!window.confirm("自分のロールを変更すると管理者権限を失います。続けますか？")) return;
     }
-    await sbApi.update ? await fetch(SUPABASE_URL + '/rest/v1/profiles?id=eq.' + profileId, {
-      method: 'PATCH', headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tokenStore.accessToken, 'Prefer': 'return=representation' },
-      body: JSON.stringify({ role: newRole })
-    }) : null;
+    await sbApi.update('profiles', 'id=eq.' + profileId, { role: newRole });
     await loadAccounts();
     if (profileId === currentUser?.id && onRefreshProfile) onRefreshProfile();
   };
 
+  // 有効/無効切り替え
   const toggleActive = async (profileId, currentActive) => {
     if (profileId === currentUser?.id) { alert("自分自身は無効化できません"); return; }
-    await fetch(SUPABASE_URL + '/rest/v1/profiles?id=eq.' + profileId, {
-      method: 'PATCH', headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tokenStore.accessToken, 'Prefer': 'return=representation' },
-      body: JSON.stringify({ is_active: !currentActive })
+    await sbApi.update('profiles', 'id=eq.' + profileId, { is_active: !currentActive });
+    await loadAccounts();
+  };
+
+  // 表示名編集
+  const saveDisplayName = async (profileId) => {
+    if (!editName.trim()) return;
+    await sbApi.update('profiles', 'id=eq.' + profileId, { display_name: editName.trim() });
+    setEditingId(null);
+    await loadAccounts();
+    if (profileId === currentUser?.id && onRefreshProfile) onRefreshProfile();
+  };
+
+  // 招待リンクコピー
+  const copyLoginInfo = (inv) => {
+    const siteUrl = window.location.origin;
+    const text = `【Attract ATS ログイン情報】\nURL: ${siteUrl}\nメール: ${inv.email}\nパスワード: ${inv.password}\nロール: ${getRoleDef(inv.role).label}\n\n初回ログイン後、パスワードを変更してください。`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(inv.id);
+      setTimeout(() => setCopiedId(null), 2000);
     });
+  };
+
+  // 招待再送（パスワードリセットメール）
+  const resendInvite = async (inv) => {
+    setResendingId(inv.id);
+    if (SUPABASE_READY) {
+      await fetch(SUPABASE_URL + '/auth/v1/recover', {
+        method: 'POST', headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inv.email })
+      });
+    }
+    setTimeout(() => setResendingId(null), 2000);
+  };
+
+  // 招待取り消し
+  const cancelInvite = (id) => {
+    savePending(pendingInvites.filter(p => p.id !== id));
+  };
+
+  // 招待承諾済みにする（手動）
+  const markAccepted = (id) => {
+    savePending(pendingInvites.map(p => p.id === id ? { ...p, status: "accepted" } : p));
+  };
+
+  // アカウント削除
+  const deleteAccount = async (profileId) => {
+    await sbApi.remove('profiles', 'id=eq.' + profileId);
+    setDeleteConfirm(null);
     await loadAccounts();
   };
 
   const inputStyle = { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" };
 
+  // フィルター
+  const filteredAccounts = tab === "active" ? accounts.filter(a => a.is_active !== false) : tab === "disabled" ? accounts.filter(a => a.is_active === false) : [];
+
   return (
-    <div style={{ padding: 24, maxWidth: 900 }}>
+    <div style={{ padding: 24, maxWidth: 960 }}>
+      {/* ヘッダー */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>🔑 アカウント管理</h1>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>🔑 アカウント管理</h1>
+          <p style={{ fontSize: 13, color: "#9ca3af", marginTop: 4 }}>チームメンバーの管理・招待・権限設定</p>
+        </div>
         <button onClick={() => { setInviteOpen(!inviteOpen); setInviteError(""); setInviteSuccess(""); }}
-          style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-          <Icon name="plus" size={16} /> 新規ユーザー招待
+          style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "white", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 6px rgba(99,102,241,0.3)" }}>
+          <Icon name="plus" size={16} /> メンバーを招待
         </button>
+      </div>
+
+      {/* 統計カード */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "合計メンバー", value: accounts.length, icon: "👥", bg: "#eef2ff", color: "#4338ca" },
+          { label: "アクティブ", value: activeCount, icon: "✅", bg: "#f0fdf4", color: "#15803d" },
+          { label: "招待中", value: pendingCount, icon: "📨", bg: "#fefce8", color: "#a16207" },
+          { label: "無効", value: disabledCount, icon: "🚫", bg: "#fef2f2", color: "#dc2626" },
+        ].map(s => (
+          <div key={s.label} style={{ background: "white", borderRadius: 10, padding: "14px 16px", border: "1px solid #e5e7eb" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</span>
+              <span style={{ fontSize: 20, width: 36, height: 36, borderRadius: 8, background: s.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>{s.icon}</span>
+            </div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>{s.label}</div>
+          </div>
+        ))}
       </div>
 
       {/* 招待フォーム */}
       {inviteOpen && (
-        <div style={{ background: "white", borderRadius: 12, padding: 20, marginBottom: 20, border: "1px solid #e5e7eb", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14, color: "#374151" }}>ユーザーを招待</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div style={{ background: "white", borderRadius: 12, padding: 24, marginBottom: 20, border: "2px solid #6366f1", boxShadow: "0 4px 12px rgba(99,102,241,0.1)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: 0 }}>新しいメンバーを招待</h3>
+            <button onClick={() => setInviteOpen(false)} style={{ border: "none", background: "#f3f4f6", borderRadius: 8, width: 28, height: 28, cursor: "pointer", fontSize: 14, color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+          </div>
+          <div style={{ background: "#fefce8", padding: "10px 14px", borderRadius: 8, border: "1px solid #fde68a", fontSize: 12, color: "#92400e", marginBottom: 16, lineHeight: 1.6 }}>
+            💡 <strong>招待の流れ:</strong> アカウント作成後、ログイン情報（URL・メール・パスワード）をコピーして招待者に共有してください。Supabaseの無料プランではメール自動送信に制限があるため、手動での共有を推奨しています。
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>表示名 *</label>
-              <input value={inviteData.display_name} onChange={e => setInviteData({...inviteData, display_name: e.target.value})} placeholder="山田太郎" style={inputStyle} />
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>表示名 *</label>
+              <input value={inviteData.display_name} onChange={e => setInviteData({...inviteData, display_name: e.target.value})} placeholder="山田 太郎" style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>メールアドレス *</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>メールアドレス *</label>
               <input value={inviteData.email} onChange={e => setInviteData({...inviteData, email: e.target.value})} placeholder="taro@example.com" style={inputStyle} type="email" />
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>初期パスワード *</label>
-              <input value={inviteData.password} onChange={e => setInviteData({...inviteData, password: e.target.value})} placeholder="6文字以上" style={inputStyle} type="password" />
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>初期パスワード *</label>
+              <input value={inviteData.password} onChange={e => setInviteData({...inviteData, password: e.target.value})} placeholder="6文字以上" style={inputStyle} type="text" />
+              <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>※ 招待者に共有するため表示されています</div>
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>ロール</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>ロール</label>
               <select value={inviteData.role} onChange={e => setInviteData({...inviteData, role: e.target.value})} style={{ ...inputStyle, cursor: "pointer" }}>
                 {ROLES.map(r => <option key={r.id} value={r.id}>{r.icon} {r.label} — {r.description}</option>)}
               </select>
             </div>
           </div>
-          {inviteError && <div style={{ background: "#fef2f2", color: "#dc2626", padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10 }}>⚠️ {inviteError}</div>}
-          {inviteSuccess && <div style={{ background: "#f0fdf4", color: "#15803d", padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10 }}>✅ {inviteSuccess}</div>}
-          <div style={{ display: "flex", gap: 8 }}>
+          {inviteError && <div style={{ background: "#fef2f2", color: "#dc2626", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 12, border: "1px solid #fecaca" }}>⚠️ {inviteError}</div>}
+          {inviteSuccess && <div style={{ background: "#f0fdf4", color: "#15803d", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 12, border: "1px solid #bbf7d0" }}>✅ {inviteSuccess}</div>}
+          <div style={{ display: "flex", gap: 10 }}>
             <button onClick={handleInvite} disabled={inviteLoading}
-              style={{ background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 500, cursor: "pointer", opacity: inviteLoading ? 0.6 : 1 }}>
-              {inviteLoading ? "招待中..." : "招待を送信"}
+              style={{ background: "#6366f1", color: "white", border: "none", borderRadius: 8, padding: "10px 24px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: inviteLoading ? 0.6 : 1 }}>
+              {inviteLoading ? "作成中..." : "アカウントを作成"}
             </button>
             <button onClick={() => setInviteOpen(false)}
-              style={{ background: "#f3f4f6", color: "#374151", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
+              style={{ background: "white", color: "#6b7280", border: "1px solid #d1d5db", borderRadius: 8, padding: "10px 20px", fontSize: 13, cursor: "pointer" }}>キャンセル</button>
           </div>
         </div>
       )}
 
-      {/* ロール凡例 */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        {ROLES.map(r => (
-          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: "white", border: "1px solid #e5e7eb", fontSize: 11 }}>
-            <span>{r.icon}</span>
-            <span style={{ fontWeight: 600, color: r.color }}>{r.label}</span>
-            <span style={{ color: "#9ca3af" }}>{r.description}</span>
-          </div>
+      {/* タブ切り替え */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#f3f4f6", borderRadius: 10, padding: 4 }}>
+        {[
+          { id: "active", label: `アクティブ (${activeCount})` },
+          { id: "pending", label: `招待中 (${pendingCount})` },
+          { id: "disabled", label: `無効 (${disabledCount})` },
+          { id: "permissions", label: "権限マトリクス" },
+        ].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ flex: 1, padding: "8px 0", border: "none", borderRadius: 8, fontSize: 12, fontWeight: tab === t.id ? 600 : 400, background: tab === t.id ? "white" : "transparent", color: tab === t.id ? "#4338ca" : "#6b7280", cursor: "pointer", boxShadow: tab === t.id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>
+            {t.label}
+          </button>
         ))}
       </div>
 
-      {/* アカウント一覧 */}
-      {loading ? (
-        <div style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}>読み込み中...</div>
-      ) : (
+      {/* ===== アクティブ / 無効 タブ ===== */}
+      {(tab === "active" || tab === "disabled") && (
+        loading ? (
+          <div style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}>読み込み中...</div>
+        ) : (
+          <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                  <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>ユーザー</th>
+                  <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>ロール</th>
+                  <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>登録日</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAccounts.map((acc, i) => {
+                  const roleDef = getRoleDef(acc.role);
+                  const isMe = acc.id === currentUser?.id;
+                  return (
+                    <tr key={acc.id} style={{ borderBottom: i < filteredAccounts.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                      <td style={{ padding: "12px 16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: 10, background: `${roleDef.color}18`, display: "flex", alignItems: "center", justifyContent: "center", color: roleDef.color, fontSize: 13, fontWeight: 700, border: `1.5px solid ${roleDef.color}44` }}>
+                            {(acc.display_name || "?").charAt(0)}
+                          </div>
+                          <div>
+                            {editingId === acc.id ? (
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                <input value={editName} onChange={e => setEditName(e.target.value)} style={{ padding: "3px 8px", border: "1px solid #6366f1", borderRadius: 6, fontSize: 12, width: 120 }} autoFocus onKeyDown={e => { if (e.key === "Enter") saveDisplayName(acc.id); if (e.key === "Escape") setEditingId(null); }} />
+                                <button onClick={() => saveDisplayName(acc.id)} style={{ fontSize: 10, background: "#6366f1", color: "white", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer" }}>保存</button>
+                              </div>
+                            ) : (
+                              <div style={{ fontWeight: 500, color: "#111827", display: "flex", alignItems: "center", gap: 6 }}>
+                                {acc.display_name || "—"}
+                                {isMe && <span style={{ fontSize: 10, color: "#6366f1", fontWeight: 600, padding: "1px 6px", background: "#eef2ff", borderRadius: 4 }}>自分</span>}
+                                <button onClick={() => { setEditingId(acc.id); setEditName(acc.display_name || ""); }} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, opacity: 0.4 }} title="名前を編集">
+                                  <Icon name="edit" size={11} color="#9ca3af" />
+                                </button>
+                              </div>
+                            )}
+                            <div style={{ fontSize: 11, color: "#9ca3af" }}>{acc.email || acc.id?.substring(0, 8)}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: "12px 16px" }}>
+                        <select value={acc.role || "viewer"} onChange={e => updateRole(acc.id, e.target.value)}
+                          style={{ padding: "5px 10px", border: `1.5px solid ${roleDef.color}44`, borderRadius: 8, fontSize: 12, cursor: "pointer", background: `${roleDef.color}08`, color: roleDef.color, fontWeight: 600 }}>
+                          {ROLES.map(r => <option key={r.id} value={r.id}>{r.icon} {r.label}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: "12px 16px", fontSize: 11, color: "#9ca3af" }}>
+                        {acc.created_at ? new Date(acc.created_at).toLocaleDateString('ja-JP') : "—"}
+                      </td>
+                      <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+                          {!isMe && (
+                            <button onClick={() => toggleActive(acc.id, acc.is_active !== false)}
+                              style={{ fontSize: 11, padding: "5px 12px", border: "1px solid", borderColor: acc.is_active !== false ? "#fecaca" : "#bbf7d0", borderRadius: 6, background: acc.is_active !== false ? "#fff5f5" : "#f0fdf4", cursor: "pointer", color: acc.is_active !== false ? "#dc2626" : "#15803d", fontWeight: 500 }}>
+                              {acc.is_active !== false ? "無効化" : "有効化"}
+                            </button>
+                          )}
+                          {!isMe && deleteConfirm === acc.id ? (
+                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <button onClick={() => deleteAccount(acc.id)} style={{ fontSize: 10, padding: "4px 8px", background: "#dc2626", color: "white", border: "none", borderRadius: 4, cursor: "pointer" }}>削除する</button>
+                              <button onClick={() => setDeleteConfirm(null)} style={{ fontSize: 10, padding: "4px 8px", background: "#f3f4f6", color: "#6b7280", border: "none", borderRadius: 4, cursor: "pointer" }}>やめる</button>
+                            </div>
+                          ) : !isMe ? (
+                            <button onClick={() => setDeleteConfirm(acc.id)}
+                              style={{ fontSize: 11, padding: "5px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", cursor: "pointer", color: "#9ca3af" }}>
+                              削除
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filteredAccounts.length === 0 && <div style={{ padding: 32, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>{tab === "active" ? "アクティブなアカウントがありません" : "無効なアカウントがありません"}</div>}
+          </div>
+        )
+      )}
+
+      {/* ===== 招待中 タブ ===== */}
+      {tab === "pending" && (
         <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-                <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>ユーザー</th>
-                <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>ロール</th>
-                <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>ステータス</th>
-                <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 600, color: "#6b7280", fontSize: 11 }}>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((acc, i) => {
-                const roleDef = getRoleDef(acc.role);
-                const isMe = acc.id === currentUser?.id;
-                return (
-                  <tr key={acc.id} style={{ borderBottom: i < accounts.length - 1 ? "1px solid #f3f4f6" : "none", opacity: acc.is_active === false ? 0.5 : 1 }}>
-                    <td style={{ padding: "12px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: "50%", background: roleDef.color, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 12, fontWeight: 600 }}>
-                          {(acc.display_name || "?").charAt(0)}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 500, color: "#111827" }}>{acc.display_name || "—"} {isMe && <span style={{ fontSize: 10, color: "#6366f1", fontWeight: 600 }}>（自分）</span>}</div>
-                          <div style={{ fontSize: 11, color: "#9ca3af" }}>{acc.email || acc.id?.substring(0, 8)}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: "12px 16px" }}>
-                      <select value={acc.role || "viewer"} onChange={e => updateRole(acc.id, e.target.value)}
-                        style={{ padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, cursor: "pointer", background: "white", color: roleDef.color, fontWeight: 600 }}>
-                        {ROLES.map(r => <option key={r.id} value={r.id}>{r.icon} {r.label}</option>)}
-                      </select>
-                    </td>
-                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
-                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: acc.is_active !== false ? "#dcfce7" : "#fee2e2", color: acc.is_active !== false ? "#15803d" : "#dc2626", fontWeight: 500 }}>
-                        {acc.is_active !== false ? "有効" : "無効"}
+          {pendingInvites.length === 0 ? (
+            <div style={{ padding: 48, textAlign: "center" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>📨</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 4 }}>招待中のメンバーはいません</div>
+              <div style={{ fontSize: 12, color: "#9ca3af" }}>「メンバーを招待」ボタンから新しいメンバーを追加できます</div>
+            </div>
+          ) : (
+            pendingInvites.map((inv, i) => {
+              const roleDef = getRoleDef(inv.role);
+              const timeAgo = (() => {
+                const diff = Math.floor((Date.now() - new Date(inv.invited_at).getTime()) / 1000);
+                if (diff < 3600) return `${Math.floor(diff / 60)}分前`;
+                if (diff < 86400) return `${Math.floor(diff / 3600)}時間前`;
+                return `${Math.floor(diff / 86400)}日前`;
+              })();
+              return (
+                <div key={inv.id} style={{ padding: "16px 20px", borderBottom: i < pendingInvites.length - 1 ? "1px solid #f3f4f6" : "none", display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: "#fefce8", border: "1.5px solid #fde68a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>📨</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{inv.display_name}</span>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: `${roleDef.color}14`, color: roleDef.color, fontWeight: 500 }}>{roleDef.icon} {roleDef.label}</span>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: inv.status === "accepted" ? "#dcfce7" : "#fefce8", color: inv.status === "accepted" ? "#15803d" : "#a16207", fontWeight: 500 }}>
+                        {inv.status === "accepted" ? "承諾済" : "未ログイン"}
                       </span>
-                    </td>
-                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
-                      {!isMe && (
-                        <button onClick={() => toggleActive(acc.id, acc.is_active !== false)}
-                          style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", cursor: "pointer", color: acc.is_active !== false ? "#dc2626" : "#15803d" }}>
-                          {acc.is_active !== false ? "無効化" : "有効化"}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {accounts.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>アカウントがありません</div>}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>
+                      {inv.email} · {timeAgo}に招待 · 招待者: {inv.invited_by}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => copyLoginInfo(inv)}
+                      style={{ fontSize: 11, padding: "6px 12px", border: "1px solid #d1d5db", borderRadius: 8, background: copiedId === inv.id ? "#dcfce7" : "white", cursor: "pointer", color: copiedId === inv.id ? "#15803d" : "#374151", fontWeight: 500, transition: "all 0.2s" }}>
+                      {copiedId === inv.id ? "✅ コピー済" : "📋 ログイン情報をコピー"}
+                    </button>
+                    <button onClick={() => resendInvite(inv)}
+                      style={{ fontSize: 11, padding: "6px 12px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", cursor: "pointer", color: "#6366f1", fontWeight: 500 }}>
+                      {resendingId === inv.id ? "✅ 送信済" : "🔄 リセットメール"}
+                    </button>
+                    {inv.status !== "accepted" && (
+                      <button onClick={() => markAccepted(inv.id)}
+                        style={{ fontSize: 11, padding: "6px 10px", border: "1px solid #bbf7d0", borderRadius: 8, background: "#f0fdf4", cursor: "pointer", color: "#15803d" }}>
+                        承諾済に
+                      </button>
+                    )}
+                    <button onClick={() => cancelInvite(inv.id)}
+                      style={{ fontSize: 11, padding: "6px 10px", border: "1px solid #fecaca", borderRadius: 8, background: "#fff5f5", cursor: "pointer", color: "#dc2626" }}>
+                      取消
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       )}
 
-      {/* 権限マトリクス */}
-      <div style={{ marginTop: 24, background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 12 }}>権限マトリクス</h3>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-              <th style={{ padding: "8px 12px", textAlign: "left", color: "#6b7280", fontWeight: 600 }}>権限</th>
-              {ROLES.map(r => <th key={r.id} style={{ padding: "8px 12px", textAlign: "center", color: r.color, fontWeight: 600 }}>{r.icon} {r.label}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {Object.keys(PERMISSIONS.admin).map(perm => (
-              <tr key={perm} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                <td style={{ padding: "6px 12px", color: "#374151" }}>{PERMISSION_LABELS[perm] || perm}</td>
-                {ROLES.map(r => (
-                  <td key={r.id} style={{ padding: "6px 12px", textAlign: "center" }}>
-                    {PERMISSIONS[r.id][perm] ? <span style={{ color: "#22c55e" }}>✓</span> : <span style={{ color: "#d1d5db" }}>—</span>}
-                  </td>
-                ))}
-              </tr>
+      {/* ===== 権限マトリクス タブ ===== */}
+      {tab === "permissions" && (
+        <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+          {/* ロール凡例 */}
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #e5e7eb", display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {ROLES.map(r => (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 8, background: `${r.color}08`, border: `1px solid ${r.color}22`, fontSize: 12 }}>
+                <span>{r.icon}</span>
+                <span style={{ fontWeight: 600, color: r.color }}>{r.label}</span>
+                <span style={{ color: "#9ca3af", fontSize: 11 }}>{r.description}</span>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}>
+                <th style={{ padding: "10px 16px", textAlign: "left", color: "#6b7280", fontWeight: 600 }}>権限</th>
+                {ROLES.map(r => <th key={r.id} style={{ padding: "10px 12px", textAlign: "center", color: r.color, fontWeight: 600 }}>{r.icon} {r.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(PERMISSIONS.admin).map(perm => (
+                <tr key={perm} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                  <td style={{ padding: "8px 16px", color: "#374151", fontWeight: 500 }}>{PERMISSION_LABELS[perm] || perm}</td>
+                  {ROLES.map(r => (
+                    <td key={r.id} style={{ padding: "8px 12px", textAlign: "center" }}>
+                      {PERMISSIONS[r.id][perm] ? <span style={{ color: "#22c55e", fontWeight: 700 }}>✓</span> : <span style={{ color: "#d1d5db" }}>—</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
