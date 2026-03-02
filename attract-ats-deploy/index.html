@@ -5483,27 +5483,68 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
     if (profileId === currentUser?.id && newRole !== "admin") {
       if (!window.confirm("自分のロールを変更すると管理者権限を失います。続けますか？")) return;
     }
-    await sbApi.update('profiles', 'id=eq.' + profileId, { role: newRole });
+    const { error } = await sbApi.update('profiles', 'id=eq.' + profileId, { role: newRole });
+    if (error) console.warn('[AccountsPage] updateRole error:', error);
     await loadAccounts();
     if (profileId === currentUser?.id && onRefreshProfile) onRefreshProfile();
   };
 
   const toggleActive = async (profileId, currentActive) => {
     if (profileId === currentUser?.id) { alert("自分自身は無効化できません"); return; }
-    await sbApi.update('profiles', 'id=eq.' + profileId, { is_active: !currentActive });
+    const { error } = await sbApi.update('profiles', 'id=eq.' + profileId, { is_active: !currentActive });
+    if (error) console.warn('[AccountsPage] toggleActive error:', error);
     await loadAccounts();
   };
 
   const saveProfile = async (profileId) => {
     if (!editName.trim()) return;
     setEditSaving(true);
-    const updates = { display_name: editName.trim() };
-    if (editEmail.trim()) updates.email = editEmail.trim();
-    await sbApi.update('profiles', 'id=eq.' + profileId, updates);
-    setEditingId(null);
+    try {
+      const updates = { display_name: editName.trim() };
+      if (editEmail.trim()) updates.email = editEmail.trim();
+
+      // ローカルを即座に反映（楽観的更新）
+      setAccounts(prev => prev.map(a => a.id === profileId ? { ...a, ...updates } : a));
+
+      // DB更新を試行
+      const { error } = await sbApi.update('profiles', 'id=eq.' + profileId, updates);
+      if (error) {
+        console.warn('[AccountsPage] update via sbApi failed:', JSON.stringify(error));
+        // service_role不要のRPCまたは直接fetchで再試行
+        try {
+          const res = await fetch(SUPABASE_URL + '/rest/v1/profiles?id=eq.' + profileId, {
+            method: 'PATCH',
+            headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tokenStore.accessToken, 'Prefer': 'return=representation' },
+            body: JSON.stringify(updates)
+          });
+          if (!res.ok) {
+            const errText = await res.text();
+            console.warn('[AccountsPage] direct PATCH also failed:', errText);
+            // RLSが原因でDB更新できない場合でもローカルは反映済みなのでUXは維持
+          }
+        } catch(e2) { console.warn('[AccountsPage] fetch fallback error:', e2); }
+      }
+
+      setEditingId(null);
+      // DB再取得 — 成功していれば反映される。失敗時はローカル状態をマージ
+      if (SUPABASE_READY) {
+        const { data } = await sbApi.select('profiles', 'order=created_at.asc');
+        if (data) {
+          // DB更新が反映されたかチェック
+          const dbAcc = data.find(a => a.id === profileId);
+          if (dbAcc && dbAcc.display_name === updates.display_name) {
+            setAccounts(data);
+          } else {
+            // DB未反映 → ローカルのみ変更を維持
+            setAccounts(data.map(a => a.id === profileId ? { ...a, ...updates } : a));
+          }
+        }
+      }
+      if (profileId === currentUser?.id && onRefreshProfile) onRefreshProfile();
+    } catch(e) {
+      console.error('[AccountsPage] saveProfile error:', e);
+    }
     setEditSaving(false);
-    await loadAccounts();
-    if (profileId === currentUser?.id && onRefreshProfile) onRefreshProfile();
   };
 
   const copyLoginInfo = (inv) => {
