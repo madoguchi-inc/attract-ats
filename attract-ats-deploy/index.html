@@ -352,6 +352,17 @@ const DEFAULT_EMAIL_TEMPLATES = [
   { id: "t16", category: "共通", label: "選考通過のご連絡（汎用）", subject: "【{{company}}】選考結果のご連絡", body: "{{name}} 様\n\nお世話になっております。\n{{company}}の採用担当でございます。\n\n先日の選考結果についてご連絡いたします。\n慎重に検討いたしました結果、\nぜひ次のステップにお進みいただきたく存じます。\n\n次回の選考については、改めてご案内いたします。\n\n何卒よろしくお願いいたします。" },
 ];
 
+// LINE メッセージテンプレート
+const DEFAULT_LINE_TEMPLATES = [
+  { id: "lt01", category: "エントリー", label: "エントリー受領", body: "{{name}}さん、エントリーありがとうございます！\n{{company}}の採用担当です。\n\nいただいた内容を確認のうえ、今後の選考についてご連絡いたします。\n少々お待ちくださいませ。" },
+  { id: "lt02", category: "説明会", label: "説明会ご案内", body: "{{name}}さん、こんにちは。\n{{company}}の採用担当です。\n\n会社説明会を下記の日程で開催いたします。\n\n📅 日時：○月○日（○）○:○○〜\n📍 場所：○○\n\nご参加いただけますでしょうか？\nご都合をお知らせください。" },
+  { id: "lt03", category: "面接", label: "面接日程のご案内", body: "{{name}}さん、こんにちは。\n{{company}}の採用担当です。\n\n選考を進めさせていただきたく、面接のご案内です。\n\n下記の候補日から、ご都合のよい日時を教えてください。\n\n① ○月○日（○）○:○○〜\n② ○月○日（○）○:○○〜\n③ ○月○日（○）○:○○〜\n\nよろしくお願いいたします！" },
+  { id: "lt04", category: "面接", label: "面接リマインド", body: "{{name}}さん、こんにちは。\n{{company}}の採用担当です。\n\n明日の面接について、リマインドのご連絡です。\n\n📅 日時：○月○日（○）○:○○〜\n📍 場所：○○\n\n当日お会いできるのを楽しみにしています！\nお気をつけてお越しください。" },
+  { id: "lt05", category: "内定", label: "内定のお知らせ", body: "{{name}}さん、こんにちは。\n{{company}}の採用担当です。\n\n🎉 選考の結果、{{name}}さんに内定をお出しさせていただくことになりました！\n\n詳細は追ってメールでもお送りいたしますが、\nまずはご報告させていただきます。\n\nご不明な点があればいつでもご連絡ください。\nよろしくお願いいたします！" },
+  { id: "lt06", category: "共通", label: "お礼・フォローアップ", body: "{{name}}さん、こんにちは。\n{{company}}の採用担当です。\n\n先日はお時間いただきありがとうございました。\n\n何かご不明な点やご質問がございましたら、\nお気軽にこちらのLINEからご連絡ください。\n\nよろしくお願いいたします！" },
+  { id: "lt07", category: "共通", label: "一般連絡", body: "{{name}}さん、こんにちは。\n{{company}}の採用担当です。\n\n○○についてご連絡いたします。\n\n（本文をここに記入）\n\nよろしくお願いいたします。" },
+];
+
 // 共通の離脱ステータス判定
 const EXIT_STATUSES = ["辞退", "不合格", "保留", "承諾後辞退"];
 const isExitStatus = (sub) => EXIT_STATUSES.includes(sub);
@@ -1182,9 +1193,34 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
 
   const handleBulkLineSend = async () => {
     setBulkLineSending(true);
-    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const NETLIFY_DOMAIN_CL = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+      if (!NETLIFY_DOMAIN_CL) { alert('Netlify Functions が利用できません'); setBulkLineSending(false); return; }
+      const res = await fetch(NETLIFY_DOMAIN_CL + '/.netlify/functions/line-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (tokenStore.accessToken || 'demo') },
+        body: JSON.stringify({
+          action: 'broadcast',
+          candidate_ids: selectedCandidates.map(c => c.id),
+          message: bulkLineData.message.replace(/\{\{name\}\}/g, '{{name}}'), // サーバー側で差し替えないので個別名は入らない
+          sent_by: null,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setBulkLineStep("done");
+        if (data.skipped_count > 0) {
+          setBulkToast(`${data.sent_count}名に送信完了（${data.skipped_count}名はLINE未連携のためスキップ）`);
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'LINE一斉送信に失敗しました');
+      }
+    } catch (e) {
+      console.error('[BulkLineSend]', e);
+      alert('エラーが発生しました');
+    }
     setBulkLineSending(false);
-    setBulkLineStep("done");
   };
 
   const closeBulkEmail = () => {
@@ -1586,8 +1622,17 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
                   </div>
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>メッセージ *</label>
-                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 4 }}>{"{{name}}"} = 候補者氏名</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280" }}>メッセージ *</label>
+                    <select onChange={e => { if (!e.target.value) return; try { const t = JSON.parse(localStorage.getItem('ats_line_templates') || '[]'); const tpl = (t.length ? t : DEFAULT_LINE_TEMPLATES).find(x => x.id === e.target.value); if (tpl) setBulkLineData({...bulkLineData, message: tpl.body}); } catch(err) {} e.target.value = ""; }}
+                      style={{ padding: "3px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 11, color: "#6b7280", background: "white", cursor: "pointer" }}>
+                      <option value="">📝 テンプレート選択</option>
+                      {(() => { try { const t = JSON.parse(localStorage.getItem('ats_line_templates') || '[]'); return t.length ? t : DEFAULT_LINE_TEMPLATES; } catch(e) { return DEFAULT_LINE_TEMPLATES; } })().map(t => (
+                        <option key={t.id} value={t.id}>[{t.category}] {t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 4 }}>{"{{name}}"} = 候補者氏名、{"{{company}}"} = 会社名</div>
                   <textarea value={bulkLineData.message} onChange={e => setBulkLineData({...bulkLineData, message: e.target.value})}
                     rows={6} placeholder="LINEメッセージを入力..." style={{ width: "100%", padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", lineHeight: 1.6 }} />
                 </div>
@@ -2739,20 +2784,42 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     )}
                   </div>
 
-                  {/* 送信フォーム */}
+                  {/* テンプレート選択 + 送信フォーム */}
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                    <select
+                      onChange={e => {
+                        if (!e.target.value) return;
+                        try {
+                          const tpls = JSON.parse(localStorage.getItem('ats_line_templates') || '[]');
+                          const tpl = (tpls.length ? tpls : DEFAULT_LINE_TEMPLATES).find(t => t.id === e.target.value);
+                          if (tpl) {
+                            const name = `${candidate.lastName || ''} ${candidate.firstName || ''}`.trim();
+                            setLineInput(tpl.body.replace(/\{\{name\}\}/g, name).replace(/\{\{company\}\}/g, ''));
+                          }
+                        } catch(err) {}
+                        e.target.value = "";
+                      }}
+                      style={{ padding: "5px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 11, color: "#6b7280", background: "white", cursor: "pointer" }}>
+                      <option value="">📝 テンプレート</option>
+                      {(() => { try { const t = JSON.parse(localStorage.getItem('ats_line_templates') || '[]'); return (t.length ? t : DEFAULT_LINE_TEMPLATES); } catch(e) { return DEFAULT_LINE_TEMPLATES; } })().map(t => (
+                        <option key={t.id} value={t.id}>[{t.category}] {t.label}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <input
+                    <textarea
                       value={lineInput}
                       onChange={e => setLineInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLineMessage(); } }}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendLineMessage(); } }}
                       placeholder="LINEメッセージを入力..."
-                      style={{ flex: 1, padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 20, fontSize: 13, outline: "none" }}
+                      rows={lineInput.includes('\n') ? Math.min(lineInput.split('\n').length + 1, 6) : 1}
+                      style={{ flex: 1, padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 16, fontSize: 13, outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.5 }}
                     />
                     <button
                       onClick={sendLineMessage}
                       disabled={!lineInput.trim() || lineSending}
                       style={{
-                        padding: "10px 20px", border: "none", borderRadius: 20,
+                        padding: "10px 20px", border: "none", borderRadius: 20, alignSelf: "flex-end",
                         background: lineInput.trim() ? "#06c755" : "#d1d5db",
                         color: "white", fontSize: 13, fontWeight: 500,
                         cursor: lineInput.trim() ? "pointer" : "not-allowed",
@@ -5345,11 +5412,19 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
   const [toast, setToast] = useState(null);
 
   // LINE連携 state
-  const [lineStatus, setLineStatus] = useState(null); // { configured, friendCount, unlinkedCount }
+  const [lineStatus, setLineStatus] = useState(null);
   const [lineUnlinked, setLineUnlinked] = useState([]);
-  const [lineLinkCandidate, setLineLinkCandidate] = useState({}); // { [line_user_id]: candidate_id }
+  const [lineLinkCandidate, setLineLinkCandidate] = useState({});
   const [lineLoading, setLineLoading] = useState(false);
   const [lineSaving, setLineSaving] = useState(null);
+
+  // LINEテンプレート state
+  const [lineTemplates, setLineTemplates] = useState(() => {
+    try { const s = localStorage.getItem('ats_line_templates'); return s ? JSON.parse(s) : DEFAULT_LINE_TEMPLATES; } catch(e) { return DEFAULT_LINE_TEMPLATES; }
+  });
+  const saveLineTemplates = (tpls) => { setLineTemplates(tpls); localStorage.setItem('ats_line_templates', JSON.stringify(tpls)); };
+  const [editingLineTpl, setEditingLineTpl] = useState(null);
+  const [lineTplFilter, setLineTplFilter] = useState("all");
   const NETLIFY_DOMAIN = (() => { try { return new URL(window.location.href).hostname.includes('netlify') || window.location.hostname.includes('attract') ? window.location.origin : ''; } catch(e) { return ''; } })();
 
   const loadLineStatus = useCallback(async () => {
@@ -5700,6 +5775,93 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
                     </button>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* LINEメッセージテンプレート管理 */}
+          <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 24, marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: "#374151", margin: 0 }}>📝 LINEメッセージテンプレート</h3>
+              <button onClick={() => setEditingLineTpl({ id: "lt_" + Date.now(), category: "共通", label: "", body: "" })} style={{ padding: "6px 14px", border: "none", borderRadius: 8, background: "#06c755", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>＋ 新規作成</button>
+            </div>
+
+            {/* カテゴリフィルター */}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+              {["all", ...Array.from(new Set(lineTemplates.map(t => t.category)))].map(cat => (
+                <button key={cat} onClick={() => setLineTplFilter(cat)}
+                  style={{ padding: "4px 12px", border: "1px solid " + (lineTplFilter === cat ? "#06c755" : "#e5e7eb"), borderRadius: 20, background: lineTplFilter === cat ? "#f0fdf4" : "white", color: lineTplFilter === cat ? "#15803d" : "#6b7280", fontSize: 11, fontWeight: 500, cursor: "pointer" }}>
+                  {cat === "all" ? "すべて" : cat}
+                </button>
+              ))}
+            </div>
+
+            {/* テンプレート一覧 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {lineTemplates.filter(t => lineTplFilter === "all" || t.category === lineTplFilter).map(tpl => (
+                <div key={tpl.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+                  <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "#ecfdf5", color: "#15803d", fontWeight: 500, whiteSpace: "nowrap" }}>{tpl.category}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{tpl.label}</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tpl.body.substring(0, 60)}...</div>
+                  </div>
+                  <button onClick={() => setEditingLineTpl({...tpl})} style={{ padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, color: "#374151", cursor: "pointer" }}>編集</button>
+                  <button onClick={() => { if (confirm(`「${tpl.label}」を削除しますか？`)) { saveLineTemplates(lineTemplates.filter(t => t.id !== tpl.id)); setToast("テンプレートを削除しました"); setTimeout(() => setToast(null), 2000); } }} style={{ padding: "4px 10px", border: "1px solid #fecaca", borderRadius: 6, background: "#fef2f2", fontSize: 11, color: "#dc2626", cursor: "pointer" }}>削除</button>
+                </div>
+              ))}
+              {lineTemplates.filter(t => lineTplFilter === "all" || t.category === lineTplFilter).length === 0 && (
+                <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", padding: 20 }}>テンプレートがありません</div>
+              )}
+            </div>
+
+            {/* リセットボタン */}
+            <div style={{ marginTop: 12, textAlign: "right" }}>
+              <button onClick={() => { if (confirm("デフォルトのテンプレートに戻しますか？")) { saveLineTemplates(DEFAULT_LINE_TEMPLATES); setToast("デフォルトに戻しました"); setTimeout(() => setToast(null), 2000); } }} style={{ fontSize: 11, color: "#9ca3af", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>デフォルトに戻す</button>
+            </div>
+          </div>
+
+          {/* テンプレート編集モーダル */}
+          {editingLineTpl && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center" }} onClick={() => setEditingLineTpl(null)}>
+              <div style={{ background: "white", borderRadius: 16, padding: 28, width: "100%", maxWidth: 520, maxHeight: "90vh", overflow: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 20 }}>
+                  {lineTemplates.find(t => t.id === editingLineTpl.id) ? "テンプレート編集" : "新規テンプレート"}
+                </h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>カテゴリ</label>
+                    <select value={editingLineTpl.category} onChange={e => setEditingLineTpl({...editingLineTpl, category: e.target.value})}
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13 }}>
+                      {["エントリー", "説明会", "面接", "適性テスト", "内定", "共通"].map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>テンプレート名</label>
+                    <input value={editingLineTpl.label} onChange={e => setEditingLineTpl({...editingLineTpl, label: e.target.value})} placeholder="例: 面接日程のご案内"
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>メッセージ本文</label>
+                    <textarea value={editingLineTpl.body} onChange={e => setEditingLineTpl({...editingLineTpl, body: e.target.value})} rows={8} placeholder="{{name}} → 候補者名、{{company}} → 会社名 に自動置換されます"
+                      style={{ width: "100%", padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }} />
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>変数: {"{{name}}"} = 候補者名、{"{{company}}"} = 会社名</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
+                  <button onClick={() => setEditingLineTpl(null)} style={{ padding: "8px 18px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 13, cursor: "pointer", color: "#374151" }}>キャンセル</button>
+                  <button onClick={() => {
+                    if (!editingLineTpl.label || !editingLineTpl.body) { alert("テンプレート名と本文を入力してください"); return; }
+                    const exists = lineTemplates.find(t => t.id === editingLineTpl.id);
+                    if (exists) {
+                      saveLineTemplates(lineTemplates.map(t => t.id === editingLineTpl.id ? editingLineTpl : t));
+                    } else {
+                      saveLineTemplates([...lineTemplates, editingLineTpl]);
+                    }
+                    setEditingLineTpl(null);
+                    setToast("テンプレートを保存しました");
+                    setTimeout(() => setToast(null), 2000);
+                  }} style={{ padding: "8px 18px", border: "none", borderRadius: 8, background: "#06c755", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>保存</button>
+                </div>
               </div>
             </div>
           )}
