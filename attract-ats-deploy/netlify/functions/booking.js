@@ -1,0 +1,621 @@
+// Netlify Serverless Function: 予約リンク管理 (TimeRex風)
+// 候補者向け公開API（認証不要）
+// 環境変数:
+//   GOOGLE_SERVICE_ACCOUNT_EMAIL - サービスアカウントのメール
+//   GOOGLE_PRIVATE_KEY - サービスアカウントの秘密鍵
+//   GOOGLE_CALENDAR_EMAIL - カレンダー操作対象のメールアドレス
+//   SUPABASE_URL - Supabase URL
+//   SUPABASE_SERVICE_ROLE_KEY - Supabase サービスロールキー
+
+const crypto = require('crypto');
+
+// ===== JWT 作成 & アクセストークン取得 (Google Calendar API用) =====
+function createJWT(serviceAccountEmail, privateKey, userEmail) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const payload = {
+    iss: serviceAccountEmail,
+    sub: userEmail,
+    scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  };
+
+  const encHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const input = `${encHeader}.${encPayload}`;
+
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(input);
+  const signature = sign.sign(privateKey, 'base64url');
+
+  return `${input}.${signature}`;
+}
+
+async function getGoogleAccessToken(serviceAccountEmail, privateKey, userEmail) {
+  const jwt = createJWT(serviceAccountEmail, privateKey, userEmail);
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || JSON.stringify(data));
+  return data.access_token;
+}
+
+// ===== Supabase ヘルパー =====
+async function supabaseQuery(url, key, path, method = 'GET', body = null, extraHeaders = {}) {
+  const headers = {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+    Prefer: method === 'POST' ? 'return=representation' : 'return=representation',
+    ...extraHeaders,
+  };
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${url}/rest/v1/${path}`, opts);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || `Supabase error ${res.status}`);
+  return data;
+}
+
+// ===== トークン生成 =====
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// ===== FreeBusy: 空き時間取得 =====
+async function getFreeBusy(accessToken, emails, timeMin, timeMax) {
+  const res = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      timeMin,
+      timeMax,
+      timeZone: 'Asia/Tokyo',
+      items: emails.map(email => ({ id: email })),
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+  return data;
+}
+
+// ===== 空き時間スロットを生成 =====
+function generateFreeSlots(busyPeriods, dateStr, startHour, endHour, slotMinutes) {
+  const slots = [];
+  const busy = busyPeriods.map(b => ({
+    start: new Date(b.start),
+    end: new Date(b.end),
+  }));
+
+  const dayStart = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:00:00+09:00`);
+  const dayEnd = new Date(`${dateStr}T${String(endHour).padStart(2, '0')}:00:00+09:00`);
+
+  let current = new Date(dayStart);
+  while (current.getTime() + slotMinutes * 60000 <= dayEnd.getTime()) {
+    const slotEnd = new Date(current.getTime() + slotMinutes * 60000);
+    const isConflict = busy.some(b => current < b.end && slotEnd > b.start);
+
+    if (!isConflict) {
+      slots.push({
+        start: current.toISOString(),
+        end: slotEnd.toISOString(),
+        startLocal: formatJST(current),
+        endLocal: formatJST(slotEnd),
+        date: dateStr,
+      });
+    }
+
+    current = new Date(current.getTime() + 30 * 60000);
+  }
+
+  return slots;
+}
+
+function formatJST(date) {
+  return date.toLocaleString('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+// ===== イベント作成 =====
+async function createCalendarEvent(accessToken, calendarEmail, eventData) {
+  const event = {
+    summary: eventData.summary,
+    description: eventData.description || '',
+    start: {
+      dateTime: eventData.startDateTime,
+      timeZone: 'Asia/Tokyo',
+    },
+    end: {
+      dateTime: eventData.endDateTime,
+      timeZone: 'Asia/Tokyo',
+    },
+    location: eventData.location || '',
+    attendees: (eventData.attendees || []).map(a => ({
+      email: typeof a === 'string' ? a : a.email,
+      displayName: typeof a === 'string' ? undefined : a.name,
+    })),
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: 'email', minutes: 60 },
+        { method: 'popup', minutes: 15 },
+      ],
+    },
+  };
+
+  if (eventData.addMeet) {
+    event.conferenceData = {
+      createRequest: {
+        requestId: 'booking-' + Date.now(),
+        conferenceSolutionKey: { type: 'hangoutsMeet' },
+      },
+    };
+  }
+
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarEmail)}/events` +
+    (eventData.addMeet ? '?conferenceDataVersion=1&sendUpdates=all' : '?sendUpdates=all');
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(event),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+  return data;
+}
+
+// ===== メインハンドラー =====
+exports.handler = async (event) => {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json',
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers, body: '' };
+  }
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
+  }
+
+  const SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const PRIVATE_KEY = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  const CAL_EMAIL = process.env.GOOGLE_CALENDAR_EMAIL || process.env.GMAIL_USER_EMAIL;
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!SA_EMAIL || !PRIVATE_KEY || !CAL_EMAIL) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Google Calendar API の環境変数が設定されていません' }),
+    };
+  }
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Supabase の環境変数が設定されていません' }),
+    };
+  }
+
+  try {
+    const reqBody = JSON.parse(event.body);
+    const { action } = reqBody;
+
+    // ===== 予約セッション作成 (管理者用) =====
+    if (action === 'create-session') {
+      const {
+        candidateId,
+        interviewerEmails,
+        interviewerNames,
+        slotMinutes = 45,
+        startHour = 9,
+        endHour = 18,
+        dateRangeDays = 14,
+        stage = '',
+        format = 'online',
+        location = '',
+        addMeet = true,
+        message = '',
+      } = reqBody;
+
+      if (!candidateId || !interviewerEmails || interviewerEmails.length === 0) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'candidateId, interviewerEmails は必須です' }),
+        };
+      }
+
+      const token = generateToken();
+      const expiresAt = new Date(Date.now() + dateRangeDays * 24 * 60 * 60 * 1000 + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+      const session = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, 'booking_sessions', 'POST', {
+        candidate_id: candidateId,
+        token,
+        interviewer_emails: interviewerEmails,
+        interviewer_names: interviewerNames || [],
+        slot_minutes: slotMinutes,
+        start_hour: startHour,
+        end_hour: endHour,
+        date_range_days: dateRangeDays,
+        stage,
+        format,
+        location,
+        add_meet: addMeet,
+        message,
+        status: 'active',
+        expires_at: expiresAt,
+      });
+
+      const bookingUrl = `${process.env.URL || 'https://ats.madoguchi.inc'}/book?token=${token}`;
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          token,
+          bookingUrl,
+          sessionId: session[0]?.id,
+          expiresAt,
+          message: '予約リンクを作成しました',
+        }),
+      };
+    }
+
+    // ===== 予約セッション取得 + 空き時間 (候補者用) =====
+    if (action === 'get-session') {
+      const { token } = reqBody;
+      if (!token) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'token は必須です' }) };
+      }
+
+      // セッション取得
+      const sessions = await supabaseQuery(
+        SUPABASE_URL, SUPABASE_KEY,
+        `booking_sessions?token=eq.${token}&select=*`,
+      );
+
+      if (!sessions || sessions.length === 0) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({ error: '予約リンクが見つかりません。有効期限が切れた可能性があります。' }),
+        };
+      }
+
+      const session = sessions[0];
+
+      if (session.status === 'booked') {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            status: 'booked',
+            message: 'この予約リンクはすでに使用されています。',
+            bookedSlotStart: session.booked_slot_start,
+            bookedSlotEnd: session.booked_slot_end,
+          }),
+        };
+      }
+
+      if (session.status === 'expired' || session.status === 'cancelled') {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            status: session.status,
+            message: session.status === 'expired' ? '予約リンクの有効期限が切れています。' : '予約リンクはキャンセルされました。',
+          }),
+        };
+      }
+
+      if (session.expires_at && new Date(session.expires_at) < new Date()) {
+        // 期限切れ → ステータス更新
+        await supabaseQuery(
+          SUPABASE_URL, SUPABASE_KEY,
+          `booking_sessions?id=eq.${session.id}`,
+          'PATCH',
+          { status: 'expired' },
+        );
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ success: false, status: 'expired', message: '予約リンクの有効期限が切れています。' }),
+        };
+      }
+
+      // 候補者情報取得
+      let candidateName = '';
+      try {
+        const candidates = await supabaseQuery(
+          SUPABASE_URL, SUPABASE_KEY,
+          `candidates?id=eq.${session.candidate_id}&select=name,email,stage`,
+        );
+        if (candidates && candidates.length > 0) {
+          candidateName = candidates[0].name || '';
+        }
+      } catch (e) { /* ignore */ }
+
+      // Google Calendar FreeBusy でリアルタイム空き時間を取得
+      const calEmail = CAL_EMAIL;
+      const accessToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY, calEmail);
+
+      const now = new Date();
+      const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      const todayStr = jstNow.toISOString().slice(0, 10);
+
+      // 明日から date_range_days 日後まで
+      const startDate = new Date(jstNow);
+      startDate.setDate(startDate.getDate() + 1);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + session.date_range_days);
+
+      const timeMin = startDate.toISOString().slice(0, 10) + 'T00:00:00+09:00';
+      const timeMax = endDate.toISOString().slice(0, 10) + 'T23:59:59+09:00';
+
+      const freeBusyData = await getFreeBusy(accessToken, session.interviewer_emails, timeMin, timeMax);
+
+      // カレンダーエラーチェック
+      const calendarErrors = [];
+      for (const email of session.interviewer_emails) {
+        const cal = freeBusyData.calendars?.[email];
+        if (cal?.errors) {
+          calendarErrors.push({
+            email,
+            reason: cal.errors[0]?.reason || 'unknown',
+          });
+        }
+      }
+
+      if (calendarErrors.length > 0) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            message: '面接官のカレンダーにアクセスできません。担当者にお問い合わせください。',
+            calendarErrors,
+          }),
+        };
+      }
+
+      // 全員の busy を統合
+      const allBusy = [];
+      for (const email of session.interviewer_emails) {
+        const cal = freeBusyData.calendars?.[email];
+        if (cal?.busy) {
+          allBusy.push(...cal.busy);
+        }
+      }
+
+      // 日付ごとにスロット生成
+      const freeSlots = [];
+      for (let d = new Date(startDate); d < endDate; d.setDate(d.getDate() + 1)) {
+        const dow = d.getDay();
+        if (dow === 0 || dow === 6) continue; // 土日スキップ
+
+        const dateStr = d.toISOString().slice(0, 10);
+        const slots = generateFreeSlots(allBusy, dateStr, session.start_hour, session.end_hour, session.slot_minutes);
+        freeSlots.push(...slots);
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          status: 'active',
+          session: {
+            stage: session.stage,
+            format: session.format,
+            location: session.location,
+            slotMinutes: session.slot_minutes,
+            message: session.message,
+            interviewerNames: session.interviewer_names,
+          },
+          candidateName,
+          freeSlots,
+        }),
+      };
+    }
+
+    // ===== 予約確定 (候補者用) =====
+    if (action === 'book-slot') {
+      const { token, slotStart, slotEnd, candidateName: bookingName, candidateEmail: bookingEmail } = reqBody;
+      if (!token || !slotStart || !slotEnd) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'token, slotStart, slotEnd は必須です' }) };
+      }
+
+      // セッション取得
+      const sessions = await supabaseQuery(
+        SUPABASE_URL, SUPABASE_KEY,
+        `booking_sessions?token=eq.${token}&select=*`,
+      );
+
+      if (!sessions || sessions.length === 0) {
+        return { statusCode: 404, headers, body: JSON.stringify({ error: '予約リンクが見つかりません' }) };
+      }
+
+      const session = sessions[0];
+
+      if (session.status !== 'active') {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            message: session.status === 'booked' ? 'この予約リンクはすでに使用されています。' : '予約リンクが無効です。',
+          }),
+        };
+      }
+
+      // ダブルブッキング防止: 再度FreeBusyチェック
+      const calEmail = CAL_EMAIL;
+      const accessToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY, calEmail);
+
+      const freeBusyCheck = await getFreeBusy(accessToken, session.interviewer_emails, slotStart, slotEnd);
+      let hasConflict = false;
+      for (const email of session.interviewer_emails) {
+        const cal = freeBusyCheck.calendars?.[email];
+        if (cal?.busy && cal.busy.length > 0) {
+          hasConflict = true;
+          break;
+        }
+      }
+
+      if (hasConflict) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            message: '申し訳ございません。選択された時間帯は他の予約が入りました。別の時間をお選びください。',
+            conflict: true,
+          }),
+        };
+      }
+
+      // 候補者名取得
+      let candidateInfo = { name: bookingName || '', email: bookingEmail || '' };
+      try {
+        const candidates = await supabaseQuery(
+          SUPABASE_URL, SUPABASE_KEY,
+          `candidates?id=eq.${session.candidate_id}&select=name,email`,
+        );
+        if (candidates && candidates.length > 0) {
+          candidateInfo.name = candidateInfo.name || candidates[0].name || '';
+          candidateInfo.email = candidateInfo.email || candidates[0].email || '';
+        }
+      } catch (e) { /* ignore */ }
+
+      // Googleカレンダーにイベント作成
+      const slotStartDate = new Date(slotStart);
+      const slotEndDate = new Date(slotEnd);
+      const dateStr = slotStartDate.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric' });
+      const timeStr = slotStartDate.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+
+      const attendees = [
+        ...session.interviewer_emails.map(email => ({ email })),
+      ];
+      if (candidateInfo.email) {
+        attendees.push({ email: candidateInfo.email, displayName: candidateInfo.name });
+      }
+
+      const eventResult = await createCalendarEvent(accessToken, calEmail, {
+        summary: `【${session.stage || '面接'}】${candidateInfo.name || '候補者'}`,
+        description: `候補者: ${candidateInfo.name}\nメール: ${candidateInfo.email}\n面接ステージ: ${session.stage}\n形式: ${session.format === 'online' ? 'オンライン' : '対面'}\n\n※ 予約リンクから候補者が直接予約しました`,
+        startDateTime: slotStart,
+        endDateTime: slotEnd,
+        attendees,
+        location: session.format === 'online' ? '' : session.location,
+        addMeet: session.add_meet,
+      });
+
+      const meetLink = eventResult.hangoutLink || eventResult.conferenceData?.entryPoints?.[0]?.uri || '';
+
+      // booking_sessions を更新
+      await supabaseQuery(
+        SUPABASE_URL, SUPABASE_KEY,
+        `booking_sessions?id=eq.${session.id}`,
+        'PATCH',
+        {
+          status: 'booked',
+          booked_slot_start: slotStart,
+          booked_slot_end: slotEnd,
+          booked_at: new Date().toISOString(),
+          calendar_event_id: eventResult.id,
+          meet_link: meetLink,
+          updated_at: new Date().toISOString(),
+        },
+      );
+
+      // 確認メール送信（候補者にメールがある場合）
+      if (candidateInfo.email) {
+        try {
+          const GMAIL_EMAIL = process.env.GMAIL_USER_EMAIL;
+          if (GMAIL_EMAIL) {
+            const gmailToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY.replace(/\\n/g, '\n'), GMAIL_EMAIL);
+            // Gmail API でメール送信は別Functionに委譲（複雑さを避ける）
+            // ここではカレンダー招待メールが自動送信されるので最低限OK
+          }
+        } catch (e) {
+          console.log('確認メール送信スキップ:', e.message);
+        }
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: '予約が確定しました！',
+          eventId: eventResult.id,
+          meetLink,
+          htmlLink: eventResult.htmlLink || '',
+          bookedSlotStart: slotStart,
+          bookedSlotEnd: slotEnd,
+        }),
+      };
+    }
+
+    // ===== セッション状態確認 (管理者用) =====
+    if (action === 'check-session') {
+      const { token, sessionId } = reqBody;
+      const query = token
+        ? `booking_sessions?token=eq.${token}&select=*`
+        : sessionId
+          ? `booking_sessions?id=eq.${sessionId}&select=*`
+          : null;
+
+      if (!query) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'token または sessionId が必要です' }) };
+      }
+
+      const sessions = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, query);
+      if (!sessions || sessions.length === 0) {
+        return { statusCode: 404, headers, body: JSON.stringify({ error: '予約セッションが見つかりません' }) };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, session: sessions[0] }),
+      };
+    }
+
+    return { statusCode: 400, headers, body: JSON.stringify({ error: '不明なaction: ' + action }) };
+  } catch (err) {
+    console.error('Booking function error:', err);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'エラー: ' + err.message }),
+    };
+  }
+};

@@ -1897,6 +1897,10 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [schedError, setSchedError] = useState("");
   const [schedConfirmedSlot, setSchedConfirmedSlot] = useState(null);
   const [schedSlotMinutes, setSchedSlotMinutes] = useState(45);
+  // 予約リンク state
+  const [bookingUrl, setBookingUrl] = useState("");
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingStatus, setBookingStatus] = useState(null); // null | {status, bookedAt, ...}
 
   const NETLIFY_BASE = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('ats.')) ? window.location.origin : ''; } catch(e) { return ''; } })();
 
@@ -1987,6 +1991,90 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         throw new Error(schedSendMethod === 'email' ? "候補者のメールアドレスが未設定です" : "候補者のLINE連携が未設定です");
       }
       setSchedStep("done");
+    } catch (e) {
+      setSchedError("送信エラー: " + e.message);
+    }
+    setSchedSending(false);
+  };
+
+  // ===== 予約リンク発行 =====
+  const generateBookingLink = async () => {
+    if (schedSelectedInterviewers.length === 0) { setSchedError("面接官を選択してください"); return; }
+    setBookingLoading(true);
+    setSchedError("");
+    setBookingUrl("");
+    try {
+      const interviewerEmails = schedSelectedInterviewers.map(id => schedInterviewers.find(iv => iv.id === id)?.email).filter(Boolean);
+      const interviewerNames = schedSelectedInterviewers.map(id => schedInterviewers.find(iv => iv.id === id)?.name).filter(Boolean);
+
+      const res = await fetch(NETLIFY_BASE + '/.netlify/functions/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create-session',
+          candidateId: c.id,
+          interviewerEmails,
+          interviewerNames,
+          slotMinutes: schedSlotMinutes,
+          startHour: 9,
+          endHour: 18,
+          dateRangeDays: 14,
+          stage: c.stage || '面接',
+          format: schedFormat === 'WEB' ? 'online' : 'offline',
+          location: schedFormat === 'WEB' ? '' : '',
+          addMeet: schedFormat === 'WEB',
+          message: '',
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '予約リンク作成に失敗しました');
+      setBookingUrl(data.bookingUrl);
+      setSchedStep("booking-link");
+    } catch (e) {
+      setSchedError("エラー: " + e.message);
+    }
+    setBookingLoading(false);
+  };
+
+  // 予約リンクをメール送信
+  const sendBookingLinkByEmail = async () => {
+    if (!bookingUrl || !c.email) { setSchedError("メールアドレスが設定されていません"); return; }
+    setSchedSending(true);
+    setSchedError("");
+    try {
+      const subject = `【窓口株式会社】${c.stage || '面接'}の日程予約`;
+      const body = `${c.name || '候補者'}様\n\n窓口株式会社の採用担当です。\n${c.stage || '面接'}の日程をご予約いただきたく、ご連絡いたしました。\n\n下記リンクより、ご都合の良い日時を選択してご予約ください。\n\n▼ 予約ページ\n${bookingUrl}\n\n※ リンクの有効期限は約2週間です。\n※ ご不明な点がございましたら、このメールにご返信ください。\n\nよろしくお願いいたします。\n窓口株式会社 採用担当`;
+
+      const res = await fetch(NETLIFY_BASE + '/.netlify/functions/gmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', to: c.email, subject, body, candidateName: c.name }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'メール送信失敗');
+      setSchedStep("booking-sent");
+    } catch (e) {
+      setSchedError("送信エラー: " + e.message);
+    }
+    setSchedSending(false);
+  };
+
+  // 予約リンクをLINE送信
+  const sendBookingLinkByLine = async () => {
+    if (!bookingUrl || !c.lineUserId) { setSchedError("LINE連携が設定されていません"); return; }
+    setSchedSending(true);
+    setSchedError("");
+    try {
+      const message = `${c.name || ''}さん、${c.stage || '面接'}の日程予約のご案内です📅\n\n下記リンクから、ご都合の良い日時を選んでご予約ください。\n\n${bookingUrl}\n\n※ 有効期限は約2週間です。`;
+
+      const res = await fetch(NETLIFY_BASE + '/.netlify/functions/line-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (typeof tokenStore !== 'undefined' ? tokenStore.accessToken || 'demo' : 'demo') },
+        body: JSON.stringify({ action: 'send', lineUserId: c.lineUserId, message }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'LINE送信失敗');
+      setSchedStep("booking-sent");
     } catch (e) {
       setSchedError("送信エラー: " + e.message);
     }
@@ -3099,10 +3187,16 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 </div>
               </div>
 
-              <button onClick={fetchFreeSlots} disabled={schedLoading || schedSelectedInterviewers.length === 0}
-                style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: schedSelectedInterviewers.length > 0 ? "#6366f1" : "#d1d5db", color: "white", fontSize: 13, fontWeight: 600, cursor: schedSelectedInterviewers.length > 0 ? "pointer" : "default" }}>
-                {schedLoading ? "取得中..." : "🔍 空き時間を取得"}
-              </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={fetchFreeSlots} disabled={schedLoading || schedSelectedInterviewers.length === 0}
+                  style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: schedSelectedInterviewers.length > 0 ? "#6366f1" : "#d1d5db", color: "white", fontSize: 13, fontWeight: 600, cursor: schedSelectedInterviewers.length > 0 ? "pointer" : "default" }}>
+                  {schedLoading ? "取得中..." : "🔍 空き時間を取得"}
+                </button>
+                <button onClick={generateBookingLink} disabled={bookingLoading || schedSelectedInterviewers.length === 0}
+                  style={{ padding: "10px 24px", border: "2px solid #6366f1", borderRadius: 8, background: "white", color: "#6366f1", fontSize: 13, fontWeight: 600, cursor: schedSelectedInterviewers.length > 0 ? "pointer" : "default", opacity: schedSelectedInterviewers.length > 0 ? 1 : 0.5 }}>
+                  {bookingLoading ? "作成中..." : "🔗 予約リンクを発行"}
+                </button>
+              </div>
             </div>
           )}
 
@@ -3169,6 +3263,74 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {/* ===== 予約リンク発行完了 ===== */}
+          {schedStep === "booking-link" && bookingUrl && (
+            <div>
+              <div style={{ padding: 20, background: "#eef2ff", borderRadius: 10, textAlign: "center", marginBottom: 16, border: "1px solid #c7d2fe" }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>🔗</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#4338ca", marginBottom: 8 }}>予約リンクを発行しました</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>候補者にこのリンクを送信してください。リンクから直接日程を予約できます。</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "white", padding: "10px 12px", borderRadius: 8, border: "1px solid #d1d5db" }}>
+                  <input type="text" value={bookingUrl} readOnly
+                    style={{ flex: 1, border: "none", fontSize: 12, color: "#374151", background: "transparent", outline: "none" }}
+                    onClick={e => e.target.select()} />
+                  <button onClick={() => { navigator.clipboard.writeText(bookingUrl); }}
+                    style={{ padding: "6px 14px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280", fontWeight: 500, whiteSpace: "nowrap" }}>
+                    📋 コピー
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>候補者に送信:</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                {c.email && (
+                  <button onClick={sendBookingLinkByEmail} disabled={schedSending}
+                    style={{ flex: 1, padding: "10px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    {schedSending ? "送信中..." : "📧 メールで送信"}
+                  </button>
+                )}
+                {c.lineUserId && (
+                  <button onClick={sendBookingLinkByLine} disabled={schedSending}
+                    style={{ flex: 1, padding: "10px 16px", border: "none", borderRadius: 8, background: "#06c755", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    {schedSending ? "送信中..." : "💬 LINEで送信"}
+                  </button>
+                )}
+              </div>
+
+              <div style={{ textAlign: "center" }}>
+                <button onClick={() => { setSchedStep("select"); setBookingUrl(""); setSchedError(""); }}
+                  style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
+                  ← 最初からやり直す
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ===== 予約リンク送信完了 ===== */}
+          {schedStep === "booking-sent" && (
+            <div>
+              <div style={{ padding: 20, background: "#f0fdf4", borderRadius: 10, textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#166534", marginBottom: 4 }}>予約リンクを送信しました</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>候補者がリンクから日程を選択すると、Googleカレンダーに自動登録されます。</div>
+              </div>
+
+              {bookingUrl && (
+                <div style={{ padding: 12, background: "#f9fafb", borderRadius: 8, marginBottom: 12, fontSize: 12, color: "#6b7280" }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>送信した予約リンク:</div>
+                  <a href={bookingUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1", wordBreak: "break-all" }}>{bookingUrl}</a>
+                </div>
+              )}
+
+              <div style={{ textAlign: "center" }}>
+                <button onClick={() => { setSchedStep("select"); setBookingUrl(""); setSchedSlots([]); setSchedSelectedSlots([]); setSchedConfirmedSlot(null); setSchedError(""); }}
+                  style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
+                  ← 最初からやり直す
+                </button>
+              </div>
             </div>
           )}
 
