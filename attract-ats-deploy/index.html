@@ -2292,8 +2292,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
   // 音声ファイルアップロード処理
   const fileInputRef = React.useRef(null);
-  const handleAudioUpload = (e) => {
-    const file = e.target.files?.[0];
+  const [isDragging, setIsDragging] = useState(false);
+  const validateAndSetAudio = (file) => {
     if (!file) return;
     const validTypes = ['audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/ogg', 'video/webm'];
     if (!validTypes.includes(file.type) && !file.name.match(/\.(webm|mp3|wav|m4a|ogg|mp4)$/i)) {
@@ -2304,6 +2304,10 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setAudioUrl(URL.createObjectURL(file));
     setAiError("");
   };
+  const handleAudioUpload = (e) => validateAndSetAudio(e.target.files?.[0]);
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
+  const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); validateAndSetAudio(e.dataTransfer.files?.[0]); };
 
   // AI要約実行
   const runAiAnalysis = async (overrideBlob) => {
@@ -3177,19 +3181,31 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                       </div>
                     </div>
                   ) : (
-                    <div style={{ textAlign: "center", padding: 32, color: "#9ca3af" }}>
-                      <Icon name="mic" size={32} color="#d1d5db" />
-                      <div style={{ marginTop: 12, fontSize: 14, color: "#6b7280" }}>録音データがありません</div>
-                      <div style={{ fontSize: 12, marginTop: 4, marginBottom: 20 }}>面接を録音するか、音声ファイルをアップロードしてAI分析できます</div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                        <input type="file" ref={fileInputRef} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }}
-                          onChange={handleAudioUpload} />
-                        <button onClick={() => fileInputRef.current?.click()}
-                          style={{ padding: "10px 24px", border: "2px dashed #c7d2fe", borderRadius: 10, background: "#eef2ff", color: "#4338ca", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                          <Icon name="upload" size={16} color="#4338ca" /> 音声ファイルをアップロード
-                        </button>
-                        <div style={{ fontSize: 11, color: "#9ca3af" }}>webm, mp3, wav, m4a, ogg に対応</div>
-                      </div>
+                    <div
+                      onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+                      style={{ textAlign: "center", padding: 32, borderRadius: 12, border: isDragging ? "2px dashed #6366f1" : "2px dashed transparent", background: isDragging ? "#eef2ff" : "transparent", transition: "all 0.2s ease" }}>
+                      {isDragging ? (
+                        <>
+                          <Icon name="upload" size={40} color="#6366f1" />
+                          <div style={{ marginTop: 12, fontSize: 15, fontWeight: 600, color: "#4338ca" }}>ここにドロップ！</div>
+                          <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>音声ファイルをドロップしてアップロード</div>
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="mic" size={32} color="#d1d5db" />
+                          <div style={{ marginTop: 12, fontSize: 14, color: "#6b7280" }}>録音データがありません</div>
+                          <div style={{ fontSize: 12, marginTop: 4, marginBottom: 20, color: "#9ca3af" }}>面接を録音するか、音声ファイルをアップロードしてAI分析できます</div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                            <input type="file" ref={fileInputRef} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }}
+                              onChange={handleAudioUpload} />
+                            <button onClick={() => fileInputRef.current?.click()}
+                              style={{ padding: "10px 24px", border: "2px dashed #c7d2fe", borderRadius: 10, background: "#eef2ff", color: "#4338ca", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                              <Icon name="upload" size={16} color="#4338ca" /> 音声ファイルをアップロード
+                            </button>
+                            <div style={{ fontSize: 11, color: "#9ca3af" }}>ドラッグ＆ドロップも可 · webm, mp3, wav, m4a, ogg に対応</div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -4205,8 +4221,8 @@ function InterviewFBPage({ onNavigate }) {
 
   // 音声ファイルアップロード処理
   const fileInputRefSA = React.useRef(null);
-  const handleAudioUploadSA = (e) => {
-    const file = e.target.files?.[0];
+  const [isDraggingSA, setIsDraggingSA] = useState(false);
+  const validateAndSetAudioSA = (file) => {
     if (!file) return;
     const validTypes = ['audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/ogg', 'video/webm'];
     if (!validTypes.includes(file.type) && !file.name.match(/\.(webm|mp3|wav|m4a|ogg|mp4)$/i)) {
@@ -4217,6 +4233,10 @@ function InterviewFBPage({ onNavigate }) {
     setAudioUrl(URL.createObjectURL(file));
     setAiErrorSA("");
   };
+  const handleAudioUploadSA = (e) => validateAndSetAudioSA(e.target.files?.[0]);
+  const handleDragOverSA = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSA(true); };
+  const handleDragLeaveSA = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSA(false); };
+  const handleDropSA = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSA(false); validateAndSetAudioSA(e.dataTransfer.files?.[0]); };
 
   const runAiSA = async (overrideBlob) => {
     const blob = overrideBlob || audioBlob;
@@ -4470,19 +4490,31 @@ function InterviewFBPage({ onNavigate }) {
               </div>
             </div>
           ) : (
-            <div style={{ ...cardSty, textAlign: "center", padding: 32 }}>
-              <Icon name="mic" size={32} color="#d1d5db" />
-              <div style={{ marginTop: 12, fontSize: 14, color: "#6b7280" }}>録音データがありません</div>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4, marginBottom: 20 }}>面接を録音するか、音声ファイルをアップロードしてAI分析できます</div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                <input type="file" ref={fileInputRefSA} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }}
-                  onChange={handleAudioUploadSA} />
-                <button onClick={() => fileInputRefSA.current?.click()}
-                  style={{ padding: "10px 24px", border: "2px dashed #c7d2fe", borderRadius: 10, background: "#eef2ff", color: "#4338ca", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                  <Icon name="upload" size={16} color="#4338ca" /> 音声ファイルをアップロード
-                </button>
-                <div style={{ fontSize: 11, color: "#9ca3af" }}>webm, mp3, wav, m4a, ogg に対応</div>
-              </div>
+            <div
+              onDragOver={handleDragOverSA} onDragLeave={handleDragLeaveSA} onDrop={handleDropSA}
+              style={{ ...cardSty, textAlign: "center", padding: 32, border: isDraggingSA ? "2px dashed #6366f1" : "1px solid #e5e7eb", background: isDraggingSA ? "#eef2ff" : "white", transition: "all 0.2s ease" }}>
+              {isDraggingSA ? (
+                <>
+                  <Icon name="upload" size={40} color="#6366f1" />
+                  <div style={{ marginTop: 12, fontSize: 15, fontWeight: 600, color: "#4338ca" }}>ここにドロップ！</div>
+                  <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>音声ファイルをドロップしてアップロード</div>
+                </>
+              ) : (
+                <>
+                  <Icon name="mic" size={32} color="#d1d5db" />
+                  <div style={{ marginTop: 12, fontSize: 14, color: "#6b7280" }}>録音データがありません</div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4, marginBottom: 20 }}>面接を録音するか、音声ファイルをアップロードしてAI分析できます</div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                    <input type="file" ref={fileInputRefSA} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }}
+                      onChange={handleAudioUploadSA} />
+                    <button onClick={() => fileInputRefSA.current?.click()}
+                      style={{ padding: "10px 24px", border: "2px dashed #c7d2fe", borderRadius: 10, background: "#eef2ff", color: "#4338ca", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Icon name="upload" size={16} color="#4338ca" /> 音声ファイルをアップロード
+                    </button>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>ドラッグ＆ドロップも可 · webm, mp3, wav, m4a, ogg に対応</div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
