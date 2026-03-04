@@ -3911,6 +3911,49 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
   const SCHED_NETLIFY = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('ats.')) ? window.location.origin : ''; } catch(e) { return ''; } })();
   const [calSyncing, setCalSyncing] = useState(false);
   const [calSyncMsg, setCalSyncMsg] = useState("");
+  const [bookedEvents, setBookedEvents] = useState([]);
+
+  // マウント時に予約済み面接をDBから自動取得
+  useEffect(() => {
+    if (!SCHED_NETLIFY) return;
+    (async () => {
+      try {
+        const res = await fetch(SCHED_NETLIFY + '/.netlify/functions/booking', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list-booked' }),
+        });
+        const data = await res.json();
+        if (data.success && data.events) {
+          const mapped = data.events.map(ev => {
+            const start = new Date(ev.bookedSlotStart);
+            const end = new Date(ev.bookedSlotEnd);
+            return {
+              id: ev.id,
+              bookingSessionId: ev.bookingSessionId,
+              date: start.toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
+              startTime: start.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo' }),
+              endTime: end.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo' }),
+              title: ev.stage || '面接',
+              candidateName: ev.candidateName,
+              candidateId: ev.candidateId,
+              stage: ev.stage,
+              format: ev.format === 'online' ? 'WEB' : '対面',
+              interviewer: (ev.interviewerNames || []).join('・'),
+              type: ev.recruitType || '',
+              location: ev.location || '',
+              memo: '',
+              meetLink: ev.meetLink || '',
+              isBooked: true, // DB予約済みフラグ
+            };
+          });
+          setBookedEvents(mapped);
+        }
+      } catch (e) {
+        console.warn('[Schedule] 予約データ取得エラー:', e);
+      }
+    })();
+  }, []);
 
   const handleSave = async () => {
     if (!form.title && !form.candidateName) return;
@@ -4054,8 +4097,15 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
   const dayNames = ["日","月","火","水","木","金","土"];
   const monthNames = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
 
+  // 手動イベント + DB予約済みイベントをマージ（重複除外）
+  const allEvents = React.useMemo(() => {
+    const bookedIds = new Set(bookedEvents.map(e => e.bookingSessionId));
+    const manualOnly = events.filter(e => !e.bookingSessionId || !bookedIds.has(e.bookingSessionId));
+    return [...manualOnly, ...bookedEvents];
+  }, [events, bookedEvents]);
+
   // フィルター
-  const filteredEvents = recruitFilter === "all" ? events : events.filter(e => e.type === recruitFilter);
+  const filteredEvents = recruitFilter === "all" ? allEvents : allEvents.filter(e => e.type === recruitFilter);
   const getEventsForDate = (ds) => filteredEvents.filter(e => e.date === ds).sort((a,b) => a.startTime.localeCompare(b.startTime));
 
   // 週ビュー用
@@ -4146,9 +4196,38 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>スケジュール</h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {calSyncMsg && <span style={{ fontSize: 11, color: "#6b7280" }}>{calSyncMsg}</span>}
-          <button onClick={importFromGoogleCalendar} disabled={calSyncing}
+          <button onClick={async () => {
+            if (!SCHED_NETLIFY) return;
+            setCalSyncing(true); setCalSyncMsg("");
+            try {
+              const res = await fetch(SCHED_NETLIFY + '/.netlify/functions/booking', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'list-booked' }),
+              });
+              const data = await res.json();
+              if (data.success && data.events) {
+                const mapped = data.events.map(ev => {
+                  const start = new Date(ev.bookedSlotStart);
+                  const end = new Date(ev.bookedSlotEnd);
+                  return {
+                    id: ev.id, bookingSessionId: ev.bookingSessionId, candidateId: ev.candidateId,
+                    date: start.toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
+                    startTime: start.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo' }),
+                    endTime: end.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo' }),
+                    title: ev.stage || '面接', candidateName: ev.candidateName, stage: ev.stage,
+                    format: ev.format === 'online' ? 'WEB' : '対面', interviewer: (ev.interviewerNames || []).join('・'),
+                    type: ev.recruitType || '', location: ev.location || '', memo: '', meetLink: ev.meetLink || '', isBooked: true,
+                  };
+                });
+                setBookedEvents(mapped);
+                setCalSyncMsg(`${mapped.length}件の予約データを取得しました`);
+              }
+            } catch (e) { setCalSyncMsg("エラー: " + e.message); }
+            setCalSyncing(false);
+            setTimeout(() => setCalSyncMsg(""), 3000);
+          }} disabled={calSyncing}
             style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: calSyncing ? "default" : "pointer", color: "#374151", display: "flex", alignItems: "center", gap: 4 }}>
-            {calSyncing ? "同期中..." : "🔄 Googleカレンダー同期"}
+            {calSyncing ? "同期中..." : "🔄 予約データを更新"}
           </button>
           <button onClick={() => openCreate(todayStr)}
             style={{ padding: "10px 24px", border: "none", borderRadius: 10, background: "#1d4aff", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>

@@ -657,6 +657,59 @@ exports.handler = async (event) => {
       };
     }
 
+    // ===== 予約済み一覧取得 (スケジュール画面用) =====
+    if (action === 'list-booked') {
+      const sessions = await supabaseQuery(
+        SUPABASE_URL, SUPABASE_KEY,
+        'booking_sessions?status=eq.booked&select=id,candidate_id,stage,format,location,interviewer_names,interviewer_emails,booked_slot_start,booked_slot_end,meet_link,add_meet,booked_at&order=booked_slot_start.asc',
+      );
+
+      if (!sessions || sessions.length === 0) {
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, events: [] }) };
+      }
+
+      // candidate_id → 候補者名を取得
+      const candidateIds = [...new Set(sessions.map(s => s.candidate_id).filter(Boolean))];
+      let candidateMap = {};
+      if (candidateIds.length > 0) {
+        const idList = candidateIds.join(',');
+        const candidates = await supabaseQuery(
+          SUPABASE_URL, SUPABASE_KEY,
+          `candidates?id=in.(${idList})&select=id,last_name,first_name,recruit_type,email`,
+        );
+        if (candidates) {
+          for (const c of candidates) {
+            candidateMap[c.id] = {
+              name: ((c.last_name || '') + ' ' + (c.first_name || '')).trim(),
+              recruitType: c.recruit_type,
+              email: c.email,
+            };
+          }
+        }
+      }
+
+      const events = sessions.map(s => {
+        const cand = candidateMap[s.candidate_id] || {};
+        return {
+          id: 'booking_' + s.id,
+          bookingSessionId: s.id,
+          candidateId: s.candidate_id,
+          candidateName: cand.name || '',
+          recruitType: cand.recruitType || '',
+          stage: s.stage || '',
+          format: s.format || '',
+          location: s.location || '',
+          interviewerNames: s.interviewer_names || [],
+          bookedSlotStart: s.booked_slot_start,
+          bookedSlotEnd: s.booked_slot_end,
+          meetLink: s.meet_link || '',
+          bookedAt: s.booked_at,
+        };
+      });
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, events }) };
+    }
+
     return { statusCode: 400, headers, body: JSON.stringify({ error: '不明なaction: ' + action }) };
   } catch (err) {
     console.error('Booking function error:', err);
