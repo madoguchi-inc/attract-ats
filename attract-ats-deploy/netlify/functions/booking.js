@@ -584,6 +584,21 @@ exports.handler = async (event) => {
         },
       );
 
+      // 候補者のステージ・サブステータスを自動更新（予約済）
+      try {
+        if (session.candidate_id) {
+          await supabaseQuery(
+            SUPABASE_URL, SUPABASE_KEY,
+            `candidates?id=eq.${session.candidate_id}`,
+            'PATCH',
+            { stage: session.stage || undefined, substatus: '予約済', updated_at: new Date().toISOString() },
+          );
+          console.log(`[Booking] 候補者substatus更新: ${session.candidate_id} → ${session.stage} / 予約済`);
+        }
+      } catch (candErr) {
+        console.error('[Booking] 候補者substatus更新失敗:', candErr.message);
+      }
+
       // 面接官への通知メール送信
       try {
         const GMAIL_EMAIL = process.env.GMAIL_USER_EMAIL;

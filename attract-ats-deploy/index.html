@@ -299,6 +299,33 @@ const getStageDefByName = (name) => STAGE_DEFINITIONS.find(s => s.name === name)
 const getStageDefById = (id) => STAGE_DEFINITIONS.find(s => s.id === id);
 const STAGE_NAMES = STAGE_DEFINITIONS.map(s => s.name);
 
+// 日程調整対象ステージを推定するヘルパー
+// 現ステージの substatus が「合格」「実施済」→ 次の面接ステージを返す
+// それ以外 → 現ステージをそのまま返す（現ステージが面接系で「日程調整中」等の場合）
+const INTERVIEW_STAGE_IDS = ["interview1", "interview2", "final"];
+function inferSchedulingStage(currentStage, currentSubstatus) {
+  const currentDef = getStageDefByName(currentStage);
+  if (!currentDef) return { stage: currentStage, isAdvanced: false };
+
+  // 現ステージで「合格」「実施済」「参加済」「書類通過」「受験済」→ 次ステージが必要
+  const advancedSubs = ["合格", "実施済", "参加済", "書類通過", "受験済"];
+  if (advancedSubs.includes(currentSubstatus)) {
+    // 次のステージを探す（orderが現在より大きいもので、面接系または日程調整があるもの）
+    const nextStages = STAGE_DEFINITIONS.filter(s => s.order > currentDef.order && s.substatuses.includes("日程調整中"));
+    if (nextStages.length > 0) {
+      return { stage: nextStages[0].name, isAdvanced: true };
+    }
+    // 日程調整中がないステージ（内定等）→ 次ステージの最初のサブステータス
+    const nextAll = STAGE_DEFINITIONS.filter(s => s.order > currentDef.order);
+    if (nextAll.length > 0) {
+      return { stage: nextAll[0].name, isAdvanced: true };
+    }
+  }
+
+  // 現ステージが面接系で日程調整が必要な場合（日程調整中、予約済以前）→ そのまま
+  return { stage: currentStage, isAdvanced: false };
+}
+
 // ============================================================
 // ロール定義 & 権限ヘルパー
 // ============================================================
@@ -1964,16 +1991,18 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
       const tpl = schedSendMethod === 'email' ? SCHEDULE_EMAIL_TEMPLATES[0] : SCHEDULE_LINE_TEMPLATES[0];
       const interviewerNames = schedSelectedInterviewers.map(id => schedInterviewers.find(iv => iv.id === id)?.name).filter(Boolean).join("・");
+      const { stage: inferredStageForInvite, isAdvanced: isAdvancedInvite } = inferSchedulingStage(c.stage, c.substatus);
+      const displayStageInvite = inferredStageForInvite || "面接";
       const body = tpl.body
         .replace(/\{\{name\}\}/g, c.name || "")
-        .replace(/\{\{stage\}\}/g, c.stage || "面接")
+        .replace(/\{\{stage\}\}/g, displayStageInvite)
         .replace(/\{\{slots\}\}/g, slotsText)
         .replace(/\{\{format\}\}/g, schedFormat === "WEB" ? "オンライン（Google Meet）" : "対面")
         .replace(/\{\{meetInfo\}\}/g, schedFormat === "WEB" ? "※ Google Meet のURLは確定後にお送りいたします。" : "")
         .replace(/\{\{interviewer\}\}/g, interviewerNames);
 
       if (schedSendMethod === 'email' && c.email) {
-        const subject = tpl.subject.replace(/\{\{stage\}\}/g, c.stage || "面接");
+        const subject = tpl.subject.replace(/\{\{stage\}\}/g, displayStageInvite);
         const res = await fetch(NETLIFY_BASE + '/.netlify/functions/gmail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1992,6 +2021,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       } else {
         throw new Error(schedSendMethod === 'email' ? "候補者のメールアドレスが未設定です" : "候補者のLINE連携が未設定です");
       }
+
+      // 送信成功時：候補者のステージ・サブステータスを自動更新
+      if (isAdvancedInvite) {
+        onUpdateCandidate(c.id, { stage: inferredStageForInvite, substatus: "日程調整中" });
+      } else if (c.substatus !== "日程調整中") {
+        onUpdateCandidate(c.id, { substatus: "日程調整中" });
+      }
+
       setSchedStep("done");
     } catch (e) {
       setSchedError("送信エラー: " + e.message);
@@ -2021,7 +2058,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
           startHour: 9,
           endHour: 18,
           dateRangeDays: 14,
-          stage: c.stage || '面接',
+          stage: inferSchedulingStage(c.stage, c.substatus).stage || '面接',
           format: schedFormat === 'WEB' ? 'online' : 'offline',
           location: schedFormat === 'WEB' ? '' : '',
           addMeet: schedFormat === 'WEB',
@@ -2044,8 +2081,10 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setSchedSending(true);
     setSchedError("");
     try {
-      const subject = `【madoguchi株式会社】${c.stage || '面接'}の日程予約`;
-      const body = `${c.name || '候補者'}様\n\nmadoguchi株式会社の採用担当です。\n${c.stage || '面接'}の日程をご予約いただきたく、ご連絡いたしました。\n\n下記リンクより、ご都合の良い日時を選択してご予約ください。\n\n▼ 予約ページ\n${bookingUrl}\n\n※ リンクの有効期限は約2週間です。\n※ ご不明な点がございましたら、このメールにご返信ください。\n\nよろしくお願いいたします。\nmadoguchi株式会社 採用担当`;
+      const { stage: inferredStage, isAdvanced } = inferSchedulingStage(c.stage, c.substatus);
+      const displayStage = inferredStage || '面接';
+      const subject = `【madoguchi株式会社】${displayStage}の日程予約`;
+      const body = `${c.name || '候補者'}様\n\nmadoguchi株式会社の採用担当です。\n${displayStage}の日程をご予約いただきたく、ご連絡いたしました。\n\n下記リンクより、ご都合の良い日時を選択してご予約ください。\n\n▼ 予約ページ\n${bookingUrl}\n\n※ リンクの有効期限は約2週間です。\n※ ご不明な点がございましたら、このメールにご返信ください。\n\nよろしくお願いいたします。\nmadoguchi株式会社 採用担当`;
 
       const res = await fetch(NETLIFY_BASE + '/.netlify/functions/gmail', {
         method: 'POST',
@@ -2054,6 +2093,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'メール送信失敗');
+
+      // 送信成功時：候補者のステージ・サブステータスを自動更新
+      if (isAdvanced) {
+        onUpdateCandidate(c.id, { stage: inferredStage, substatus: "日程調整中" });
+      } else if (c.substatus !== "日程調整中") {
+        onUpdateCandidate(c.id, { substatus: "日程調整中" });
+      }
+
       setSchedStep("booking-sent");
     } catch (e) {
       setSchedError("送信エラー: " + e.message);
@@ -2067,7 +2114,9 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setSchedSending(true);
     setSchedError("");
     try {
-      const message = `${c.name || ''}さん、${c.stage || '面接'}の日程予約のご案内です📅\n\n下記リンクから、ご都合の良い日時を選んでご予約ください。\n\n${bookingUrl}\n\n※ 有効期限は約2週間です。`;
+      const { stage: inferredStage, isAdvanced } = inferSchedulingStage(c.stage, c.substatus);
+      const displayStage = inferredStage || '面接';
+      const message = `${c.name || ''}さん、${displayStage}の日程予約のご案内です📅\n\n下記リンクから、ご都合の良い日時を選んでご予約ください。\n\n${bookingUrl}\n\n※ 有効期限は約2週間です。`;
 
       const res = await fetch(NETLIFY_BASE + '/.netlify/functions/line-send', {
         method: 'POST',
@@ -2076,6 +2125,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'LINE送信失敗');
+
+      // 送信成功時：候補者のステージ・サブステータスを自動更新
+      if (isAdvanced) {
+        onUpdateCandidate(c.id, { stage: inferredStage, substatus: "日程調整中" });
+      } else if (c.substatus !== "日程調整中") {
+        onUpdateCandidate(c.id, { substatus: "日程調整中" });
+      }
+
       setSchedStep("booking-sent");
     } catch (e) {
       setSchedError("送信エラー: " + e.message);
