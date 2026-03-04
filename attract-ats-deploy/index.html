@@ -2927,15 +2927,51 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                       </div>
                     </div>
                   </div>
-                  {/* Meet URL */}
-                  {ni.meetLink && (
-                    <div style={{ display: "flex", gap: 8, marginTop: 16, paddingTop: 16, borderTop: "1px solid #c7d2fe" }}>
+                  {/* Meet URL + アクションボタン */}
+                  <div style={{ display: "flex", gap: 8, marginTop: 16, paddingTop: 16, borderTop: "1px solid #c7d2fe", flexWrap: "wrap" }}>
+                    {ni.meetLink && (
                       <a href={ni.meetLink} target="_blank" rel="noopener noreferrer"
                         style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 12, fontWeight: 500, textDecoration: "none", cursor: "pointer" }}>
                         <Icon name="monitor" size={14} color="white" /> Google Meet に参加
                       </a>
-                    </div>
-                  )}
+                    )}
+                    {ni.bookingSessionId && (
+                      <>
+                        <button onClick={async () => {
+                          if (!window.confirm("この予約をキャンセルして、候補者に新しい日程調整リンクを送れる状態に戻しますか？\n\nGoogleカレンダーの予定も削除されます。")) return;
+                          try {
+                            const res = await fetch(NETLIFY_BASE + '/.netlify/functions/booking', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'cancel-booking', sessionId: ni.bookingSessionId, reactivate: true }),
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                              alert("予約をキャンセルしました。候補者は同じリンクから再予約できます。");
+                              onUpdateCandidate(c.id, { substatus: "日程調整中" });
+                              fetchBookedInterviews();
+                            } else {
+                              alert("エラー: " + (data.error || data.message));
+                            }
+                          } catch (e) { alert("通信エラー: " + e.message); }
+                        }}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "white", color: "#dc2626", border: "1px solid #fca5a5", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+                          <Icon name="x-circle" size={14} color="#dc2626" /> キャンセル
+                        </button>
+                        <button onClick={() => {
+                          if (ni.bookingToken) {
+                            const link = `${NETLIFY_BASE}/book?token=${ni.bookingToken}`;
+                            navigator.clipboard.writeText(link).then(() => alert("予約リンクをコピーしました。\n候補者に送信してください。\n\n" + link)).catch(() => prompt("予約リンク:", link));
+                          } else {
+                            setActiveTab("schedule");
+                          }
+                        }}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "white", color: "#6366f1", border: "1px solid #c7d2fe", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+                          <Icon name="link" size={14} color="#6366f1" /> リンクコピー
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               );
             }

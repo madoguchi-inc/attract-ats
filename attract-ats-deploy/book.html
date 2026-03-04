@@ -302,12 +302,21 @@
     <div id="booked-view" class="hidden">
       <div class="card" style="text-align:center;">
         <div class="success-icon">📅</div>
-        <h2>この予約リンクは使用済みです</h2>
-        <p>すでに面接の予約が確定しています。</p>
-        <div class="confirm-box" style="margin-top:16px;">
-          <div class="label">予約日時</div>
+        <h2>面接の予約が確定しています</h2>
+        <p style="margin-top:4px;">以下の日程で面接が予定されています。</p>
+        <div class="confirm-box" style="margin-top:16px;text-align:left;">
+          <div class="label">面接日時</div>
           <div class="value" id="booked-datetime"></div>
+          <div id="booked-extra-info"></div>
         </div>
+        <div id="booked-meet-link" class="hidden">
+          <div class="meet-link">
+            <span>🎥</span>
+            <span>Google Meet: <a id="booked-meet-url" href="#" target="_blank"></a></span>
+          </div>
+        </div>
+        <button class="btn-secondary" style="margin-top:16px;" onclick="startReschedule()">📅 日程を変更する</button>
+        <p style="margin-top:12px;font-size:12px;color:#94a3b8;">日程変更すると、現在の予約はキャンセルされ新しい日時で再予約されます。</p>
       </div>
     </div>
 
@@ -385,8 +394,8 @@
     <div id="done-view" class="hidden">
       <div class="card" style="text-align:center;">
         <div class="success-icon">🎉</div>
-        <h2>予約が完了しました！</h2>
-        <p style="margin-top:8px;">面接の詳細は確認メールをご確認ください。</p>
+        <h2 id="done-title">予約が完了しました！</h2>
+        <p style="margin-top:8px;" id="done-subtitle">面接の詳細は確認メールをご確認ください。</p>
 
         <div class="confirm-box" style="margin-top:16px;text-align:left;">
           <div class="label">面接日時</div>
@@ -418,6 +427,8 @@
     let selectedSlot = null;
     let currentMonth = new Date();
     let token = '';
+    let isRescheduleMode = false;
+    let bookedData = null;
 
     const API_BASE = window.location.origin;
 
@@ -506,11 +517,92 @@
     }
 
     function showBooked(data) {
+      bookedData = data;
       if (data.bookedSlotStart) {
         const d = new Date(data.bookedSlotStart);
-        document.getElementById('booked-datetime').textContent = formatDateTimeFull(d);
+        let dtText = formatDateTimeFull(d);
+        if (data.bookedSlotEnd) {
+          const e = new Date(data.bookedSlotEnd);
+          dtText += ' 〜 ' + e.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+        }
+        document.getElementById('booked-datetime').textContent = dtText;
+      }
+      // 追加情報
+      let extra = '';
+      if (data.session) {
+        if (data.session.stage) extra += '<div class="divider"></div><div class="label">ステージ</div><div class="value">' + data.session.stage + '</div>';
+        if (data.session.interviewerNames && data.session.interviewerNames.length > 0) extra += '<div class="divider"></div><div class="label">面接官</div><div class="value">' + data.session.interviewerNames.join('、') + '</div>';
+        if (data.session.format) extra += '<div class="divider"></div><div class="label">形式</div><div class="value">' + (data.session.format === 'online' ? 'オンライン' : '対面') + '</div>';
+        // sessionDataもセット（リスケ時に使う）
+        sessionData = data.session;
+      }
+      document.getElementById('booked-extra-info').innerHTML = extra;
+      // Meet link
+      if (data.meetLink) {
+        document.getElementById('booked-meet-link').classList.remove('hidden');
+        const a = document.getElementById('booked-meet-url');
+        a.href = data.meetLink;
+        a.textContent = data.meetLink;
       }
       showView('booked');
+    }
+
+    // ===== リスケジュール =====
+    async function startReschedule() {
+      if (!token) return;
+      isRescheduleMode = true;
+
+      // 空き時間を再取得（セッションをactive状態として空き枠を取得する必要がある）
+      // get-session は booked の場合空き枠を返さないので、reschedule用の空き枠取得が必要
+      // → 一旦 get-session を呼んで session 情報を使い、FreeBusy を取得する
+      // 簡易実装: cancel-booking で reactivate → get-session → 再表示
+      // より安全: バックエンドに get-reschedule-slots アクションを追加
+      // ここでは既存の仕組みを活かし、ステータスは booked のまま空き枠だけ取得する
+
+      showView('loading');
+      try {
+        const res = await fetch(API_BASE + '/.netlify/functions/booking', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'get-reschedule-slots', token }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          showError(data.message || '空き時間の取得に失敗しました');
+          return;
+        }
+
+        freeSlots = data.freeSlots || [];
+        if (freeSlots.length === 0) {
+          showError('現在、変更可能な空き時間がありません。担当者にお問い合わせください。');
+          return;
+        }
+
+        if (data.session) sessionData = data.session;
+
+        // ステージタイトルを更新
+        document.getElementById('stage-title').textContent = (sessionData?.stage || '面接') + ' 日程変更';
+        document.getElementById('session-message').textContent = '新しい日程を選択してください。現在の予約は自動的にキャンセルされます。';
+
+        // 面接情報
+        let infoHtml = '';
+        if (sessionData?.interviewerNames && sessionData.interviewerNames.length > 0) {
+          infoHtml += '<div class="info-row"><span class="icon">👤</span> 面接官: ' + sessionData.interviewerNames.join('、') + '</div>';
+        }
+        if (sessionData?.slotMinutes) infoHtml += '<div class="info-row"><span class="icon">⏱</span> 面接時間: ' + sessionData.slotMinutes + '分</div>';
+        document.getElementById('session-info').innerHTML = infoHtml;
+
+        if (freeSlots.length > 0) {
+          const firstDate = new Date(freeSlots[0].date + 'T00:00:00');
+          currentMonth = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+        }
+
+        renderCalendar();
+        showView('date');
+      } catch (e) {
+        showError('通信エラーが発生しました。');
+        console.error(e);
+      }
     }
 
     // ===== Calendar rendering =====
@@ -614,6 +706,8 @@
         document.getElementById('confirm-format').textContent = '対面' + (sessionData.location ? ' (' + sessionData.location + ')' : '');
       }
 
+      // リスケモードならボタンテキスト変更
+      document.getElementById('book-btn').textContent = isRescheduleMode ? '日程を変更する' : '予約を確定する';
       showView('confirm');
     }
 
@@ -631,14 +725,14 @@
 
       const btn = document.getElementById('book-btn');
       btn.disabled = true;
-      btn.textContent = '予約処理中...';
+      btn.textContent = isRescheduleMode ? '日程変更中...' : '予約処理中...';
 
       try {
         const res = await fetch(API_BASE + '/.netlify/functions/booking', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'book-slot',
+            action: isRescheduleMode ? 'reschedule' : 'book-slot',
             token,
             slotStart: selectedSlot.start,
             slotEnd: selectedSlot.end,
@@ -667,6 +761,10 @@
         const startDate = new Date(data.bookedSlotStart);
         document.getElementById('done-datetime').textContent = formatDateTimeFull(startDate);
         document.getElementById('done-duration').textContent = sessionData.slotMinutes + '分';
+        if (isRescheduleMode) {
+          document.getElementById('done-title').textContent = '日程を変更しました！';
+          document.getElementById('done-subtitle').textContent = '新しい日程でカレンダー招待が送信されます。';
+        }
 
         if (data.meetLink) {
           document.getElementById('done-meet-link').classList.remove('hidden');
