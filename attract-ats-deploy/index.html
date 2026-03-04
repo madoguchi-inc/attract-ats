@@ -2043,8 +2043,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setSchedSending(true);
     setSchedError("");
     try {
-      const subject = `【窓口株式会社】${c.stage || '面接'}の日程予約`;
-      const body = `${c.name || '候補者'}様\n\n窓口株式会社の採用担当です。\n${c.stage || '面接'}の日程をご予約いただきたく、ご連絡いたしました。\n\n下記リンクより、ご都合の良い日時を選択してご予約ください。\n\n▼ 予約ページ\n${bookingUrl}\n\n※ リンクの有効期限は約2週間です。\n※ ご不明な点がございましたら、このメールにご返信ください。\n\nよろしくお願いいたします。\n窓口株式会社 採用担当`;
+      const subject = `【madoguchi株式会社】${c.stage || '面接'}の日程予約`;
+      const body = `${c.name || '候補者'}様\n\nmadoguchi株式会社の採用担当です。\n${c.stage || '面接'}の日程をご予約いただきたく、ご連絡いたしました。\n\n下記リンクより、ご都合の良い日時を選択してご予約ください。\n\n▼ 予約ページ\n${bookingUrl}\n\n※ リンクの有効期限は約2週間です。\n※ ご不明な点がございましたら、このメールにご返信ください。\n\nよろしくお願いいたします。\nmadoguchi株式会社 採用担当`;
 
       const res = await fetch(NETLIFY_BASE + '/.netlify/functions/gmail', {
         method: 'POST',
