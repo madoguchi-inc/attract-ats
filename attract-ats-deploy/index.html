@@ -1220,7 +1220,7 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
   const handleBulkLineSend = async () => {
     setBulkLineSending(true);
     try {
-      const NETLIFY_DOMAIN_CL = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+      const NETLIFY_DOMAIN_CL = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('madoguchi')) ? window.location.origin : ''; } catch(e) { return ''; } })();
       if (!NETLIFY_DOMAIN_CL) { alert('Netlify Functions が利用できません'); setBulkLineSending(false); return; }
       const res = await fetch(NETLIFY_DOMAIN_CL + '/.netlify/functions/line-send', {
         method: 'POST',
@@ -2245,7 +2245,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [lineLinked, setLineLinked] = useState(null); // null=未確認, { linked, display_name, ... }
   const lineMsgEndRef = React.useRef(null);
 
-  const NETLIFY_DOMAIN_CD = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+  const NETLIFY_DOMAIN_CD = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('madoguchi')) ? window.location.origin : ''; } catch(e) { return ''; } })();
 
   // LINE ステータス・メッセージ読み込み
   const loadLineData = useCallback(async () => {
@@ -6060,7 +6060,7 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
   const [editingIv, setEditingIv] = useState(null);
   const saveInterviewers = (list) => { setInterviewers(list); localStorage.setItem('ats_interviewers', JSON.stringify(list)); };
 
-  const NETLIFY_DOMAIN = (() => { try { return new URL(window.location.href).hostname.includes('netlify') || window.location.hostname.includes('attract') ? window.location.origin : ''; } catch(e) { return ''; } })();
+  const NETLIFY_DOMAIN = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('madoguchi')) ? window.location.origin : ''; } catch(e) { return ''; } })();
 
   const loadLineStatus = useCallback(async () => {
     if (!NETLIFY_DOMAIN) return;
