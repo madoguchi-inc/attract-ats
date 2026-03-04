@@ -2309,26 +2309,60 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
   const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); validateAndSetAudio(e.dataTransfer.files?.[0]); };
 
-  // AI要約実行
+  // AI要約ステータス
+  const [aiStep, setAiStep] = useState(""); // "key" | "transcribe" | "analyze"
+
+  // AI要約実行（2段階: ブラウザ→Whisper直接 + サーバー→GPT-4分析）
   const runAiAnalysis = async (overrideBlob) => {
     const blob = overrideBlob || audioBlob;
     if (!blob) { setAiError("録音データがありません"); return; }
-    setAiLoading(true); setAiError(""); setAiAnalysis(null); setAiTranscript("");
+    setAiLoading(true); setAiError(""); setAiAnalysis(null); setAiTranscript(""); setAiStep("key");
     setFbFormTab("ai");
     try {
-      const formData = new FormData();
-      const ext = blob.name ? blob.name.split('.').pop() : 'webm';
-      formData.append('audio', blob, blob.name || `recording.${ext}`);
-      const res = await fetch('/.netlify/functions/ai-feedback', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'AI分析に失敗しました');
-      setAiTranscript(data.transcript || "");
-      setAiAnalysis(data.analysis);
+      // Step 1: APIキー取得
+      const configRes = await fetch('/.netlify/functions/ai-config');
+      if (!configRes.ok) throw new Error('AI設定の取得に失敗しました');
+      const { key: apiKey } = await configRes.json();
+
+      // Step 2: Whisper文字起こし（ブラウザから直接）
+      setAiStep("transcribe");
+      const fd = new FormData();
+      fd.append('file', blob, blob.name || 'recording.webm');
+      fd.append('model', 'whisper-1');
+      fd.append('language', 'ja');
+      fd.append('response_format', 'text');
+
+      const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        body: fd,
+      });
+      if (!whisperRes.ok) {
+        const errText = await whisperRes.text();
+        throw new Error(`文字起こしエラー (${whisperRes.status}): ${errText}`);
+      }
+      const transcript = await whisperRes.text();
+      setAiTranscript(transcript);
+
+      // Step 3: GPT-4構造化分析（サーバーサイド）
+      setAiStep("analyze");
+      const analyzeRes = await fetch('/.netlify/functions/ai-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript }),
+      });
+      if (!analyzeRes.ok) {
+        const errData = await analyzeRes.json().catch(() => ({}));
+        throw new Error(errData.error || 'AI分析に失敗しました');
+      }
+      const { analysis } = await analyzeRes.json();
+      setAiAnalysis(analysis);
     } catch (e) {
       console.error('AI analysis error:', e);
       setAiError(e.message || 'AI分析中にエラーが発生しました');
     } finally {
       setAiLoading(false);
+      setAiStep("");
     }
   };
 
@@ -3051,15 +3085,30 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 <div>
                   {aiLoading ? (
                     <div style={{ textAlign: "center", padding: 40 }}>
-                      <div style={{ fontSize: 40, marginBottom: 12, animation: "spin 2s linear infinite" }}>⏳</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#4338ca" }}>AI分析中...</div>
-                      <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>録音データを文字起こし → 構造化分析しています（30秒〜2分）</div>
+                      <div style={{ fontSize: 40, marginBottom: 16, animation: "spin 2s linear infinite" }}>⏳</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#4338ca", marginBottom: 12 }}>AI分析中...</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 280, margin: "0 auto" }}>
+                        {[
+                          { step: "key", label: "AI設定を取得中" },
+                          { step: "transcribe", label: "音声を文字起こし中（1〜3分）" },
+                          { step: "analyze", label: "面接内容を構造化分析中" },
+                        ].map(({ step, label }) => (
+                          <div key={step} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                            <div style={{ width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10,
+                              background: aiStep === step ? "#4338ca" : (["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "#22c55e" : "#e5e7eb"),
+                              color: aiStep === step || ["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "white" : "#9ca3af" }}>
+                              {["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "✓" : ["key","transcribe","analyze"].indexOf(step) + 1}
+                            </div>
+                            <span style={{ color: aiStep === step ? "#4338ca" : "#6b7280", fontWeight: aiStep === step ? 600 : 400 }}>{label}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : aiError ? (
                     <div style={{ padding: 20, background: "#fef2f2", borderRadius: 12, border: "1px solid #fecaca" }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#dc2626", marginBottom: 8 }}>❌ エラー</div>
-                      <div style={{ fontSize: 13, color: "#991b1b" }}>{aiError}</div>
-                      <button onClick={runAiAnalysis} style={{ marginTop: 12, padding: "8px 16px", border: "none", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 12, cursor: "pointer" }}>🔄 再試行</button>
+                      <div style={{ fontSize: 13, color: "#991b1b", wordBreak: "break-word" }}>{aiError}</div>
+                      <button onClick={() => runAiAnalysis()} style={{ marginTop: 12, padding: "8px 16px", border: "none", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 12, cursor: "pointer" }}>🔄 再試行</button>
                     </div>
                   ) : aiAnalysis ? (
                     <div>
@@ -4238,20 +4287,39 @@ function InterviewFBPage({ onNavigate }) {
   const handleDragLeaveSA = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSA(false); };
   const handleDropSA = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSA(false); validateAndSetAudioSA(e.dataTransfer.files?.[0]); };
 
+  const [aiStepSA, setAiStepSA] = useState("");
+
   const runAiSA = async (overrideBlob) => {
     const blob = overrideBlob || audioBlob;
     if (!blob) { setAiErrorSA("録音データがありません"); return; }
-    setAiLoadingSA(true); setAiErrorSA(""); setAiAnalysisSA(null); setAiTranscriptSA(""); setActiveTab("ai");
+    setAiLoadingSA(true); setAiErrorSA(""); setAiAnalysisSA(null); setAiTranscriptSA(""); setAiStepSA("key"); setActiveTab("ai");
     try {
+      const configRes = await fetch('/.netlify/functions/ai-config');
+      if (!configRes.ok) throw new Error('AI設定の取得に失敗しました');
+      const { key: apiKey } = await configRes.json();
+
+      setAiStepSA("transcribe");
       const fd = new FormData();
-      const ext = blob.name ? blob.name.split('.').pop() : 'webm';
-      fd.append('audio', blob, blob.name || `recording.${ext}`);
-      const res = await fetch('/.netlify/functions/ai-feedback', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'AI分析に失敗しました');
-      setAiTranscriptSA(data.transcript || "");
-      setAiAnalysisSA(data.analysis);
-    } catch (e) { setAiErrorSA(e.message); } finally { setAiLoadingSA(false); }
+      fd.append('file', blob, blob.name || 'recording.webm');
+      fd.append('model', 'whisper-1');
+      fd.append('language', 'ja');
+      fd.append('response_format', 'text');
+      const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}` }, body: fd,
+      });
+      if (!whisperRes.ok) { const t = await whisperRes.text(); throw new Error(`文字起こしエラー: ${t}`); }
+      const transcript = await whisperRes.text();
+      setAiTranscriptSA(transcript);
+
+      setAiStepSA("analyze");
+      const analyzeRes = await fetch('/.netlify/functions/ai-analyze', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript }),
+      });
+      if (!analyzeRes.ok) { const d = await analyzeRes.json().catch(() => ({})); throw new Error(d.error || 'AI分析に失敗しました'); }
+      const { analysis } = await analyzeRes.json();
+      setAiAnalysisSA(analysis);
+    } catch (e) { setAiErrorSA(e.message); } finally { setAiLoadingSA(false); setAiStepSA(""); }
   };
   const applyAiSA = () => {
     if (!aiAnalysisSA) return;
@@ -4415,15 +4483,30 @@ function InterviewFBPage({ onNavigate }) {
         <div>
           {aiLoadingSA ? (
             <div style={{ textAlign: "center", padding: 40 }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#4338ca" }}>AI分析中...</div>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>録音データを文字起こし → 構造化分析しています（30秒〜2分）</div>
+              <div style={{ fontSize: 40, marginBottom: 16, animation: "spin 2s linear infinite" }}>⏳</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#4338ca", marginBottom: 12 }}>AI分析中...</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 280, margin: "0 auto" }}>
+                {[
+                  { step: "key", label: "AI設定を取得中" },
+                  { step: "transcribe", label: "音声を文字起こし中（1〜3分）" },
+                  { step: "analyze", label: "面接内容を構造化分析中" },
+                ].map(({ step, label }) => (
+                  <div key={step} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10,
+                      background: aiStepSA === step ? "#4338ca" : (["key","transcribe","analyze"].indexOf(aiStepSA) > ["key","transcribe","analyze"].indexOf(step) ? "#22c55e" : "#e5e7eb"),
+                      color: aiStepSA === step || ["key","transcribe","analyze"].indexOf(aiStepSA) > ["key","transcribe","analyze"].indexOf(step) ? "white" : "#9ca3af" }}>
+                      {["key","transcribe","analyze"].indexOf(aiStepSA) > ["key","transcribe","analyze"].indexOf(step) ? "✓" : ["key","transcribe","analyze"].indexOf(step) + 1}
+                    </div>
+                    <span style={{ color: aiStepSA === step ? "#4338ca" : "#6b7280", fontWeight: aiStepSA === step ? 600 : 400 }}>{label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : aiErrorSA ? (
             <div style={{ ...cardSty, background: "#fef2f2", border: "1px solid #fecaca" }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#dc2626", marginBottom: 8 }}>❌ エラー</div>
-              <div style={{ fontSize: 13, color: "#991b1b" }}>{aiErrorSA}</div>
-              <button onClick={runAiSA} style={{ marginTop: 12, padding: "8px 16px", border: "none", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 12, cursor: "pointer" }}>🔄 再試行</button>
+              <div style={{ fontSize: 13, color: "#991b1b", wordBreak: "break-word" }}>{aiErrorSA}</div>
+              <button onClick={() => runAiSA()} style={{ marginTop: 12, padding: "8px 16px", border: "none", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 12, cursor: "pointer" }}>🔄 再試行</button>
             </div>
           ) : aiAnalysisSA ? (
             <div>
