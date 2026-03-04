@@ -194,25 +194,47 @@ async function tryAutoMatch(lineUserId, inputText, replyToken, env) {
 
   let candidates = [];
 
-  // 1. メールアドレスの形式チェック
-  if (text.includes('@')) {
+  // 入力テキストを行・スペースで分割し、メールアドレスと名前を抽出
+  const lines = text.split(/[\n\r]+/).map(l => l.trim()).filter(Boolean);
+  const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+  let extractedEmail = null;
+  let nameParts = [];
+
+  for (const line of lines) {
+    const emailMatch = line.match(emailRegex);
+    if (emailMatch) {
+      extractedEmail = emailMatch[0].toLowerCase();
+    } else {
+      nameParts.push(line);
+    }
+  }
+
+  // 1. メールアドレスで検索
+  if (extractedEmail) {
+    console.log('[AutoMatch] Trying email:', extractedEmail);
     candidates = await sbSelect(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY,
-      'candidates', `email=eq.${encodeURIComponent(text)}`);
+      'candidates', `email=ilike.${encodeURIComponent(extractedEmail)}`);
   }
 
-  // 2. 名前で検索（姓名を結合して部分一致）
+  // 2. 名前で検索（姓名を結合して一致）
   if (candidates.length === 0) {
-    // フルネーム検索: lastName + firstName に一致するものを探す
-    const allCandidates = await sbSelect(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY,
-      'candidates', 'select=id,firstName,lastName,email&limit=500');
+    const nameInput = nameParts.length > 0 ? nameParts.join('') : text;
+    const normalizedInput = nameInput.replace(/[\s@a-zA-Z0-9._%+\-]+\.[a-zA-Z]{2,}/g, '').replace(/\s+/g, '').trim();
 
-    const normalizedInput = text.replace(/\s+/g, '');
-    candidates = allCandidates.filter(c => {
-      const fullName = `${c.lastName || ''}${c.firstName || ''}`.replace(/\s+/g, '');
-      const fullNameReverse = `${c.firstName || ''}${c.lastName || ''}`.replace(/\s+/g, '');
-      return fullName === normalizedInput || fullNameReverse === normalizedInput;
-    });
+    if (normalizedInput.length >= 2) {
+      console.log('[AutoMatch] Trying name:', normalizedInput);
+      const allCandidates = await sbSelect(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY,
+        'candidates', 'select=id,first_name,last_name,email&limit=500');
+
+      candidates = allCandidates.filter(c => {
+        const fullName = `${c.last_name || ''}${c.first_name || ''}`.replace(/\s+/g, '');
+        const fullNameReverse = `${c.first_name || ''}${c.last_name || ''}`.replace(/\s+/g, '');
+        return fullName === normalizedInput || fullNameReverse === normalizedInput;
+      });
+    }
   }
+
+  console.log('[AutoMatch] Result:', candidates.length, 'candidates found');
 
   if (candidates.length === 1) {
     // マッチ成功
@@ -228,7 +250,7 @@ async function tryAutoMatch(lineUserId, inputText, replyToken, env) {
     await sbUpdate(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY,
       'candidates', `id=eq.${candidate.id}`, { line_user_id: lineUserId });
 
-    const name = `${candidate.lastName || ''} ${candidate.firstName || ''}`.trim();
+    const name = `${candidate.last_name || ''} ${candidate.first_name || ''}`.trim();
     await lineReply(replyToken, [{
       type: 'text',
       text: `${name}さんとして紐付けが完了しました！\n今後はこのLINEアカウントで採用に関するご連絡をいたします。`,
