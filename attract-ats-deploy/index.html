@@ -607,6 +607,7 @@ function useSupabaseCandidates(recruitFilter) {
         notes: r.notes || null,
         stageDate: r.stage_date || null,
         originalStage: r.original_stage || null,
+        lineUserId: r.line_user_id || null,
       })));
     }
     setLoading(false);
