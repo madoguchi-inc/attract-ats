@@ -2793,8 +2793,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                           const tpls = JSON.parse(localStorage.getItem('ats_line_templates') || '[]');
                           const tpl = (tpls.length ? tpls : DEFAULT_LINE_TEMPLATES).find(t => t.id === e.target.value);
                           if (tpl) {
-                            const name = `${candidate.lastName || ''} ${candidate.firstName || ''}`.trim();
-                            setLineInput(tpl.body.replace(/\{\{name\}\}/g, name).replace(/\{\{company\}\}/g, ''));
+                            const name = `${c.lastName || ''} ${c.firstName || ''}`.trim();
+                            setLineInput(tpl.body.replace(/\{\{name\}\}/g, name).replace(/\{\{company\}\}/g, '株式会社madoguchi'));
                           }
                         } catch(err) {}
                         e.target.value = "";
