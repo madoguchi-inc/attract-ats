@@ -2072,7 +2072,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       const res = await fetch(NETLIFY_BASE + '/.netlify/functions/line-send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (typeof tokenStore !== 'undefined' ? tokenStore.accessToken || 'demo' : 'demo') },
-        body: JSON.stringify({ action: 'send', lineUserId: c.lineUserId, message }),
+        body: JSON.stringify({ action: 'send', candidate_id: c.id, message }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'LINE送信失敗');
