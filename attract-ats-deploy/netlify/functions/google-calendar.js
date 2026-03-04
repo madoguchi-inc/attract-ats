@@ -306,6 +306,33 @@ exports.handler = async (event) => {
 
       const freeBusy = await getFreeBusy(accessToken, emails, timeMin, timeMax);
 
+      // カレンダーにアクセスできないメールアドレスをチェック
+      const calendarErrors = [];
+      for (const email of emails) {
+        if (freeBusy[email]?.error) {
+          calendarErrors.push({
+            email,
+            reason: freeBusy[email].error,
+            message: `${email} のカレンダーにアクセスできません（${freeBusy[email].error === 'notFound' ? 'カレンダーが見つかりません' : freeBusy[email].error}）`,
+          });
+        }
+      }
+
+      // エラーがある場合はスロット生成せずにエラーを返す
+      if (calendarErrors.length > 0) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            calendarErrors,
+            freeBusy,
+            freeSlots: [],
+            message: calendarErrors.map(e => e.message).join('\n'),
+          }),
+        };
+      }
+
       // 全員の busy を統合して空きスロットを算出
       const allBusy = [];
       for (const email of emails) {

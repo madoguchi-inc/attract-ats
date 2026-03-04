@@ -1916,11 +1916,19 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         body: JSON.stringify({ action: 'freebusy', emails, timeMin, timeMax, slotMinutes: schedSlotMinutes }),
       });
       const data = await res.json();
-      if (data.success && data.freeSlots) {
-        setSchedSlots(data.freeSlots);
-        setSchedStep("slots");
+      if (data.calendarErrors && data.calendarErrors.length > 0) {
+        // カレンダーにアクセスできないメールアドレスがある場合
+        const errMsgs = data.calendarErrors.map(e => e.message).join('\n');
+        setSchedError("⚠ " + errMsgs + "\n\n設定画面で正しいメールアドレスを登録してください。");
+      } else if (data.success && data.freeSlots) {
+        if (data.freeSlots.length === 0) {
+          setSchedError("指定期間に空き時間が見つかりませんでした。日付範囲を変更してお試しください。");
+        } else {
+          setSchedSlots(data.freeSlots);
+          setSchedStep("slots");
+        }
       } else {
-        setSchedError(data.error || "空き時間の取得に失敗しました");
+        setSchedError(data.error || data.message || "空き時間の取得に失敗しました");
       }
     } catch (e) {
       setSchedError("APIエラー: " + e.message);
