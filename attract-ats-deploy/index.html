@@ -363,6 +363,32 @@ const DEFAULT_LINE_TEMPLATES = [
   { id: "lt07", category: "共通", label: "一般連絡", body: "{{name}}さん、こんにちは。\n{{company}}の採用担当です。\n\n○○についてご連絡いたします。\n\n（本文をここに記入）\n\nよろしくお願いいたします。" },
 ];
 
+// ===== 面接官マスタ =====
+const DEFAULT_INTERVIEWERS = [
+  { id: "iv01", name: "安岡 尚和", email: "yasuoka@madoguchi.inc", role: "代表", stages: ["最終面接", "二次面接"] },
+  { id: "iv02", name: "佐々木", email: "sasaki@madoguchi.inc", role: "人事部長", stages: ["一次面接", "二次面接"] },
+  { id: "iv03", name: "鈴木", email: "suzuki@madoguchi.inc", role: "採用担当", stages: ["一次面接", "説明会"] },
+  { id: "iv04", name: "田中部長", email: "tanaka@madoguchi.inc", role: "営業部長", stages: ["二次面接", "最終面接"] },
+];
+
+// ===== 日程調整テンプレート（メール用）=====
+const SCHEDULE_EMAIL_TEMPLATES = [
+  { id: "se01", stage: "面接", label: "面接候補日のご案内",
+    subject: "【株式会社madoguchi】{{stage}}のご案内",
+    body: "{{name}}様\n\nお世話になっております。\n株式会社madoguchiの採用担当です。\n\n{{stage}}の日程をご案内いたします。\n下記の候補日時からご都合の良い日時をご返信ください。\n\n{{slots}}\n\n■ 形式：{{format}}\n{{meetInfo}}\n\nご不明な点がございましたらお気軽にご連絡ください。\nよろしくお願いいたします。\n\n株式会社madoguchi 採用担当" },
+  { id: "se02", stage: "面接", label: "面接日程確定のご連絡",
+    subject: "【株式会社madoguchi】{{stage}}日程確定のお知らせ",
+    body: "{{name}}様\n\nお世話になっております。\n株式会社madoguchiの採用担当です。\n\n{{stage}}の日程が確定いたしましたのでご連絡いたします。\n\n📅 日時：{{date}} {{startTime}}〜{{endTime}}\n📍 場所：{{location}}\n👤 面接官：{{interviewer}}\n{{meetInfo}}\n\n当日はよろしくお願いいたします。\n\n株式会社madoguchi 採用担当" },
+];
+
+// ===== 日程調整テンプレート（LINE用）=====
+const SCHEDULE_LINE_TEMPLATES = [
+  { id: "sl01", stage: "面接", label: "面接候補日のご案内",
+    body: "{{name}}さん、こんにちは！\n株式会社madoguchiの採用担当です📅\n\n{{stage}}の日程候補をお送りします。\n\n{{slots}}\n\nご都合の良い番号を返信してください！\nよろしくお願いいたします。" },
+  { id: "sl02", stage: "面接", label: "面接日程確定のご連絡",
+    body: "{{name}}さん\n{{stage}}の日程が確定しました！✨\n\n📅 {{date}} {{startTime}}〜{{endTime}}\n📍 {{location}}\n👤 {{interviewer}}\n{{meetInfo}}\n\n当日お会いできるのを楽しみにしています！" },
+];
+
 // 共通の離脱ステータス判定
 const EXIT_STATUSES = ["辞退", "不合格", "保留", "承諾後辞退"];
 const isExitStatus = (sub) => EXIT_STATUSES.includes(sub);
@@ -1855,6 +1881,149 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [activeTab, setActiveTab] = useState("timeline");
   const [memoText, setMemoText] = useState(c.notes || "");
 
+  // ===== 日程調整 state =====
+  const [schedInterviewers, setSchedInterviewers] = useState(() => {
+    try { const s = localStorage.getItem('ats_interviewers'); return s ? JSON.parse(s) : DEFAULT_INTERVIEWERS; } catch(e) { return DEFAULT_INTERVIEWERS; }
+  });
+  const [schedSelectedInterviewers, setSchedSelectedInterviewers] = useState([]);
+  const [schedDateRange, setSchedDateRange] = useState({ start: new Date().toISOString().slice(0,10), end: new Date(Date.now() + 7*86400000).toISOString().slice(0,10) });
+  const [schedSlots, setSchedSlots] = useState([]);
+  const [schedLoading, setSchedLoading] = useState(false);
+  const [schedSelectedSlots, setSchedSelectedSlots] = useState([]);
+  const [schedStep, setSchedStep] = useState("select"); // select | slots | send | done
+  const [schedFormat, setSchedFormat] = useState("WEB");
+  const [schedSendMethod, setSchedSendMethod] = useState("email");
+  const [schedSending, setSchedSending] = useState(false);
+  const [schedError, setSchedError] = useState("");
+  const [schedConfirmedSlot, setSchedConfirmedSlot] = useState(null);
+  const [schedSlotMinutes, setSchedSlotMinutes] = useState(45);
+
+  const NETLIFY_BASE = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('ats.')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+
+  // 空き時間取得
+  const fetchFreeSlots = async () => {
+    if (schedSelectedInterviewers.length === 0) { setSchedError("面接官を選択してください"); return; }
+    setSchedLoading(true);
+    setSchedError("");
+    setSchedSlots([]);
+    try {
+      const emails = schedSelectedInterviewers.map(id => schedInterviewers.find(iv => iv.id === id)?.email).filter(Boolean);
+      const timeMin = new Date(schedDateRange.start + "T00:00:00+09:00").toISOString();
+      const timeMax = new Date(schedDateRange.end + "T23:59:59+09:00").toISOString();
+      const res = await fetch(NETLIFY_BASE + '/.netlify/functions/google-calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'freebusy', emails, timeMin, timeMax, slotMinutes: schedSlotMinutes }),
+      });
+      const data = await res.json();
+      if (data.success && data.freeSlots) {
+        setSchedSlots(data.freeSlots);
+        setSchedStep("slots");
+      } else {
+        setSchedError(data.error || "空き時間の取得に失敗しました");
+      }
+    } catch (e) {
+      setSchedError("APIエラー: " + e.message);
+    }
+    setSchedLoading(false);
+  };
+
+  // スロット選択トグル
+  const toggleSlotSelection = (slot) => {
+    setSchedSelectedSlots(prev => {
+      const exists = prev.find(s => s.start === slot.start);
+      if (exists) return prev.filter(s => s.start !== slot.start);
+      if (prev.length >= 3) return prev; // 最大3つ
+      return [...prev, slot];
+    });
+  };
+
+  // 日程案内送信
+  const sendScheduleInvitation = async () => {
+    if (schedSelectedSlots.length === 0) { setSchedError("候補日時を選択してください"); return; }
+    setSchedSending(true);
+    setSchedError("");
+    try {
+      const slotsText = schedSelectedSlots.map((s, i) =>
+        `${schedSendMethod === 'line' ? '①②③'[i] : '【候補' + (i+1) + '】'} ${s.date} ${s.startLocal}〜${s.endLocal}`
+      ).join('\n');
+
+      const tpl = schedSendMethod === 'email' ? SCHEDULE_EMAIL_TEMPLATES[0] : SCHEDULE_LINE_TEMPLATES[0];
+      const interviewerNames = schedSelectedInterviewers.map(id => schedInterviewers.find(iv => iv.id === id)?.name).filter(Boolean).join("・");
+      const body = tpl.body
+        .replace(/\{\{name\}\}/g, c.name || "")
+        .replace(/\{\{stage\}\}/g, c.stage || "面接")
+        .replace(/\{\{slots\}\}/g, slotsText)
+        .replace(/\{\{format\}\}/g, schedFormat === "WEB" ? "オンライン（Google Meet）" : "対面")
+        .replace(/\{\{meetInfo\}\}/g, schedFormat === "WEB" ? "※ Google Meet のURLは確定後にお送りいたします。" : "")
+        .replace(/\{\{interviewer\}\}/g, interviewerNames);
+
+      if (schedSendMethod === 'email' && c.email) {
+        const subject = tpl.subject.replace(/\{\{stage\}\}/g, c.stage || "面接");
+        const res = await fetch(NETLIFY_BASE + '/.netlify/functions/gmail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', to: c.email, subject, body, candidateName: c.name }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || "メール送信失敗");
+      } else if (schedSendMethod === 'line' && c.lineUserId) {
+        const res = await fetch(NETLIFY_BASE + '/.netlify/functions/line-send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (typeof tokenStore !== 'undefined' ? tokenStore.accessToken || 'demo' : 'demo') },
+          body: JSON.stringify({ action: 'send', lineUserId: c.lineUserId, message: body }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || "LINE送信失敗");
+      } else {
+        throw new Error(schedSendMethod === 'email' ? "候補者のメールアドレスが未設定です" : "候補者のLINE連携が未設定です");
+      }
+      setSchedStep("done");
+    } catch (e) {
+      setSchedError("送信エラー: " + e.message);
+    }
+    setSchedSending(false);
+  };
+
+  // カレンダーに予定を確定登録
+  const confirmScheduleSlot = async (slot) => {
+    setSchedSending(true);
+    setSchedError("");
+    try {
+      const interviewerNames = schedSelectedInterviewers.map(id => schedInterviewers.find(iv => iv.id === id)?.name).filter(Boolean).join("・");
+      const interviewerEmails = schedSelectedInterviewers.map(id => schedInterviewers.find(iv => iv.id === id)?.email).filter(Boolean);
+      const attendees = [...interviewerEmails.map(e => ({ email: e }))];
+      if (c.email) attendees.push({ email: c.email, name: c.name });
+
+      const res = await fetch(NETLIFY_BASE + '/.netlify/functions/google-calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          summary: `【${c.stage || "面接"}】${c.name}`,
+          description: `候補者: ${c.name}\n面接官: ${interviewerNames}\n形式: ${schedFormat === "WEB" ? "オンライン" : "対面"}`,
+          startDateTime: slot.start,
+          endDateTime: slot.end,
+          attendees,
+          addMeet: schedFormat === "WEB",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSchedConfirmedSlot({ ...slot, eventId: data.eventId, meetLink: data.meetLink, htmlLink: data.htmlLink });
+        // サブステータスを「予約済」に更新
+        if (onUpdateCandidate) {
+          onUpdateCandidate(c.id, { substatus: "予約済" });
+        }
+      } else {
+        throw new Error(data.error || "予定作成に失敗しました");
+      }
+    } catch (e) {
+      setSchedError("カレンダー登録エラー: " + e.message);
+    }
+    setSchedSending(false);
+  };
+
   // ステージ変更用 state
   const [editingStage, setEditingStage] = useState(false);
   const [selectedStage, setSelectedStage] = useState(c.stage);
@@ -2251,10 +2420,10 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         </div>
       </div>
       <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#f3f4f6", borderRadius: 10, padding: 4 }}>
-        {["timeline", "evaluation", "messages", "memo", "docs"].map(tab => (
+        {["timeline", "evaluation", "messages", "memo", "docs", "schedule"].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             style={{ flex: 1, padding: "8px 0", border: "none", borderRadius: 8, fontSize: 12, fontWeight: activeTab === tab ? 600 : 400, background: activeTab === tab ? "white" : "transparent", color: activeTab === tab ? "#4338ca" : "#6b7280", cursor: "pointer", boxShadow: activeTab === tab ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>
-            {({ timeline: "選考状況", evaluation: "評価・FB", messages: "メッセージ", memo: "メモ", docs: "書類" })[tab]}
+            {({ timeline: "選考状況", evaluation: "評価・FB", messages: "メッセージ", memo: "メモ", docs: "書類", schedule: "📅日程調整" })[tab]}
           </button>
         ))}
       </div>
@@ -2863,6 +3032,190 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
           </div>
         </div>
       )}
+
+      {/* ===== 日程調整タブ ===== */}
+      {activeTab === "schedule" && (
+        <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 4 }}>📅 日程調整</h3>
+          <p style={{ fontSize: 12, color: "#9ca3af", marginBottom: 20 }}>面接官の空き時間から候補日を選び、{c.name}さんへ案内を送信します</p>
+
+          {schedError && <div style={{ padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, color: "#dc2626", fontSize: 12, marginBottom: 16 }}>⚠️ {schedError}</div>}
+
+          {/* ===== Step 1: 面接官 & 日付選択 ===== */}
+          {schedStep === "select" && (
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 8 }}>面接官を選択（複数可）</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {schedInterviewers.map(iv => {
+                    const sel = schedSelectedInterviewers.includes(iv.id);
+                    return (
+                      <button key={iv.id} onClick={() => setSchedSelectedInterviewers(prev => sel ? prev.filter(x => x !== iv.id) : [...prev, iv.id])}
+                        style={{ padding: "6px 14px", border: sel ? "2px solid #6366f1" : "1px solid #d1d5db", borderRadius: 20, fontSize: 12, cursor: "pointer",
+                          background: sel ? "#eef2ff" : "white", color: sel ? "#4338ca" : "#374151", fontWeight: sel ? 600 : 400 }}>
+                        {iv.name} <span style={{ fontSize: 10, color: "#9ca3af" }}>({iv.role})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>開始日</label>
+                  <input type="date" value={schedDateRange.start} onChange={e => setSchedDateRange(p => ({...p, start: e.target.value}))}
+                    style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>終了日</label>
+                  <input type="date" value={schedDateRange.end} onChange={e => setSchedDateRange(p => ({...p, end: e.target.value}))}
+                    style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>面接時間</label>
+                  <select value={schedSlotMinutes} onChange={e => setSchedSlotMinutes(Number(e.target.value))}
+                    style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12 }}>
+                    <option value={30}>30分</option>
+                    <option value={45}>45分</option>
+                    <option value={60}>60分</option>
+                    <option value={90}>90分</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>形式</label>
+                  <select value={schedFormat} onChange={e => setSchedFormat(e.target.value)}
+                    style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12 }}>
+                    <option value="WEB">🖥 WEB面接</option>
+                    <option value="対面">🏢 対面</option>
+                  </select>
+                </div>
+              </div>
+
+              <button onClick={fetchFreeSlots} disabled={schedLoading || schedSelectedInterviewers.length === 0}
+                style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: schedSelectedInterviewers.length > 0 ? "#6366f1" : "#d1d5db", color: "white", fontSize: 13, fontWeight: 600, cursor: schedSelectedInterviewers.length > 0 ? "pointer" : "default" }}>
+                {schedLoading ? "取得中..." : "🔍 空き時間を取得"}
+              </button>
+            </div>
+          )}
+
+          {/* ===== Step 2: 空きスロット表示 & 選択 ===== */}
+          {schedStep === "slots" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+                  空き時間スロット ({schedSlots.length}件)
+                  <span style={{ fontSize: 11, fontWeight: 400, color: "#9ca3af", marginLeft: 8 }}>最大3つ選択</span>
+                </div>
+                <button onClick={() => { setSchedStep("select"); setSchedSlots([]); setSchedSelectedSlots([]); }}
+                  style={{ padding: "4px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>← 戻る</button>
+              </div>
+
+              {schedSlots.length === 0 ? (
+                <div style={{ padding: 20, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                  指定期間に空き時間が見つかりませんでした。期間を変更して再検索してください。
+                </div>
+              ) : (
+                <>
+                  {/* 日付ごとにグループ化 */}
+                  {Object.entries(schedSlots.reduce((acc, slot) => { (acc[slot.date] = acc[slot.date] || []).push(slot); return acc; }, {})).map(([date, slots]) => (
+                    <div key={date} style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6, padding: "4px 8px", background: "#f3f4f6", borderRadius: 6 }}>
+                        📅 {new Date(date + "T00:00:00").toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {slots.map(slot => {
+                          const sel = schedSelectedSlots.find(s => s.start === slot.start);
+                          return (
+                            <button key={slot.start} onClick={() => toggleSlotSelection(slot)}
+                              style={{ padding: "6px 12px", border: sel ? "2px solid #6366f1" : "1px solid #d1d5db", borderRadius: 8, fontSize: 12, cursor: "pointer",
+                                background: sel ? "#eef2ff" : "white", color: sel ? "#4338ca" : "#374151", fontWeight: sel ? 600 : 400 }}>
+                              {slot.startLocal}〜{slot.endLocal}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {schedSelectedSlots.length > 0 && (
+                    <div style={{ marginTop: 16, padding: 12, background: "#f0fdf4", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 8 }}>選択中の候補日時 ({schedSelectedSlots.length}/3)</div>
+                      {schedSelectedSlots.map((s, i) => (
+                        <div key={s.start} style={{ fontSize: 12, color: "#374151", padding: "2px 0" }}>
+                          {i+1}. {s.date} {s.startLocal}〜{s.endLocal}
+                        </div>
+                      ))}
+                      <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
+                        <label style={{ fontSize: 11, color: "#6b7280" }}>送信方法:</label>
+                        <select value={schedSendMethod} onChange={e => setSchedSendMethod(e.target.value)}
+                          style={{ padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12 }}>
+                          <option value="email">📧 メール</option>
+                          {c.lineUserId && <option value="line">💬 LINE</option>}
+                        </select>
+                        <button onClick={sendScheduleInvitation} disabled={schedSending}
+                          style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer", marginLeft: "auto" }}>
+                          {schedSending ? "送信中..." : "📨 候補日を案内する"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ===== Step 3: 送信完了 & 確定 ===== */}
+          {schedStep === "done" && (
+            <div>
+              <div style={{ padding: 20, background: "#f0fdf4", borderRadius: 10, textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#166534", marginBottom: 4 }}>日程案内を送信しました</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>{schedSendMethod === 'email' ? 'メール' : 'LINE'}で候補日時を{c.name}さんに送信しました</div>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>候補者が日程を選んだら、下記から確定してください</div>
+                {schedSelectedSlots.map((slot, i) => (
+                  <div key={slot.start} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: schedConfirmedSlot?.start === slot.start ? "#eef2ff" : "#f9fafb", border: schedConfirmedSlot?.start === slot.start ? "2px solid #6366f1" : "1px solid #e5e7eb", borderRadius: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, color: "#374151" }}>{i+1}. {slot.date} {slot.startLocal}〜{slot.endLocal}</span>
+                    {schedConfirmedSlot?.start === slot.start ? (
+                      <span style={{ fontSize: 11, color: "#6366f1", fontWeight: 600 }}>✅ 確定済</span>
+                    ) : (
+                      <button onClick={() => confirmScheduleSlot(slot)} disabled={schedSending || !!schedConfirmedSlot}
+                        style={{ padding: "4px 12px", border: "none", borderRadius: 6, background: schedConfirmedSlot ? "#d1d5db" : "#10b981", color: "white", fontSize: 11, fontWeight: 600, cursor: schedConfirmedSlot ? "default" : "pointer" }}>
+                        {schedSending ? "登録中..." : "この日程で確定"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {schedConfirmedSlot && (
+                <div style={{ padding: 12, background: "#eef2ff", borderRadius: 10, border: "1px solid #c7d2fe" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#4338ca", marginBottom: 6 }}>🎉 Google カレンダーに登録しました</div>
+                  {schedConfirmedSlot.meetLink && (
+                    <div style={{ fontSize: 12, color: "#374151", marginBottom: 4 }}>
+                      🖥 Meet: <a href={schedConfirmedSlot.meetLink} target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1" }}>{schedConfirmedSlot.meetLink}</a>
+                    </div>
+                  )}
+                  {schedConfirmedSlot.htmlLink && (
+                    <div style={{ fontSize: 12, color: "#374151" }}>
+                      📅 <a href={schedConfirmedSlot.htmlLink} target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1" }}>Googleカレンダーで確認</a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ marginTop: 16, textAlign: "center" }}>
+                <button onClick={() => { setSchedStep("select"); setSchedSlots([]); setSchedSelectedSlots([]); setSchedConfirmedSlot(null); setSchedError(""); }}
+                  style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
+                  新しい日程調整を開始
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3383,14 +3736,58 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
     setForm({ ...ev });
     setShowModal(true);
   };
-  const handleSave = () => {
+  const SCHED_NETLIFY = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('ats.')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+  const [calSyncing, setCalSyncing] = useState(false);
+  const [calSyncMsg, setCalSyncMsg] = useState("");
+
+  const handleSave = async () => {
     if (!form.title && !form.candidateName) return;
+    const newEvent = editEvent ? { ...form, id: editEvent.id } : { ...form, id: "ev_" + Date.now() };
+
     if (editEvent) {
-      save(events.map(e => e.id === editEvent.id ? { ...form, id: editEvent.id } : e));
+      save(events.map(e => e.id === editEvent.id ? newEvent : e));
     } else {
-      save([...events, { ...form, id: "ev_" + Date.now() }]);
+      save([...events, newEvent]);
     }
     setShowModal(false);
+
+    // Google カレンダーに同期 (バックグラウンド)
+    if (SCHED_NETLIFY && newEvent.date && newEvent.startTime) {
+      try {
+        const startDateTime = `${newEvent.date}T${newEvent.startTime}:00+09:00`;
+        const endDateTime = `${newEvent.date}T${newEvent.endTime || newEvent.startTime}:00+09:00`;
+        const attendees = [];
+        if (newEvent.interviewer) {
+          const ivs = JSON.parse(localStorage.getItem('ats_interviewers') || '[]');
+          const iv = ivs.find(x => x.name === newEvent.interviewer || x.name.includes(newEvent.interviewer));
+          if (iv) attendees.push({ email: iv.email, name: iv.name });
+        }
+
+        await fetch(SCHED_NETLIFY + '/.netlify/functions/google-calendar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create',
+            summary: `【${newEvent.stage || newEvent.title}】${newEvent.candidateName || newEvent.title}`,
+            description: `候補者: ${newEvent.candidateName || "—"}\n面接官: ${newEvent.interviewer || "—"}\nメモ: ${newEvent.memo || ""}`,
+            startDateTime,
+            endDateTime,
+            attendees,
+            location: newEvent.location || "",
+            addMeet: newEvent.format === "WEB",
+          }),
+        }).then(r => r.json()).then(data => {
+          if (data.success) {
+            // eventId を保存
+            const updated = { ...newEvent, googleEventId: data.eventId, meetLink: data.meetLink };
+            save(events.map(e => e.id === newEvent.id ? updated : e).concat(editEvent ? [] : []));
+            console.log('[Calendar] 同期成功:', data.eventId);
+          }
+        }).catch(err => console.warn('[Calendar sync]', err));
+      } catch (e) {
+        console.warn('[Calendar sync error]', e);
+      }
+    }
   };
   const handleDelete = (id) => { save(events.filter(e => e.id !== id)); setExpandedEvent(null); };
 
@@ -3406,6 +3803,60 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
         title: c.stage || prev.title,
       }));
     }
+  };
+
+  // Google カレンダーからインポート
+  const importFromGoogleCalendar = async () => {
+    if (!SCHED_NETLIFY) { alert("Netlify環境でのみ利用可能です"); return; }
+    setCalSyncing(true);
+    setCalSyncMsg("");
+    try {
+      const now = new Date();
+      const timeMin = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const timeMax = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
+      const res = await fetch(SCHED_NETLIFY + '/.netlify/functions/google-calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list', timeMin, timeMax }),
+      });
+      const data = await res.json();
+      if (data.success && data.events) {
+        const imported = data.events.filter(ev => ev.summary && ev.start).map(ev => {
+          const start = new Date(ev.start);
+          return {
+            id: "gcal_" + ev.id,
+            googleEventId: ev.id,
+            date: start.toISOString().slice(0, 10),
+            startTime: start.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo' }),
+            endTime: ev.end ? new Date(ev.end).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo' }) : "",
+            title: ev.summary,
+            candidateName: ev.summary.match(/】(.+)/)?.[1] || "",
+            stage: ev.summary.match(/【(.+?)】/)?.[1] || "",
+            format: ev.meetLink ? "WEB" : "対面",
+            interviewer: "",
+            type: "",
+            location: ev.location || "",
+            memo: ev.description || "",
+            meetLink: ev.meetLink || "",
+          };
+        });
+        // 既存と重複しないものだけ追加
+        const existingGcalIds = events.filter(e => e.googleEventId).map(e => e.googleEventId);
+        const newEvents = imported.filter(e => !existingGcalIds.includes(e.googleEventId));
+        if (newEvents.length > 0) {
+          save([...events, ...newEvents]);
+          setCalSyncMsg(`${newEvents.length}件の予定をインポートしました`);
+        } else {
+          setCalSyncMsg("新しい予定はありませんでした");
+        }
+      } else {
+        setCalSyncMsg(data.error || "読み込みに失敗しました");
+      }
+    } catch (e) {
+      setCalSyncMsg("エラー: " + e.message);
+    }
+    setCalSyncing(false);
+    setTimeout(() => setCalSyncMsg(""), 3000);
   };
 
   // カレンダー計算
@@ -3521,10 +3972,17 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
       {/* ヘッダー */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>スケジュール</h1>
-        <button onClick={() => openCreate(todayStr)}
-          style={{ padding: "10px 24px", border: "none", borderRadius: 10, background: "#1d4aff", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-          <Icon name="plus" size={14} /> 予定を追加
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {calSyncMsg && <span style={{ fontSize: 11, color: "#6b7280" }}>{calSyncMsg}</span>}
+          <button onClick={importFromGoogleCalendar} disabled={calSyncing}
+            style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: calSyncing ? "default" : "pointer", color: "#374151", display: "flex", alignItems: "center", gap: 4 }}>
+            {calSyncing ? "同期中..." : "🔄 Googleカレンダー同期"}
+          </button>
+          <button onClick={() => openCreate(todayStr)}
+            style={{ padding: "10px 24px", border: "none", borderRadius: 10, background: "#1d4aff", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="plus" size={14} /> 予定を追加
+          </button>
+        </div>
       </div>
 
       {/* 統計カード */}
@@ -5425,6 +5883,13 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
   const saveLineTemplates = (tpls) => { setLineTemplates(tpls); localStorage.setItem('ats_line_templates', JSON.stringify(tpls)); };
   const [editingLineTpl, setEditingLineTpl] = useState(null);
   const [lineTplFilter, setLineTplFilter] = useState("all");
+  // 面接官マスタ state
+  const [interviewers, setInterviewers] = useState(() => {
+    try { const s = localStorage.getItem('ats_interviewers'); return s ? JSON.parse(s) : DEFAULT_INTERVIEWERS; } catch(e) { return DEFAULT_INTERVIEWERS; }
+  });
+  const [editingIv, setEditingIv] = useState(null);
+  const saveInterviewers = (list) => { setInterviewers(list); localStorage.setItem('ats_interviewers', JSON.stringify(list)); };
+
   const NETLIFY_DOMAIN = (() => { try { return new URL(window.location.href).hostname.includes('netlify') || window.location.hostname.includes('attract') ? window.location.origin : ''; } catch(e) { return ''; } })();
 
   const loadLineStatus = useCallback(async () => {
@@ -5558,7 +6023,7 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
 
       {/* タブ */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid #e5e7eb", paddingBottom: 0 }}>
-        {[{ id: "templates", label: "📧 メールテンプレート" }, { id: "line", label: "💬 LINE連携" }, { id: "company", label: "🏢 会社情報" }].map(t => (
+        {[{ id: "templates", label: "📧 メールテンプレート" }, { id: "line", label: "💬 LINE連携" }, { id: "interviewers", label: "👤 面接官" }, { id: "company", label: "🏢 会社情報" }].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{ padding: "8px 16px", border: "none", borderBottom: tab === t.id ? "2px solid #6366f1" : "2px solid transparent", background: "none", fontSize: 13, fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? "#6366f1" : "#6b7280", cursor: "pointer" }}>
             {t.label}
@@ -5883,6 +6348,93 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
                 </code>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 面接官マスタ ===== */}
+      {tab === "interviewers" && (
+        <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#374151" }}>👤 面接官マスタ</h3>
+            <button onClick={() => setEditingIv({ id: "iv_" + Date.now(), name: "", email: "", role: "", stages: [] })}
+              style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ 追加</button>
+          </div>
+          <p style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>面接官のメールアドレスは Google カレンダーの空き時間取得に使用されます</p>
+
+          {editingIv && (
+            <div style={{ padding: 16, background: "#f9fafb", borderRadius: 10, border: "1px solid #e5e7eb", marginBottom: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>名前 *</label>
+                  <input value={editingIv.name} onChange={e => setEditingIv({...editingIv, name: e.target.value})}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} placeholder="例: 安岡 尚和" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>メールアドレス *</label>
+                  <input value={editingIv.email} onChange={e => setEditingIv({...editingIv, email: e.target.value})}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} placeholder="例: yasuoka@madoguchi.inc" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>役職</label>
+                  <input value={editingIv.role} onChange={e => setEditingIv({...editingIv, role: e.target.value})}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} placeholder="例: 代表" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>担当ステージ</label>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {["説明会", "一次面接", "二次面接", "最終面接"].map(st => {
+                      const sel = (editingIv.stages || []).includes(st);
+                      return (
+                        <button key={st} onClick={() => setEditingIv({...editingIv, stages: sel ? editingIv.stages.filter(s => s !== st) : [...(editingIv.stages||[]), st] })}
+                          style={{ padding: "3px 10px", border: sel ? "1.5px solid #6366f1" : "1px solid #d1d5db", borderRadius: 12, fontSize: 11, cursor: "pointer",
+                            background: sel ? "#eef2ff" : "white", color: sel ? "#4338ca" : "#6b7280" }}>
+                          {st}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setEditingIv(null)}
+                  style={{ padding: "6px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>キャンセル</button>
+                <button onClick={() => {
+                  if (!editingIv.name || !editingIv.email) { alert("名前とメールアドレスは必須です"); return; }
+                  const exists = interviewers.find(iv => iv.id === editingIv.id);
+                  if (exists) {
+                    saveInterviewers(interviewers.map(iv => iv.id === editingIv.id ? editingIv : iv));
+                  } else {
+                    saveInterviewers([...interviewers, editingIv]);
+                  }
+                  setEditingIv(null);
+                  showToast("面接官情報を保存しました");
+                }}
+                  style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>保存</button>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {interviewers.map(iv => (
+              <div key={iv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fafafa" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{iv.name} <span style={{ fontSize: 11, fontWeight: 400, color: "#9ca3af" }}>{iv.role}</span></div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>{iv.email}</div>
+                  {iv.stages?.length > 0 && (
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {iv.stages.map(st => <span key={st} style={{ padding: "1px 8px", background: "#eef2ff", color: "#4338ca", borderRadius: 10, fontSize: 10 }}>{st}</span>)}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setEditingIv({...iv})}
+                    style={{ padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>編集</button>
+                  <button onClick={() => { if (confirm(iv.name + "を削除しますか？")) { saveInterviewers(interviewers.filter(x => x.id !== iv.id)); showToast("削除しました"); } }}
+                    style={{ padding: "4px 10px", border: "1px solid #fecaca", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#dc2626" }}>削除</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
