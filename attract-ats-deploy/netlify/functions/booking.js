@@ -9,14 +9,14 @@
 
 const crypto = require('crypto');
 
-// ===== JWT 作成 & アクセストークン取得 (Google Calendar API用) =====
-function createJWT(serviceAccountEmail, privateKey, userEmail) {
+// ===== JWT 作成 & アクセストークン取得 =====
+function createJWT(serviceAccountEmail, privateKey, userEmail, scope) {
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: 'RS256', typ: 'JWT' };
   const payload = {
     iss: serviceAccountEmail,
     sub: userEmail,
-    scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+    scope: scope || 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
     aud: 'https://oauth2.googleapis.com/token',
     iat: now,
     exp: now + 3600,
@@ -33,8 +33,8 @@ function createJWT(serviceAccountEmail, privateKey, userEmail) {
   return `${input}.${signature}`;
 }
 
-async function getGoogleAccessToken(serviceAccountEmail, privateKey, userEmail) {
-  const jwt = createJWT(serviceAccountEmail, privateKey, userEmail);
+async function getGoogleAccessToken(serviceAccountEmail, privateKey, userEmail, scope) {
+  const jwt = createJWT(serviceAccountEmail, privateKey, userEmail, scope);
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -177,6 +177,35 @@ async function createCalendarEvent(accessToken, calendarEmail, eventData) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(event),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+  return data;
+}
+
+// ===== Gmail送信ヘルパー =====
+function createRawEmail(from, to, subject, htmlBody) {
+  const encodedSubject = '=?UTF-8?B?' + Buffer.from(subject).toString('base64') + '?=';
+  const lines = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${encodedSubject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    Buffer.from(htmlBody).toString('base64'),
+  ];
+  return Buffer.from(lines.join('\r\n')).toString('base64url');
+}
+
+async function sendGmail(accessToken, from, to, subject, body) {
+  const htmlBody = body.replace(/\n/g, '<br>');
+  const raw = createRawEmail(from, to, subject, htmlBody);
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
@@ -555,18 +584,37 @@ exports.handler = async (event) => {
         },
       );
 
-      // 確認メール送信（候補者にメールがある場合）
-      if (candidateInfo.email) {
-        try {
-          const GMAIL_EMAIL = process.env.GMAIL_USER_EMAIL;
-          if (GMAIL_EMAIL) {
-            const gmailToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY.replace(/\\n/g, '\n'), GMAIL_EMAIL);
-            // Gmail API でメール送信は別Functionに委譲（複雑さを避ける）
-            // ここではカレンダー招待メールが自動送信されるので最低限OK
+      // 面接官への通知メール送信
+      try {
+        const GMAIL_EMAIL = process.env.GMAIL_USER_EMAIL;
+        if (GMAIL_EMAIL && session.interviewer_emails && session.interviewer_emails.length > 0) {
+          const gmailScope = 'https://www.googleapis.com/auth/gmail.send';
+          const gmailToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY.replace(/\\n/g, '\n'), GMAIL_EMAIL, gmailScope);
+
+          const startJST = new Date(slotStart).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+          const endTime = new Date(slotEnd).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+
+          const subject = `【面接予約確定】${candidateInfo.name || '候補者'} - ${session.stage || '面接'}`;
+          const body = `面接の予約が確定しました。\n\n` +
+            `■ 候補者: ${candidateInfo.name || '（未設定）'}\n` +
+            `■ ステージ: ${session.stage || '面接'}\n` +
+            `■ 日時: ${startJST} 〜 ${endTime}\n` +
+            `■ 形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
+            (meetLink ? `\n■ Meet: ${meetLink}` : '') +
+            (session.location && session.format !== 'online' ? `\n■ 場所: ${session.location}` : '') +
+            `\n\n※ Googleカレンダーにも登録済みです。\n※ 候補者が予約リンクから直接予約しました。`;
+
+          for (const email of session.interviewer_emails) {
+            try {
+              await sendGmail(gmailToken, GMAIL_EMAIL, email, subject, body);
+              console.log(`[Booking] 通知メール送信成功: ${email}`);
+            } catch (mailErr) {
+              console.error(`[Booking] 通知メール送信失敗 (${email}):`, mailErr.message);
+            }
           }
-        } catch (e) {
-          console.log('確認メール送信スキップ:', e.message);
         }
+      } catch (e) {
+        console.log('[Booking] 通知メール送信スキップ:', e.message);
       }
 
       return {
