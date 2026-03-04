@@ -3865,25 +3865,11 @@ function InterviewFBPage({ onNavigate }) {
 // Schedule Page - 本日の予約・スケジュール一覧
 function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
   const STORAGE_KEY = 'ats_schedule_events';
-  const [events, setEvents] = useState(() => {
-    try {
-      const s = localStorage.getItem(STORAGE_KEY);
-      if (s) return JSON.parse(s);
-    } catch(e) {}
-    // デフォルトサンプルデータ
-    const today = new Date(); const fmt = (d) => d.toISOString().slice(0,10);
-    const td = fmt(today);
-    const tom = fmt(new Date(today.getTime() + 86400000));
-    const d3 = fmt(new Date(today.getTime() + 86400000*2));
-    return [
-      { id: "ev1", date: td, startTime: "10:00", endTime: "10:30", title: "説明会", candidateName: "佐藤 太郎", candidateId: null, stage: "説明会", format: "WEB", interviewer: "", type: "新卒", location: "", memo: "" },
-      { id: "ev2", date: td, startTime: "11:00", endTime: "11:45", title: "一次面接", candidateName: "小林 由美", candidateId: null, stage: "一次面接", format: "WEB", interviewer: "佐々木", type: "中途", location: "", memo: "" },
-      { id: "ev3", date: td, startTime: "14:00", endTime: "14:45", title: "二次面接", candidateName: "山田 花子", candidateId: null, stage: "二次面接", format: "対面", interviewer: "安岡", type: "新卒", location: "本社 3F 会議室A", memo: "" },
-      { id: "ev4", date: tom, startTime: "10:00", endTime: "10:45", title: "一次面接", candidateName: "松本 大介", candidateId: null, stage: "一次面接", format: "対面", interviewer: "鈴木", type: "中途", location: "本社 3F 会議室B", memo: "" },
-      { id: "ev5", date: tom, startTime: "15:00", endTime: "15:45", title: "最終面接", candidateName: "田中 健一", candidateId: null, stage: "最終面接", format: "対面", interviewer: "田中部長", type: "新卒", location: "本社 5F 役員室", memo: "" },
-      { id: "ev6", date: d3, startTime: "13:00", endTime: "13:30", title: "適性テスト案内", candidateName: "加藤 翔太", candidateId: null, stage: "適性テスト", format: "WEB", interviewer: "", type: "中途", location: "", memo: "メール送信済み" },
-    ];
-  });
+  // 旧データ（Googleカレンダー同期・サンプルデータ）をクリア
+  useEffect(() => {
+    try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+  }, []);
+  const [events, setEvents] = useState([]);
 
   const save = (list) => { setEvents(list); localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); };
 
