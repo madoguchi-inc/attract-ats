@@ -1931,7 +1931,45 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingStatus, setBookingStatus] = useState(null); // null | {status, bookedAt, ...}
 
+  // 予約済み面接情報
+  const [bookedInterviews, setBookedInterviews] = useState([]);
+  const [bookedLoading, setBookedLoading] = useState(false);
+
   const NETLIFY_BASE = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('ats.')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+
+  // 予約済み面接を取得
+  const fetchBookedInterviews = async () => {
+    if (!NETLIFY_BASE) return;
+    setBookedLoading(true);
+    try {
+      const res = await fetch(NETLIFY_BASE + '/.netlify/functions/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list-booked' }),
+      });
+      const data = await res.json();
+      if (data.success && data.sessions) {
+        const mine = data.sessions
+          .filter(s => String(s.candidate_id) === String(c.id))
+          .sort((a, b) => new Date(a.booked_slot_start) - new Date(b.booked_slot_start));
+        setBookedInterviews(mine);
+      }
+    } catch (e) { console.error('予約済み面接取得エラー:', e); }
+    setBookedLoading(false);
+  };
+  React.useEffect(() => { fetchBookedInterviews(); }, [c.id]);
+
+  // 次回（未来の）面接を取得
+  const nextInterview = React.useMemo(() => {
+    const now = new Date();
+    return bookedInterviews.find(b => new Date(b.booked_slot_start) > now) || null;
+  }, [bookedInterviews]);
+
+  // 過去の面接（実施済み）を取得
+  const pastInterviews = React.useMemo(() => {
+    const now = new Date();
+    return bookedInterviews.filter(b => new Date(b.booked_slot_start) <= now);
+  }, [bookedInterviews]);
 
   // 空き時間取得
   const fetchFreeSlots = async () => {
@@ -2286,13 +2324,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [fbFormStage, setFbFormStage] = useState("");
   const [fbFormTab, setFbFormTab] = useState("scores"); // "scores" | "details" | "ai"
   const emptyScores = { charm: 3, honesty: 3, flexibility: 3, tenacity: 3, achievement: 3, stress: 3 };
-  const [fbFormData, setFbFormData] = useState({
+  const emptyFbFormData = () => ({
     interviewer: "", date: new Date().toISOString().slice(0, 10), format: "WEB",
     scores: { ...emptyScores },
     overall: 3, result: "合格", recommendation: "neutral",
     summary: "", comment: "", careerPlan: "", reason: "", competitors: "", reverseQ: "", concerns: "", freeNote: "",
     hasRecording: false, recordingDuration: null,
   });
+  const [fbFormData, setFbFormData] = useState(emptyFbFormData());
 
   // AI分析state
   const [aiAnalysis, setAiAnalysis] = useState(null);
@@ -2763,7 +2802,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         {["timeline", "evaluation", "messages", "memo", "docs", "schedule"].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             style={{ flex: 1, padding: "8px 0", border: "none", borderRadius: 8, fontSize: 12, fontWeight: activeTab === tab ? 600 : 400, background: activeTab === tab ? "white" : "transparent", color: activeTab === tab ? "#4338ca" : "#6b7280", cursor: "pointer", boxShadow: activeTab === tab ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>
-            {({ timeline: "選考状況", evaluation: "評価・FB", messages: "メッセージ", memo: "メモ", docs: "書類", schedule: "📅日程調整" })[tab]}
+            {({ timeline: "選考状況", evaluation: "面接・評価", messages: "メッセージ", memo: "メモ", docs: "書類", schedule: "📅日程調整" })[tab]}
           </button>
         ))}
       </div>
@@ -2814,15 +2853,250 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         </>
       )}
 
-      {/* ===== 評価・FBタブ ===== */}
+      {/* ===== 面接・評価タブ ===== */}
       {activeTab === "evaluation" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* サマリーカード */}
+
+          {/* ① 次回面接予定カード */}
+          {(() => {
+            const isScheduling = ["日程調整中", "予約済"].includes(c.substatus) || nextInterview;
+            if (!isScheduling && !nextInterview) return (
+              <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", border: "1px solid #e5e7eb" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 4 }}>次回面接予定</h3>
+                    <div style={{ fontSize: 13, color: "#9ca3af" }}>現在予定されている面接はありません</div>
+                  </div>
+                  <button onClick={() => setActiveTab("schedule")} style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>📅 日程調整へ</button>
+                </div>
+              </div>
+            );
+            const fmtJST = (iso) => { try { return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }); } catch(e) { return iso; } };
+            const fmtTimeOnly = (iso) => { try { return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false }); } catch(e) { return ''; } };
+            if (nextInterview) {
+              const ni = nextInterview;
+              return (
+                <div style={{ background: "linear-gradient(135deg, #eef2ff 0%, #faf5ff 100%)", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", border: "2px solid #c7d2fe" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#6366f1", animation: "pulse 2s infinite" }} />
+                      <h3 style={{ fontSize: 15, fontWeight: 600, color: "#4338ca" }}>次回面接予定</h3>
+                      <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 10, background: "#dcfce7", color: "#15803d", fontWeight: 500 }}>予約確定</span>
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 24px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: "#6366f1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Icon name="calendar" size={18} color="white" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#9ca3af" }}>日時</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{fmtJST(ni.booked_slot_start)}</div>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>〜 {fmtTimeOnly(ni.booked_slot_end)}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Icon name="user" size={18} color="white" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#9ca3af" }}>ステージ</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{ni.stage || c.stage}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: "#a855f7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Icon name="users" size={18} color="white" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#9ca3af" }}>面接官</div>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>{(ni.interviewer_names || []).join("・") || "未定"}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: ni.format === 'online' ? "#3b82f6" : "#ec4899", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Icon name={ni.format === 'online' ? "monitor" : "map-pin"} size={18} color="white" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#9ca3af" }}>形式</div>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>{ni.format === 'online' ? 'オンライン' : '対面'}</div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Meet URL / カレンダーリンク */}
+                  {(ni.meet_link || ni.calendar_event_id) && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 16, paddingTop: 16, borderTop: "1px solid #c7d2fe" }}>
+                      {ni.meet_link && (
+                        <a href={ni.meet_link} target="_blank" rel="noopener noreferrer"
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 12, fontWeight: 500, textDecoration: "none", cursor: "pointer" }}>
+                          <Icon name="monitor" size={14} color="white" /> Google Meet に参加
+                        </a>
+                      )}
+                      {ni.calendar_event_id && (
+                        <a href={`https://www.google.com/calendar/event?eid=${btoa(ni.calendar_event_id)}`} target="_blank" rel="noopener noreferrer"
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, background: "white", color: "#4338ca", fontSize: 12, fontWeight: 500, textDecoration: "none", cursor: "pointer", border: "1px solid #c7d2fe" }}>
+                          <Icon name="calendar" size={14} color="#4338ca" /> カレンダーで確認
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            // 日程調整中（予約リンク送信済みだが未確定）
+            return (
+              <div style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", border: "2px solid #fde68a" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="clock" size={18} color="#d97706" />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 2 }}>次回面接予定</h3>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 10, background: "#fef3c7", color: "#92400e", fontWeight: 500 }}>{c.substatus}</span>
+                        <span style={{ fontSize: 12, color: "#9ca3af" }}>{c.stage} — 候補者からの返答待ち</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => setActiveTab("schedule")} style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>📅 日程調整へ</button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ② 面接履歴＋FB一体型カード */}
           <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>評価サマリー</h3>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>面接履歴・フィードバック</h3>
               {can("inputFB") && <button onClick={() => openFbForm()} style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>＋ FB入力</button>}
             </div>
+
+            {(() => {
+              // 面接ステージごとにFBとスケジュール情報をマージ
+              const interviewStages = INTERVIEW_STAGES.filter(stageName => {
+                const stageOrder = STAGE_DEFINITIONS.map(s => s.name);
+                const currentIdx = stageOrder.indexOf(c.stage);
+                const stageIdx = stageOrder.indexOf(stageName);
+                return stageIdx <= currentIdx || feedbacks.some(f => f.stage === stageName);
+              });
+
+              if (interviewStages.length === 0 && feedbacks.length === 0) {
+                return (
+                  <div style={{ textAlign: "center", padding: "30px 0", color: "#9ca3af" }}>
+                    <Icon name="file-text" size={32} color="#d1d5db" />
+                    <div style={{ marginTop: 12, fontSize: 14 }}>面接はまだ実施されていません</div>
+                    {can("inputFB") && <button onClick={() => openFbForm()} style={{ marginTop: 16, padding: "10px 24px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>最初のFBを入力する</button>}
+                  </div>
+                );
+              }
+
+              return interviewStages.map((stageName, sIdx) => {
+                const fb = feedbacks.find(f => f.stage === stageName);
+                const bookedForStage = bookedInterviews.find(b => b.stage === stageName);
+                const stageColor = STAGE_DEFINITIONS.find(s => s.name === stageName)?.color || "#6366f1";
+                const fmtJST = (iso) => { try { return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }); } catch(e) { return iso; } };
+
+                return (
+                  <div key={stageName} style={{ marginBottom: sIdx < interviewStages.length - 1 ? 20 : 0 }}>
+                    {/* ステージヘッダー */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: stageColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 13, fontWeight: 700 }}>{sIdx + 1}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>{stageName}</div>
+                        {bookedForStage && (
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>
+                            {fmtJST(bookedForStage.booked_slot_start)} | {(bookedForStage.interviewer_names || []).join("・")} | {bookedForStage.format === 'online' ? 'オンライン' : '対面'}
+                          </div>
+                        )}
+                        {!bookedForStage && fb && (
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>
+                            {fb.date} | {fb.interviewer} | {fb.format}
+                          </div>
+                        )}
+                      </div>
+                      {fb && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: fb.result === "合格" ? "#dcfce7" : fb.result === "不合格" ? "#fee2e2" : "#fef3c7", color: fb.result === "合格" ? "#15803d" : fb.result === "不合格" ? "#dc2626" : "#92400e" }}>{fb.result}</span>
+                          <div style={{ textAlign: "center", minWidth: 36 }}>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: fb.overall >= 4 ? "#10b981" : fb.overall >= 3 ? "#f59e0b" : "#ef4444", lineHeight: 1 }}>{fb.overall}</div>
+                            <div style={{ fontSize: 9, color: "#9ca3af" }}>総合</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* FBがある場合：詳細表示 */}
+                    {fb ? (
+                      <div style={{ marginLeft: 42, padding: 16, background: "#f9fafb", borderRadius: 10, borderLeft: `3px solid ${fb.result === "合格" ? "#10b981" : fb.result === "不合格" ? "#ef4444" : "#f59e0b"}` }}>
+                        {/* バッジ行 */}
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                          <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: fb.format === "WEB" ? "#dbeafe" : "#fce7f3", color: fb.format === "WEB" ? "#1d4ed8" : "#be185d" }}>{fb.format}</span>
+                          {fb.recommendation && RECOMMENDATION_OPTIONS.find(r => r.val === fb.recommendation) && (
+                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: RECOMMENDATION_OPTIONS.find(r => r.val === fb.recommendation).bg, color: RECOMMENDATION_OPTIONS.find(r => r.val === fb.recommendation).color, fontWeight: 500 }}>
+                              {RECOMMENDATION_OPTIONS.find(r => r.val === fb.recommendation).label}
+                            </span>
+                          )}
+                          {fb.hasRecording && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "#fef2f2", color: "#dc2626" }}>🎙️ 録音あり</span>}
+                          <button onClick={() => { setFbFormStage(fb.stage); setFbFormData({...fb}); setFbFormTab("scores"); setFbFormOpen(true); }}
+                            style={{ marginLeft: "auto", fontSize: 11, padding: "2px 10px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", color: "#6b7280", cursor: "pointer" }}>編集</button>
+                        </div>
+                        {/* 項目別スコア */}
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                          {EVAL_CRITERIA.map(cr => (
+                            <div key={cr.key} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", background: "white", borderRadius: 6, fontSize: 11 }}>
+                              <span>{cr.icon}</span>
+                              <span style={{ color: "#6b7280" }}>{cr.label.replace("（結果への執念）", "")}</span>
+                              <span style={{ fontWeight: 600, color: (fb.scores[cr.key] || 0) >= 4 ? "#10b981" : (fb.scores[cr.key] || 0) >= 3 ? "#f59e0b" : "#ef4444" }}>
+                                {fb.scores[cr.key] || "—"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* 面接要約 */}
+                        {fb.summary && (
+                          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, marginBottom: 8, padding: 10, background: "#eef2ff", borderRadius: 8, border: "1px solid #c7d2fe" }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: "#4338ca", marginBottom: 3 }}>📝 面接要約</div>
+                            {fb.summary}
+                          </div>
+                        )}
+                        {/* コメント */}
+                        {fb.comment && (
+                          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, marginBottom: 8, padding: 10, background: "white", borderRadius: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: "#6b7280", marginBottom: 3 }}>💬 コメント</div>
+                            {fb.comment}
+                          </div>
+                        )}
+                        {/* 懸念点 */}
+                        {fb.concerns && (
+                          <div style={{ padding: 10, background: "#fff7ed", borderRadius: 8, border: "1px solid #fed7aa" }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: "#c2410c", marginBottom: 3 }}>⚠️ 懸念点＆次回確認事項</div>
+                            <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5 }}>{fb.concerns}</div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* FBがない場合：入力ボタン */
+                      <div style={{ marginLeft: 42, padding: 16, background: "#f9fafb", borderRadius: 10, textAlign: "center", border: "1px dashed #d1d5db" }}>
+                        <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>フィードバック未入力</div>
+                        {can("inputFB") && (
+                          <button onClick={() => { setFbFormStage(stageName); setFbFormData({...emptyFbFormData(), interviewer: "", date: new Date().toISOString().slice(0,10), format: "WEB"}); setFbFormTab("scores"); setFbFormOpen(true); }}
+                            style={{ padding: "6px 16px", border: "1px solid #6366f1", borderRadius: 8, background: "white", color: "#6366f1", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>FBを入力する</button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ステージ間区切り線 */}
+                    {sIdx < interviewStages.length - 1 && <div style={{ marginLeft: 16, width: 2, height: 16, background: "#e5e7eb" }} />}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+          {/* ③ 評価サマリー（下部） */}
+          <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 16 }}>評価サマリー</h3>
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
               {/* 総合スコア */}
               <div style={{ textAlign: "center", padding: 16, background: "#f9fafb", borderRadius: 10, minWidth: 100 }}>
@@ -2832,7 +3106,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 <div style={{ fontSize: 11, color: "#9ca3af" }}>総合評価</div>
                 <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{feedbacks.length}件のFB</div>
               </div>
-              {/* 項目別レーダー的表示 */}
+              {/* 項目別バーチャート */}
               <div style={{ flex: 1, minWidth: 200 }}>
                 {EVAL_CRITERIA.map(cr => {
                   const avg = feedbacks.length ? feedbacks.reduce((s,f) => s + (f.scores[cr.key] || 0), 0) / feedbacks.length : 0;
@@ -2857,75 +3131,6 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
             </div>
           </div>
-
-          {/* 面接ごとのFBカード */}
-          {feedbacks.length > 0 ? feedbacks.map((fb, idx) => (
-            <div key={idx} style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", borderLeft: `4px solid ${fb.result === "合格" ? "#10b981" : fb.result === "不合格" ? "#ef4444" : "#f59e0b"}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>{fb.stage}</span>
-                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: fb.result === "合格" ? "#dcfce7" : fb.result === "不合格" ? "#fee2e2" : "#fef3c7", color: fb.result === "合格" ? "#15803d" : fb.result === "不合格" ? "#dc2626" : "#92400e" }}>{fb.result}</span>
-                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: fb.format === "WEB" ? "#dbeafe" : "#fce7f3", color: fb.format === "WEB" ? "#1d4ed8" : "#be185d" }}>{fb.format}</span>
-                    {fb.recommendation && RECOMMENDATION_OPTIONS.find(r => r.val === fb.recommendation) && (
-                      <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: RECOMMENDATION_OPTIONS.find(r => r.val === fb.recommendation).bg, color: RECOMMENDATION_OPTIONS.find(r => r.val === fb.recommendation).color, fontWeight: 500 }}>
-                        {RECOMMENDATION_OPTIONS.find(r => r.val === fb.recommendation).label}
-                      </span>
-                    )}
-                    {fb.hasRecording && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "#fef2f2", color: "#dc2626" }}>🎙️ 録音あり</span>}
-                  </div>
-                  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>面接官: {fb.interviewer}　|　{fb.date}</div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: fb.overall >= 4 ? "#10b981" : fb.overall >= 3 ? "#f59e0b" : "#ef4444" }}>{fb.overall}</div>
-                    <div style={{ fontSize: 10, color: "#9ca3af" }}>総合</div>
-                  </div>
-                  <button onClick={() => { setFbFormStage(fb.stage); setFbFormData({...fb}); setFbFormTab("scores"); setFbFormOpen(true); }}
-                    style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", color: "#6b7280", cursor: "pointer" }}>編集</button>
-                </div>
-              </div>
-              {/* 項目別スコア */}
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-                {EVAL_CRITERIA.map(cr => (
-                  <div key={cr.key} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "#f9fafb", borderRadius: 8, fontSize: 12 }}>
-                    <span>{cr.icon}</span>
-                    <span style={{ color: "#6b7280", fontSize: 11 }}>{cr.label.replace("（結果への執念）", "")}</span>
-                    <span style={{ fontWeight: 600, color: (fb.scores[cr.key] || 0) >= 4 ? "#10b981" : (fb.scores[cr.key] || 0) >= 3 ? "#f59e0b" : "#ef4444" }}>
-                      {fb.scores[cr.key] || "—"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              {/* 面接要約 */}
-              {fb.summary && (
-                <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, marginBottom: 10, padding: 12, background: "#eef2ff", borderRadius: 8, border: "1px solid #c7d2fe" }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#4338ca", marginBottom: 4 }}>📝 面接要約</div>
-                  {fb.summary}
-                </div>
-              )}
-              {/* コメント */}
-              {fb.comment && (
-                <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, marginBottom: 10, padding: 12, background: "#f9fafb", borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>💬 コメント</div>
-                  {fb.comment}
-                </div>
-              )}
-              {/* 懸念点 */}
-              {fb.concerns && (
-                <div style={{ padding: 10, background: "#fff7ed", borderRadius: 8, border: "1px solid #fed7aa" }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#c2410c", marginBottom: 4 }}>⚠️ 懸念点＆次回確認事項</div>
-                  <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5 }}>{fb.concerns}</div>
-                </div>
-              )}
-            </div>
-          )) : (
-            <div style={{ background: "white", borderRadius: 12, padding: 40, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", textAlign: "center", color: "#9ca3af" }}>
-              <Icon name="file-text" size={32} color="#d1d5db" />
-              <div style={{ marginTop: 12, fontSize: 14 }}>面接フィードバックはまだ登録されていません</div>
-              {can("inputFB") && <button onClick={() => openFbForm()} style={{ marginTop: 16, padding: "10px 24px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>最初のFBを入力する</button>}
-            </div>
-          )}
 
           {/* ===== FB入力フォーム（モーダル） ===== */}
           {fbFormOpen && (
