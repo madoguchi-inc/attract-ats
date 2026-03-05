@@ -254,6 +254,42 @@ exports.handler = async (event) => {
     const { action } = reqBody;
 
     // ===== 会議室一覧取得 (管理者用) =====
+    // ===== 面接官プロフィール UPSERT =====
+    if (action === 'upsert-interviewer') {
+      const { name, email, role, department, photoUrl, bio } = reqBody;
+      if (!email) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'email is required' }) };
+      }
+      // 既存チェック
+      const existing = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `interviewers?email=eq.${encodeURIComponent(email)}&select=id`);
+      if (existing && existing.length > 0) {
+        // UPDATE
+        await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `interviewers?email=eq.${encodeURIComponent(email)}`, 'PATCH', {
+          name: name || '', role: role || null, department: department || null, photo_url: photoUrl || null, bio: bio || null,
+        });
+      } else {
+        // INSERT
+        await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, 'interviewers', 'POST', {
+          name: name || '', email, role: role || null, department: department || null, photo_url: photoUrl || null, bio: bio || null,
+        });
+      }
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
+    // ===== 面接官削除 =====
+    if (action === 'delete-interviewer') {
+      const { email } = reqBody;
+      if (!email) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'email is required' }) };
+      }
+      const delRes = await fetch(`${SUPABASE_URL}/rest/v1/interviewers?email=eq.${encodeURIComponent(email)}`, {
+        method: 'DELETE',
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      });
+      if (!delRes.ok) throw new Error('面接官削除に失敗しました');
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
     if (action === 'list-rooms') {
       const calEmail = CAL_EMAIL;
       const accessToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY, calEmail);

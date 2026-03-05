@@ -7245,7 +7245,29 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
     try { const s = localStorage.getItem('ats_interviewers'); return s ? JSON.parse(s) : DEFAULT_INTERVIEWERS; } catch(e) { return DEFAULT_INTERVIEWERS; }
   });
   const [editingIv, setEditingIv] = useState(null);
+  const [ivSyncing, setIvSyncing] = useState(false);
   const saveInterviewers = (list) => { setInterviewers(list); localStorage.setItem('ats_interviewers', JSON.stringify(list)); };
+  // Supabase に面接官プロフィールを同期
+  const syncInterviewerToSupabase = async (iv) => {
+    if (!NETLIFY_DOMAIN) return;
+    try {
+      await fetch(NETLIFY_DOMAIN + '/.netlify/functions/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'upsert-interviewer', name: iv.name, email: iv.email, role: iv.role || '', department: iv.department || '', photoUrl: iv.photoUrl || '', bio: iv.bio || '' }),
+      });
+    } catch(e) { console.error('面接官同期エラー:', e); }
+  };
+  const deleteInterviewerFromSupabase = async (email) => {
+    if (!NETLIFY_DOMAIN) return;
+    try {
+      await fetch(NETLIFY_DOMAIN + '/.netlify/functions/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete-interviewer', email }),
+      });
+    } catch(e) { console.error('面接官削除エラー:', e); }
+  };
 
   const NETLIFY_DOMAIN = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('madoguchi')) ? window.location.origin : ''; } catch(e) { return ''; } })();
 
@@ -7714,7 +7736,7 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
         <div style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", padding: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, color: "#374151" }}>👤 面接官マスタ</h3>
-            <button onClick={() => setEditingIv({ id: "iv_" + Date.now(), name: "", email: "", role: "", stages: [] })}
+            <button onClick={() => setEditingIv({ id: "iv_" + Date.now(), name: "", email: "", role: "", department: "", photoUrl: "", bio: "", stages: [] })}
               style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: "#6366f1", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ 追加</button>
           </div>
           <p style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>面接官のメールアドレスは Google カレンダーの空き時間取得に使用されます</p>
@@ -7738,6 +7760,11 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
                     style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} placeholder="例: 代表" />
                 </div>
                 <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>部署</label>
+                  <input value={editingIv.department || ''} onChange={e => setEditingIv({...editingIv, department: e.target.value})}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} placeholder="例: プロダクト部" />
+                </div>
+                <div>
                   <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>担当ステージ</label>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {["説明会", "一次面接", "二次面接", "最終面接"].map(st => {
@@ -7753,10 +7780,31 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
                   </div>
                 </div>
               </div>
+              {/* プロフィール情報（候補者向けページに表示） */}
+              <div style={{ padding: 12, background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0", marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#15803d", marginBottom: 8 }}>✨ 候補者向けプロフィール（予約ページに表示されます）</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>写真URL</label>
+                    <input value={editingIv.photoUrl || ''} onChange={e => setEditingIv({...editingIv, photoUrl: e.target.value})}
+                      style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12, boxSizing: "border-box" }} placeholder="https://..." />
+                    {editingIv.photoUrl && (
+                      <img src={editingIv.photoUrl} alt="preview" style={{ width: 48, height: 48, borderRadius: "50%", objectFit: "cover", marginTop: 6, border: "2px solid #e5e7eb" }}
+                        onError={e => { e.target.style.display = 'none'; }} />
+                    )}
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>自己紹介（候補者に表示）</label>
+                    <textarea value={editingIv.bio || ''} onChange={e => setEditingIv({...editingIv, bio: e.target.value})}
+                      rows={3} placeholder="例: 2020年入社。プロダクト開発を担当しています。趣味はキャンプです。面接ではざっくばらんにお話しましょう！"
+                      style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12, resize: "vertical", boxSizing: "border-box" }} />
+                  </div>
+                </div>
+              </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setEditingIv(null)}
                   style={{ padding: "6px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>キャンセル</button>
-                <button onClick={() => {
+                <button onClick={async () => {
                   if (!editingIv.name || !editingIv.email) { alert("名前とメールアドレスは必須です"); return; }
                   const exists = interviewers.find(iv => iv.id === editingIv.id);
                   if (exists) {
@@ -7764,6 +7812,8 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
                   } else {
                     saveInterviewers([...interviewers, editingIv]);
                   }
+                  // Supabase にプロフィールを同期
+                  syncInterviewerToSupabase(editingIv);
                   setEditingIv(null);
                   showToast("面接官情報を保存しました");
                 }}
@@ -7775,19 +7825,30 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {interviewers.map(iv => (
               <div key={iv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fafafa" }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{iv.name} <span style={{ fontSize: 11, fontWeight: 400, color: "#9ca3af" }}>{iv.role}</span></div>
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>{iv.email}</div>
-                  {iv.stages?.length > 0 && (
-                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                      {iv.stages.map(st => <span key={st} style={{ padding: "1px 8px", background: "#eef2ff", color: "#4338ca", borderRadius: 10, fontSize: 10 }}>{st}</span>)}
-                    </div>
-                  )}
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  {/* アバター */}
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: iv.photoUrl ? "transparent" : "#6366f1", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                    {iv.photoUrl ? (
+                      <img src={iv.photoUrl} alt="" style={{ width: 40, height: 40, objectFit: "cover" }} onError={e => { e.target.style.display='none'; e.target.parentElement.style.background='#6366f1'; e.target.parentElement.innerHTML=`<span style="color:white;font-size:14px;font-weight:600">${(iv.name||'?')[0]}</span>`; }} />
+                    ) : (
+                      <span style={{ color: "white", fontSize: 14, fontWeight: 600 }}>{(iv.name || '?')[0]}</span>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{iv.name} <span style={{ fontSize: 11, fontWeight: 400, color: "#9ca3af" }}>{iv.role}{iv.department ? ` / ${iv.department}` : ''}</span></div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>{iv.email}</div>
+                    {iv.bio && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2, maxWidth: 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{iv.bio}</div>}
+                    {iv.stages?.length > 0 && (
+                      <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                        {iv.stages.map(st => <span key={st} style={{ padding: "1px 8px", background: "#eef2ff", color: "#4338ca", borderRadius: 10, fontSize: 10 }}>{st}</span>)}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => setEditingIv({...iv})}
                     style={{ padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>編集</button>
-                  <button onClick={() => { if (confirm(iv.name + "を削除しますか？")) { saveInterviewers(interviewers.filter(x => x.id !== iv.id)); showToast("削除しました"); } }}
+                  <button onClick={() => { if (confirm(iv.name + "を削除しますか？")) { deleteInterviewerFromSupabase(iv.email); saveInterviewers(interviewers.filter(x => x.id !== iv.id)); showToast("削除しました"); } }}
                     style={{ padding: "4px 10px", border: "1px solid #fecaca", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#dc2626" }}>削除</button>
                 </div>
               </div>
