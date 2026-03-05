@@ -7246,6 +7246,34 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
   });
   const [editingIv, setEditingIv] = useState(null);
   const [ivSyncing, setIvSyncing] = useState(false);
+  const [ivPhotoUploading, setIvPhotoUploading] = useState(false);
+  const handlePhotoUpload = async (file) => {
+    if (!file || !editingIv?.email) return;
+    if (file.size > 5 * 1024 * 1024) { showToast("ファイルサイズは5MB以下にしてください", "error"); return; }
+    if (!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)) { showToast("JPEG/PNG/WebP/GIF形式のみ対応", "error"); return; }
+    setIvPhotoUploading(true);
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch(NETLIFY_DOMAIN + '/.netlify/functions/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'upload-interviewer-photo', email: editingIv.email, imageBase64: base64, mimeType: file.type }),
+      });
+      const data = await res.json();
+      if (data.success && data.photoUrl) {
+        setEditingIv(prev => ({ ...prev, photoUrl: data.photoUrl }));
+        showToast("写真をアップロードしました");
+      } else {
+        showToast("アップロードに失敗しました", "error");
+      }
+    } catch(e) { console.error(e); showToast("アップロードエラー", "error"); }
+    setIvPhotoUploading(false);
+  };
   const saveInterviewers = (list) => { setInterviewers(list); localStorage.setItem('ats_interviewers', JSON.stringify(list)); };
   // Supabase に面接官プロフィールを同期
   const syncInterviewerToSupabase = async (iv) => {
@@ -7785,13 +7813,34 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#15803d", marginBottom: 8 }}>✨ 候補者向けプロフィール（予約ページに表示されます）</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
                   <div>
-                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>写真URL</label>
-                    <input value={editingIv.photoUrl || ''} onChange={e => setEditingIv({...editingIv, photoUrl: e.target.value})}
-                      style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12, boxSizing: "border-box" }} placeholder="https://..." />
-                    {editingIv.photoUrl && (
-                      <img src={editingIv.photoUrl} alt="preview" style={{ width: 48, height: 48, borderRadius: "50%", objectFit: "cover", marginTop: 6, border: "2px solid #e5e7eb" }}
-                        onError={e => { e.target.style.display = 'none'; }} />
-                    )}
+                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>プロフィール写真</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 56, height: 56, borderRadius: "50%", background: editingIv.photoUrl ? "transparent" : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", border: "2px solid #d1d5db", flexShrink: 0 }}>
+                        {editingIv.photoUrl ? (
+                          <img src={editingIv.photoUrl} alt="preview" style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover" }}
+                            onError={e => { e.target.style.display = 'none'; }} />
+                        ) : (
+                          <span style={{ fontSize: 20, color: "#9ca3af" }}>{(editingIv.name || '?')[0]}</span>
+                        )}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{
+                          display: "inline-flex", alignItems: "center", gap: 4, padding: "6px 12px",
+                          background: ivPhotoUploading ? "#d1d5db" : "#6366f1", color: "#fff", borderRadius: 8,
+                          fontSize: 11, fontWeight: 600, cursor: ivPhotoUploading ? "wait" : "pointer",
+                        }}>
+                          {ivPhotoUploading ? "⏳ アップロード中..." : "📷 写真を選択"}
+                          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: "none" }}
+                            disabled={ivPhotoUploading}
+                            onChange={e => { if (e.target.files[0]) handlePhotoUpload(e.target.files[0]); e.target.value = ''; }} />
+                        </label>
+                        {editingIv.photoUrl && (
+                          <button onClick={() => setEditingIv({...editingIv, photoUrl: ''})}
+                            style={{ marginLeft: 6, fontSize: 10, color: "#ef4444", background: "none", border: "none", cursor: "pointer" }}>削除</button>
+                        )}
+                        <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>JPEG/PNG/WebP/GIF（5MB以下）</div>
+                      </div>
+                    </div>
                   </div>
                   <div>
                     <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>自己紹介（候補者に表示）</label>

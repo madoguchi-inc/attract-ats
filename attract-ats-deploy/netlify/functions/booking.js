@@ -276,6 +276,39 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
+    // ===== 面接官写真アップロード =====
+    if (action === 'upload-interviewer-photo') {
+      const { email, imageBase64, mimeType } = reqBody;
+      if (!email || !imageBase64) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'email and imageBase64 are required' }) };
+      }
+      const ext = (mimeType || 'image/jpeg').split('/')[1] || 'jpeg';
+      const fileName = `${email.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.${ext}`;
+      const binaryData = Buffer.from(imageBase64, 'base64');
+      // Upload to Supabase Storage
+      const uploadRes = await fetch(`${SUPABASE_URL}/storage/v1/object/interviewer-photos/${fileName}`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': mimeType || 'image/jpeg',
+          'x-upsert': 'true',
+        },
+        body: binaryData,
+      });
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text();
+        return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Upload failed: ' + errText }) };
+      }
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/interviewer-photos/${fileName}`;
+      // Update interviewers table with photo URL
+      const existing = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `interviewers?email=eq.${encodeURIComponent(email)}&select=id`);
+      if (existing && existing.length > 0) {
+        await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `interviewers?email=eq.${encodeURIComponent(email)}`, 'PATCH', { photo_url: publicUrl });
+      }
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, photoUrl: publicUrl }) };
+    }
+
     // ===== 面接官削除 =====
     if (action === 'delete-interviewer') {
       const { email } = reqBody;
