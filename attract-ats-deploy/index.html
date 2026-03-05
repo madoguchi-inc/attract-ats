@@ -1926,6 +1926,10 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [schedError, setSchedError] = useState("");
   const [schedConfirmedSlot, setSchedConfirmedSlot] = useState(null);
   const [schedSlotMinutes, setSchedSlotMinutes] = useState(45);
+  // 会議室 state
+  const [meetingRooms, setMeetingRooms] = useState([]);
+  const [selectedRoom, setSelectedRoom] = useState(""); // room email
+  const [roomsLoading, setRoomsLoading] = useState(false);
   // 予約リンク state
   const [bookingUrl, setBookingUrl] = useState("");
   const [bookingLoading, setBookingLoading] = useState(false);
@@ -1958,6 +1962,28 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setBookedLoading(false);
   };
   React.useEffect(() => { fetchBookedInterviews(); }, [c.id]);
+
+  // 会議室一覧を取得
+  const fetchMeetingRooms = async () => {
+    if (!NETLIFY_BASE || meetingRooms.length > 0) return; // キャッシュ済みならスキップ
+    setRoomsLoading(true);
+    try {
+      const res = await fetch(NETLIFY_BASE + '/.netlify/functions/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list-rooms' }),
+      });
+      const data = await res.json();
+      if (data.success && data.rooms) {
+        setMeetingRooms(data.rooms);
+      }
+    } catch (e) { console.error('会議室取得エラー:', e); }
+    setRoomsLoading(false);
+  };
+  // 対面に変更されたら会議室を取得
+  React.useEffect(() => {
+    if (schedFormat === '対面') fetchMeetingRooms();
+  }, [schedFormat]);
 
   // 直近の予約済み面接（未来優先、なければ最新の過去分）
   const nextInterview = React.useMemo(() => {
@@ -2104,6 +2130,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
           format: schedFormat === 'WEB' ? 'online' : 'offline',
           location: schedFormat === 'WEB' ? '' : '',
           addMeet: schedFormat === 'WEB',
+          roomEmail: selectedRoom || '',
+          roomName: selectedRoom ? (meetingRooms.find(r => r.email === selectedRoom)?.name || '') : '',
           message: '',
         }),
       });
@@ -2926,6 +2954,17 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                         <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>{ni.format === 'online' ? 'オンライン' : '対面'}</div>
                       </div>
                     </div>
+                    {ni.roomName && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: "#f59e0b", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Icon name="home" size={18} color="white" />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: "#9ca3af" }}>会議室</div>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>{ni.roomName}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {/* Meet URL + アクションボタン */}
                   <div style={{ display: "flex", gap: 8, marginTop: 16, paddingTop: 16, borderTop: "1px solid #c7d2fe", flexWrap: "wrap" }}>
@@ -3951,12 +3990,25 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>形式</label>
-                  <select value={schedFormat} onChange={e => setSchedFormat(e.target.value)}
+                  <select value={schedFormat} onChange={e => { setSchedFormat(e.target.value); if (e.target.value === 'WEB') setSelectedRoom(''); }}
                     style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12 }}>
                     <option value="WEB">🖥 WEB面接</option>
                     <option value="対面">🏢 対面</option>
                   </select>
                 </div>
+                {schedFormat === '対面' && (
+                  <div>
+                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>会議室</label>
+                    <select value={selectedRoom} onChange={e => setSelectedRoom(e.target.value)}
+                      style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12, minWidth: 160 }}>
+                      <option value="">指定なし</option>
+                      {roomsLoading && <option disabled>読み込み中...</option>}
+                      {meetingRooms.map(r => (
+                        <option key={r.email} value={r.email}>{r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

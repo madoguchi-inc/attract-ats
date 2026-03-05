@@ -488,6 +488,9 @@
         } else {
           infoHtml += '<div class="info-row"><span class="icon">🏢</span> 対面' + (sessionData.location ? ' (' + sessionData.location + ')' : '') + '</div>';
         }
+        if (sessionData.roomName) {
+          infoHtml += '<div class="info-row"><span class="icon">🚪</span> 会議室: ' + sessionData.roomName + '</div>';
+        }
         document.getElementById('session-info').innerHTML = infoHtml;
 
         // 最初の空きスロットの月を表示

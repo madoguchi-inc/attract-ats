@@ -253,6 +253,33 @@ exports.handler = async (event) => {
     const reqBody = JSON.parse(event.body);
     const { action } = reqBody;
 
+    // ===== 会議室一覧取得 (管理者用) =====
+    if (action === 'list-rooms') {
+      const calEmail = CAL_EMAIL;
+      const accessToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY, calEmail);
+
+      // Google Calendar API: CalendarList から会議室リソースを取得
+      const res = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+      const rooms = (data.items || [])
+        .filter(cal => cal.id && cal.id.includes('@resource.calendar.google.com'))
+        .map(cal => ({
+          email: cal.id,
+          name: cal.summary || cal.id,
+          description: cal.description || '',
+        }));
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, rooms }),
+      };
+    }
+
     // ===== 予約セッション作成 (管理者用) =====
     if (action === 'create-session') {
       const {
@@ -268,6 +295,8 @@ exports.handler = async (event) => {
         location = '',
         addMeet = true,
         message = '',
+        roomEmail = '',
+        roomName = '',
       } = reqBody;
 
       if (!candidateId || !interviewerEmails || interviewerEmails.length === 0) {
@@ -295,6 +324,8 @@ exports.handler = async (event) => {
         location,
         add_meet: addMeet,
         message,
+        room_email: roomEmail || null,
+        room_name: roomName || null,
         status: 'active',
         expires_at: expiresAt,
       });
@@ -363,6 +394,8 @@ exports.handler = async (event) => {
               location: session.location,
               slotMinutes: session.slot_minutes,
               interviewerNames: session.interviewer_names,
+              roomName: session.room_name || '',
+              roomEmail: session.room_email || '',
             },
             candidateName: bookedCandidateName,
           }),
@@ -425,7 +458,11 @@ exports.handler = async (event) => {
       const timeMin = startDate.toISOString().slice(0, 10) + 'T00:00:00+09:00';
       const timeMax = endDate.toISOString().slice(0, 10) + 'T23:59:59+09:00';
 
-      const freeBusyData = await getFreeBusy(accessToken, session.interviewer_emails, timeMin, timeMax);
+      // FreeBusy: 面接官 + 会議室(あれば)を同時チェック
+      const freeBusyEmails = [...session.interviewer_emails];
+      if (session.room_email) freeBusyEmails.push(session.room_email);
+
+      const freeBusyData = await getFreeBusy(accessToken, freeBusyEmails, timeMin, timeMax);
 
       // カレンダーエラーチェック
       const calendarErrors = [];
@@ -451,9 +488,9 @@ exports.handler = async (event) => {
         };
       }
 
-      // 全員の busy を統合
+      // 全員の busy を統合（会議室含む）
       const allBusy = [];
-      for (const email of session.interviewer_emails) {
+      for (const email of freeBusyEmails) {
         const cal = freeBusyData.calendars?.[email];
         if (cal?.busy) {
           allBusy.push(...cal.busy);
@@ -484,6 +521,8 @@ exports.handler = async (event) => {
             slotMinutes: session.slot_minutes,
             message: session.message,
             interviewerNames: session.interviewer_names,
+            roomName: session.room_name || '',
+            roomEmail: session.room_email || '',
           },
           candidateName,
           freeSlots,
@@ -521,13 +560,15 @@ exports.handler = async (event) => {
         };
       }
 
-      // ダブルブッキング防止: 再度FreeBusyチェック
+      // ダブルブッキング防止: 再度FreeBusyチェック（会議室含む）
       const calEmail = CAL_EMAIL;
       const accessToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY, calEmail);
 
-      const freeBusyCheck = await getFreeBusy(accessToken, session.interviewer_emails, slotStart, slotEnd);
+      const fbEmails = [...session.interviewer_emails];
+      if (session.room_email) fbEmails.push(session.room_email);
+      const freeBusyCheck = await getFreeBusy(accessToken, fbEmails, slotStart, slotEnd);
       let hasConflict = false;
-      for (const email of session.interviewer_emails) {
+      for (const email of fbEmails) {
         const cal = freeBusyCheck.calendars?.[email];
         if (cal?.busy && cal.busy.length > 0) {
           hasConflict = true;
@@ -572,14 +613,24 @@ exports.handler = async (event) => {
       if (candidateInfo.email) {
         attendees.push({ email: candidateInfo.email, displayName: candidateInfo.name });
       }
+      // 会議室をattendeeに追加（リソース予約）
+      if (session.room_email) {
+        attendees.push({ email: session.room_email });
+      }
+
+      const eventLocation = session.room_name
+        ? session.room_name + (session.location ? ' (' + session.location + ')' : '')
+        : (session.format === 'online' ? '' : session.location);
 
       const eventResult = await createCalendarEvent(accessToken, calEmail, {
         summary: `【${session.stage || '面接'}】${candidateInfo.name || '候補者'}`,
-        description: `候補者: ${candidateInfo.name}\nメール: ${candidateInfo.email}\n面接ステージ: ${session.stage}\n形式: ${session.format === 'online' ? 'オンライン' : '対面'}\n\n※ 予約リンクから候補者が直接予約しました`,
+        description: `候補者: ${candidateInfo.name}\nメール: ${candidateInfo.email}\n面接ステージ: ${session.stage}\n形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
+          (session.room_name ? `\n会議室: ${session.room_name}` : '') +
+          `\n\n※ 予約リンクから候補者が直接予約しました`,
         startDateTime: slotStart,
         endDateTime: slotEnd,
         attendees,
-        location: session.format === 'online' ? '' : session.location,
+        location: eventLocation,
         addMeet: session.add_meet,
       });
 
@@ -632,6 +683,7 @@ exports.handler = async (event) => {
             `■ ステージ: ${session.stage || '面接'}\n` +
             `■ 日時: ${startJST} 〜 ${endTime}\n` +
             `■ 形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
+            (session.room_name ? `\n■ 会議室: ${session.room_name}` : '') +
             (meetLink ? `\n■ Meet: ${meetLink}` : '') +
             (session.location && session.format !== 'online' ? `\n■ 場所: ${session.location}` : '') +
             `\n\n※ Googleカレンダーにも登録済みです。\n※ 候補者が予約リンクから直接予約しました。`;
@@ -693,7 +745,7 @@ exports.handler = async (event) => {
     if (action === 'list-booked') {
       const sessions = await supabaseQuery(
         SUPABASE_URL, SUPABASE_KEY,
-        'booking_sessions?status=eq.booked&select=id,token,candidate_id,stage,format,location,interviewer_names,interviewer_emails,booked_slot_start,booked_slot_end,meet_link,add_meet,booked_at&order=booked_slot_start.asc',
+        'booking_sessions?status=eq.booked&select=id,token,candidate_id,stage,format,location,interviewer_names,interviewer_emails,booked_slot_start,booked_slot_end,meet_link,add_meet,booked_at,room_email,room_name&order=booked_slot_start.asc',
       );
 
       if (!sessions || sessions.length === 0) {
@@ -736,6 +788,8 @@ exports.handler = async (event) => {
           bookedSlotStart: s.booked_slot_start,
           bookedSlotEnd: s.booked_slot_end,
           meetLink: s.meet_link || '',
+          roomName: s.room_name || '',
+          roomEmail: s.room_email || '',
           bookedAt: s.booked_at,
         };
       });
@@ -773,10 +827,12 @@ exports.handler = async (event) => {
       const timeMin = startDate.toISOString().slice(0, 10) + 'T00:00:00+09:00';
       const timeMax = endDate.toISOString().slice(0, 10) + 'T23:59:59+09:00';
 
-      const freeBusyData = await getFreeBusy(accessToken, session.interviewer_emails, timeMin, timeMax);
+      const reschFbEmails = [...session.interviewer_emails];
+      if (session.room_email) reschFbEmails.push(session.room_email);
+      const freeBusyData = await getFreeBusy(accessToken, reschFbEmails, timeMin, timeMax);
 
       const allBusy = [];
-      for (const email of session.interviewer_emails) {
+      for (const email of reschFbEmails) {
         const cal = freeBusyData.calendars?.[email];
         if (cal?.busy) allBusy.push(...cal.busy);
       }
@@ -801,6 +857,8 @@ exports.handler = async (event) => {
             location: session.location,
             slotMinutes: session.slot_minutes,
             interviewerNames: session.interviewer_names,
+            roomName: session.room_name || '',
+            roomEmail: session.room_email || '',
           },
           freeSlots,
         }),
@@ -916,10 +974,12 @@ exports.handler = async (event) => {
         } catch (e) { console.error('[Reschedule] 旧イベント削除エラー:', e.message); }
       }
 
-      // 2. ダブルブッキング防止チェック
-      const freeBusyCheck = await getFreeBusy(accessToken, session.interviewer_emails, slotStart, slotEnd);
+      // 2. ダブルブッキング防止チェック（会議室含む）
+      const reschFbEmails2 = [...session.interviewer_emails];
+      if (session.room_email) reschFbEmails2.push(session.room_email);
+      const freeBusyCheck = await getFreeBusy(accessToken, reschFbEmails2, slotStart, slotEnd);
       let hasConflict = false;
-      for (const email of session.interviewer_emails) {
+      for (const email of reschFbEmails2) {
         const cal = freeBusyCheck.calendars?.[email];
         if (cal?.busy && cal.busy.length > 0) {
           hasConflict = true;
@@ -944,17 +1004,24 @@ exports.handler = async (event) => {
         }
       } catch (e) { /* ignore */ }
 
-      // 4. 新カレンダーイベント作成
+      // 4. 新カレンダーイベント作成（会議室含む）
       const attendees = [...session.interviewer_emails.map(email => ({ email }))];
       if (candidateInfo.email) attendees.push({ email: candidateInfo.email, displayName: candidateInfo.name });
+      if (session.room_email) attendees.push({ email: session.room_email });
+
+      const reschLocation = session.room_name
+        ? session.room_name + (session.location ? ' (' + session.location + ')' : '')
+        : (session.format === 'online' ? '' : session.location);
 
       const eventResult = await createCalendarEvent(accessToken, calEmail, {
         summary: `【${session.stage || '面接'}】${candidateInfo.name || '候補者'}`,
-        description: `候補者: ${candidateInfo.name}\nメール: ${candidateInfo.email}\n面接ステージ: ${session.stage}\n形式: ${session.format === 'online' ? 'オンライン' : '対面'}\n\n※ 候補者がリスケジュールしました`,
+        description: `候補者: ${candidateInfo.name}\nメール: ${candidateInfo.email}\n面接ステージ: ${session.stage}\n形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
+          (session.room_name ? `\n会議室: ${session.room_name}` : '') +
+          `\n\n※ 候補者がリスケジュールしました`,
         startDateTime: slotStart,
         endDateTime: slotEnd,
         attendees,
-        location: session.format === 'online' ? '' : session.location,
+        location: reschLocation,
         addMeet: session.add_meet,
       });
 
