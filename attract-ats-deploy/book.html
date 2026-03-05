@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>面接予約 | madoguchi株式会社</title>
+  <title>面接予約 | madoguchi</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -18,14 +18,9 @@
       padding: 20px 24px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      justify-content: center;
     }
     .header img { height: 36px; filter: brightness(10); }
-    .header .company-name {
-      font-size: 15px;
-      font-weight: 600;
-      color: rgba(255,255,255,0.95);
-    }
 
     .container {
       max-width: 480px;
@@ -452,7 +447,6 @@
 <body>
   <div class="header">
     <img src="/logo.svg" alt="Logo" onerror="this.style.display='none'">
-    <span class="company-name">madoguchi株式会社</span>
   </div>
 
   <div class="container" id="app">
