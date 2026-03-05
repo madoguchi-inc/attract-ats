@@ -2839,9 +2839,42 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
             </div>
 
+            {/* 🎙️ 録音セクション */}
+            <div style={{ background: "#f9fafb", borderRadius: 12, padding: 16, marginBottom: 16, border: "1px solid #e5e7eb" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <button onClick={() => isRecording ? stopRecording() : startRecording()}
+                  style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    background: isRecording ? "#ef4444" : audioBlob ? "#10b981" : "#6366f1", color: "white", flexShrink: 0, fontSize: 18 }}>
+                  {isRecording ? "⏹" : audioBlob ? "✓" : "🎙️"}
+                </button>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: isRecording ? "#dc2626" : "#374151" }}>
+                    {isRecording ? "● 録音中..." : audioBlob ? "録音完了" : "🎙️ 面接を録音する"}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                    {isRecording ? "クリックして停止" : audioBlob ? "録音データあり — 停止後AIで要約できます" : "録音終了後、AIが自動で文字起こし・要約を行います"}
+                  </div>
+                </div>
+                {(isRecording || recordingTime > 0) && (
+                  <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "monospace", color: isRecording ? "#dc2626" : "#9ca3af" }}>
+                    {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:{(recordingTime % 60).toString().padStart(2, '0')}
+                  </div>
+                )}
+              </div>
+              {audioBlob && !isRecording && (
+                <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
+                  <button onClick={handleAudioUpload} style={{ padding: "6px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}>📎 音声ファイルをアップロード</button>
+                  <button onClick={runAiAnalysis} disabled={aiLoading}
+                    style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: aiLoading ? "#9ca3af" : "#4338ca", color: "white", fontSize: 11, cursor: aiLoading ? "not-allowed" : "pointer", fontWeight: 500 }}>
+                    {aiLoading ? "⏳ 分析中..." : "🤖 AIで要約する"}
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* タブ切替 */}
             <div style={{ display: "flex", gap: 4, marginBottom: 16, padding: 4, background: "#f3f4f6", borderRadius: 10 }}>
-              {[{k:"scores",l:"スコア評価"},{k:"details",l:"詳細情報"}].map(t => (
+              {[{k:"scores",l:"📊 スコア評価"},{k:"details",l:"📋 詳細情報"},{k:"ai",l:"🤖 AI分析"}].map(t => (
                 <button key={t.k} onClick={() => setFbFormTab(t.k)}
                   style={{ flex: 1, padding: "8px 0", border: "none", borderRadius: 8, fontSize: 12, fontWeight: fbFormTab === t.k ? 600 : 400, cursor: "pointer",
                     background: fbFormTab === t.k ? "white" : "transparent", color: fbFormTab === t.k ? "#4338ca" : "#9ca3af",
@@ -2962,6 +2995,97 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     rows={2} placeholder="その他のメモ..."
                     style={{ width: "100%", padding: 10, border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, resize: "vertical", boxSizing: "border-box", lineHeight: 1.6 }} />
                 </div>
+              </div>
+            )}
+
+            {/* === AI分析タブ === */}
+            {fbFormTab === "ai" && (
+              <div>
+                {aiLoading ? (
+                  <div style={{ textAlign: "center", padding: 40 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#4338ca", marginBottom: 12 }}>AI分析中...</div>
+                    <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 20 }}>
+                      {[{step:"key",label:"設定取得"},{step:"transcribe",label:"文字起こし"},{step:"analyze",label:"分析"}].map(({step, label}) => (
+                        <div key={step} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600,
+                            background: aiStep === step ? "#4338ca" : (["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "#22c55e" : "#e5e7eb"),
+                            color: aiStep === step || ["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "white" : "#9ca3af" }}>
+                            {["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "✓" : ["key","transcribe","analyze"].indexOf(step) + 1}
+                          </div>
+                          <span style={{ color: aiStep === step ? "#4338ca" : "#6b7280", fontWeight: aiStep === step ? 600 : 400, fontSize: 12 }}>{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : aiError ? (
+                  <div style={{ textAlign: "center", padding: 30 }}>
+                    <div style={{ fontSize: 13, color: "#ef4444", marginBottom: 8 }}>⚠️ {aiError}</div>
+                    <button onClick={() => runAiAnalysis()} style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 12, cursor: "pointer" }}>🔄 再試行</button>
+                  </div>
+                ) : aiTranscript ? (
+                  <div>
+                    {/* 文字起こし結果 */}
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>📝 文字起こし結果</label>
+                      <div style={{ maxHeight: 150, overflow: "auto", padding: 12, background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12, color: "#374151", lineHeight: 1.6 }}>
+                        {aiTranscript}
+                      </div>
+                    </div>
+                    {/* AI分析結果 */}
+                    {aiAnalysis && (
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                          <h4 style={{ fontSize: 14, fontWeight: 600, color: "#4338ca" }}>🤖 AI分析結果</h4>
+                          <button onClick={applyAiResults}
+                            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: "#10b981", color: "white", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                            ✨ 分析結果を反映する
+                          </button>
+                        </div>
+                        {aiAnalysis.summary && (
+                          <div style={{ marginBottom: 12 }}>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>面接要約</label>
+                            <div style={{ padding: 10, background: "#eef2ff", borderRadius: 8, fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{aiAnalysis.summary}</div>
+                          </div>
+                        )}
+                        {aiAnalysis.scores && (
+                          <div style={{ marginBottom: 12 }}>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>提案スコア</label>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {Object.entries(aiAnalysis.scores).map(([k, v]) => (
+                                <span key={k} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, background: "#f3f4f6", color: "#374151" }}>
+                                  {EVAL_CRITERIA.find(c => c.key === k)?.label || k}: {v.score || v}/5
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {aiAnalysis.recommendation && (
+                          <div style={{ marginBottom: 12 }}>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>推薦</label>
+                            <div style={{ padding: 8, background: "#f0fdf4", borderRadius: 8, fontSize: 12, color: "#15803d" }}>{aiAnalysis.recommendation}</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : audioBlob ? (
+                  <div style={{ textAlign: "center", padding: 30 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>AI分析を実行する</div>
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4, marginBottom: 16 }}>
+                      録音データをAIが文字起こし＆構造化分析します
+                    </div>
+                    <button onClick={() => runAiAnalysis()}
+                      style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: "#4338ca", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                      🤖 AI分析を開始
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 30 }}>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>🎙️</div>
+                    <div style={{ fontSize: 14, color: "#6b7280" }}>録音データがありません</div>
+                    <div style={{ fontSize: 12, marginTop: 4, color: "#9ca3af" }}>面接を録音するか、音声ファイルをアップロードしてAI分析できます</div>
+                  </div>
+                )}
               </div>
             )}
 
