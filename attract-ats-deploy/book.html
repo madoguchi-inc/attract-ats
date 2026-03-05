@@ -14,24 +14,72 @@
     }
 
     .header {
-      background: white;
-      border-bottom: 1px solid #e2e8f0;
-      padding: 16px 24px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      padding: 20px 24px;
       display: flex;
       align-items: center;
       gap: 12px;
     }
-    .header img { height: 32px; }
+    .header img { height: 36px; filter: brightness(10); }
     .header .company-name {
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
-      color: #475569;
+      color: rgba(255,255,255,0.95);
     }
 
     .container {
       max-width: 480px;
       margin: 0 auto;
       padding: 24px 16px;
+    }
+
+    /* ウェルカムカード */
+    .welcome-card {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      border-radius: 20px;
+      padding: 28px 24px;
+      margin-bottom: 16px;
+      color: white;
+      position: relative;
+      overflow: hidden;
+    }
+    .welcome-card::before {
+      content: '';
+      position: absolute;
+      top: -30px;
+      right: -30px;
+      width: 120px;
+      height: 120px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 50%;
+    }
+    .welcome-card::after {
+      content: '';
+      position: absolute;
+      bottom: -20px;
+      left: -20px;
+      width: 80px;
+      height: 80px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 50%;
+    }
+    .welcome-card h1 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      position: relative;
+    }
+    .welcome-card .welcome-sub {
+      font-size: 14px;
+      opacity: 0.9;
+      line-height: 1.6;
+      position: relative;
+    }
+    .welcome-card .candidate-greeting {
+      font-size: 13px;
+      opacity: 0.8;
+      margin-bottom: 12px;
+      position: relative;
     }
 
     .card {
@@ -63,6 +111,68 @@
       color: #475569;
     }
     .info-row .icon { font-size: 16px; }
+
+    /* 面接官プロフィールカード */
+    .interviewer-section {
+      margin-bottom: 16px;
+    }
+    .interviewer-section h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #6366f1;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 12px;
+    }
+    .interviewer-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px;
+      background: #faf5ff;
+      border: 1px solid #e9d5ff;
+      border-radius: 14px;
+      margin-bottom: 8px;
+    }
+    .interviewer-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 18px;
+      font-weight: 700;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .interviewer-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .interviewer-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .interviewer-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .interviewer-role {
+      font-size: 12px;
+      color: #7c3aed;
+      margin-top: 2px;
+    }
+    .interviewer-bio {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+      line-height: 1.5;
+    }
 
     .step-indicator {
       display: flex;
@@ -139,7 +249,7 @@
       display: block;
       width: 100%;
       padding: 14px;
-      background: #6366f1;
+      background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
       color: white;
       border: none;
       border-radius: 12px;
@@ -148,9 +258,10 @@
       cursor: pointer;
       transition: all 0.2s;
       margin-top: 16px;
+      box-shadow: 0 2px 8px rgba(99,102,241,0.3);
     }
-    .btn-primary:hover { background: #4f46e5; }
-    .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
+    .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; box-shadow: none; transform: none; }
 
     .btn-secondary {
       display: block;
@@ -194,17 +305,64 @@
       margin: 12px 0;
     }
 
+    /* 当日ガイド */
+    .guide-card {
+      background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+      border: 1px solid #bbf7d0;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .guide-card h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #166534;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .guide-card .guide-item {
+      display: flex;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #dcfce7;
+      font-size: 13px;
+      color: #15803d;
+      line-height: 1.5;
+    }
+    .guide-card .guide-item:last-child { border-bottom: none; }
+    .guide-card .guide-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #22c55e;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .guide-card .guide-custom {
+      font-size: 13px;
+      color: #15803d;
+      line-height: 1.7;
+      white-space: pre-line;
+    }
+
     /* 完了画面 */
     .success-icon {
-      width: 64px;
-      height: 64px;
-      background: #dcfce7;
+      width: 72px;
+      height: 72px;
+      background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       margin: 0 auto 16px;
-      font-size: 32px;
+      font-size: 36px;
     }
 
     .meet-link {
@@ -274,7 +432,21 @@
       font-weight: 600;
     }
 
+    /* フッター */
+    .footer {
+      text-align: center;
+      padding: 24px 16px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .footer a { color: #6366f1; text-decoration: none; }
+
     .hidden { display: none; }
+
+    @media (max-width: 400px) {
+      .interviewer-card { padding: 10px; gap: 10px; }
+      .interviewer-avatar { width: 40px; height: 40px; font-size: 15px; }
+    }
   </style>
 </head>
 <body>
@@ -315,6 +487,8 @@
             <span>Google Meet: <a id="booked-meet-url" href="#" target="_blank"></a></span>
           </div>
         </div>
+        <!-- 当日ガイド（予約済みページにも表示） -->
+        <div id="booked-guide" class="hidden"></div>
         <button class="btn-secondary" style="margin-top:16px;" onclick="startReschedule()">📅 日程を変更する</button>
         <p style="margin-top:12px;font-size:12px;color:#94a3b8;">日程変更すると、現在の予約はキャンセルされ新しい日時で再予約されます。</p>
       </div>
@@ -328,11 +502,20 @@
         <div class="step-dot"></div>
       </div>
 
-      <div class="card">
-        <h2 id="stage-title">面接日程予約</h2>
-        <p id="session-message"></p>
+      <!-- ウェルカムカード -->
+      <div id="welcome-card" class="welcome-card">
+        <div id="candidate-greeting" class="candidate-greeting"></div>
+        <h1 id="stage-title">面接日程予約</h1>
+        <div id="welcome-message" class="welcome-sub">ご都合の良い日時をお選びください。</div>
+      </div>
 
-        <div id="session-info" style="margin-top:12px;"></div>
+      <!-- 面接官プロフィール -->
+      <div id="interviewer-profiles" class="hidden"></div>
+
+      <!-- 面接情報 -->
+      <div class="card">
+        <h2 style="font-size:14px;color:#6366f1;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">面接の詳細</h2>
+        <div id="session-info" style="margin-top:8px;"></div>
       </div>
 
       <div class="card">
@@ -412,11 +595,18 @@
           </div>
         </div>
 
+        <!-- 当日ガイド -->
+        <div id="done-guide"></div>
+
         <p style="margin-top:20px;font-size:13px;color:#64748b;">
           ご不明な点がございましたら、お気軽にお問い合わせください。
         </p>
       </div>
     </div>
+  </div>
+
+  <div class="footer">
+    Powered by <a href="#">madoguchi</a>
   </div>
 
   <script>
@@ -429,6 +619,7 @@
     let token = '';
     let isRescheduleMode = false;
     let bookedData = null;
+    let interviewerProfiles = [];
 
     const API_BASE = window.location.origin;
 
@@ -463,23 +654,38 @@
 
         sessionData = data.session;
         freeSlots = data.freeSlots || [];
+        interviewerProfiles = data.interviewerProfiles || [];
 
         if (freeSlots.length === 0) {
           showError('現在、空き時間がありません。担当者にお問い合わせください。');
           return;
         }
 
-        // セッション情報表示
+        // ウェルカムカード表示
+        if (data.candidateName) {
+          document.getElementById('candidate-greeting').textContent = data.candidateName + ' 様';
+          document.getElementById('candidate-greeting').style.display = 'block';
+        } else {
+          document.getElementById('candidate-greeting').style.display = 'none';
+        }
+
         if (sessionData.stage) {
           document.getElementById('stage-title').textContent = (sessionData.stage || '面接') + ' 日程予約';
         }
-        if (sessionData.message) {
-          document.getElementById('session-message').textContent = sessionData.message;
+
+        // ウェルカムメッセージ
+        if (sessionData.welcomeMessage) {
+          document.getElementById('welcome-message').textContent = sessionData.welcomeMessage;
+        } else if (sessionData.message) {
+          document.getElementById('welcome-message').textContent = sessionData.message;
         }
+
+        // 面接官プロフィールカード表示
+        renderInterviewerProfiles();
 
         // 面接情報
         let infoHtml = '';
-        if (sessionData.interviewerNames && sessionData.interviewerNames.length > 0) {
+        if (sessionData.interviewerNames && sessionData.interviewerNames.length > 0 && interviewerProfiles.length === 0) {
           infoHtml += '<div class="info-row"><span class="icon">👤</span> 面接官: ' + sessionData.interviewerNames.join('、') + '</div>';
         }
         infoHtml += '<div class="info-row"><span class="icon">⏱</span> 面接時間: ' + sessionData.slotMinutes + '分</div>';
@@ -505,6 +711,81 @@
         showError('通信エラーが発生しました。もう一度お試しください。');
         console.error(e);
       }
+    }
+
+    // ===== 面接官プロフィール表示 =====
+    function renderInterviewerProfiles() {
+      // プロフィールデータがない場合、名前だけでカード作成
+      const profiles = interviewerProfiles.length > 0
+        ? interviewerProfiles
+        : (sessionData.interviewerNames || []).map(name => ({ name, role: '', bio: '', photoUrl: '' }));
+
+      if (profiles.length === 0) return;
+
+      let html = '<div class="card interviewer-section"><h3>面接官のご紹介</h3>';
+      profiles.forEach(p => {
+        const initial = (p.name || '?').charAt(0);
+        const avatarContent = p.photoUrl
+          ? '<img src="' + escapeHtml(p.photoUrl) + '" alt="' + escapeHtml(p.name) + '">'
+          : initial;
+
+        html += '<div class="interviewer-card">';
+        html += '<div class="interviewer-avatar">' + avatarContent + '</div>';
+        html += '<div class="interviewer-info">';
+        html += '<div class="interviewer-name">' + escapeHtml(p.name) + '</div>';
+        if (p.role || p.department) {
+          html += '<div class="interviewer-role">' + escapeHtml([p.department, p.role].filter(Boolean).join(' / ')) + '</div>';
+        }
+        if (p.bio) {
+          html += '<div class="interviewer-bio">' + escapeHtml(p.bio) + '</div>';
+        }
+        html += '</div></div>';
+      });
+      html += '</div>';
+
+      const container = document.getElementById('interviewer-profiles');
+      container.innerHTML = html;
+      container.classList.remove('hidden');
+    }
+
+    // ===== 当日ガイド生成 =====
+    function renderGuide(containerId, format, customGuide) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+
+      // カスタムガイドがあればそれを使う
+      if (customGuide) {
+        container.innerHTML = '<div class="guide-card" style="text-align:left;margin-top:16px;"><h3>📋 面接当日のご案内</h3><div class="guide-custom">' + escapeHtml(customGuide) + '</div></div>';
+        container.classList.remove('hidden');
+        return;
+      }
+
+      // デフォルトガイド
+      let items = [];
+      if (format === 'online') {
+        items = [
+          '開始5分前にGoogle Meetリンクからご参加ください',
+          'カメラ・マイクが正常に動作するか事前にご確認ください',
+          '静かな場所で、安定したインターネット環境からの接続をお勧めします',
+          '画面共有を使用する場合がございますので、PC環境でのご参加を推奨します',
+        ];
+      } else {
+        items = [
+          '面接開始10分前に受付にお越しください',
+          '受付にてお名前と面接のご予約がある旨をお伝えください',
+          sessionData?.roomName ? '会議室「' + sessionData.roomName + '」にご案内いたします' : '担当者がお迎えに参ります',
+          '筆記用具をご持参ください',
+        ];
+      }
+
+      let html = '<div class="guide-card" style="text-align:left;margin-top:16px;"><h3>📋 面接当日のご案内</h3>';
+      items.forEach((item, i) => {
+        html += '<div class="guide-item"><div class="guide-num">' + (i + 1) + '</div><div>' + escapeHtml(item) + '</div></div>';
+      });
+      html += '</div>';
+
+      container.innerHTML = html;
+      container.classList.remove('hidden');
     }
 
     // ===== View management =====
@@ -536,7 +817,6 @@
         if (data.session.stage) extra += '<div class="divider"></div><div class="label">ステージ</div><div class="value">' + data.session.stage + '</div>';
         if (data.session.interviewerNames && data.session.interviewerNames.length > 0) extra += '<div class="divider"></div><div class="label">面接官</div><div class="value">' + data.session.interviewerNames.join('、') + '</div>';
         if (data.session.format) extra += '<div class="divider"></div><div class="label">形式</div><div class="value">' + (data.session.format === 'online' ? 'オンライン' : '対面') + '</div>';
-        // sessionDataもセット（リスケ時に使う）
         sessionData = data.session;
       }
       document.getElementById('booked-extra-info').innerHTML = extra;
@@ -547,6 +827,11 @@
         a.href = data.meetLink;
         a.textContent = data.meetLink;
       }
+      // 当日ガイド表示
+      const format = data.session?.format || 'online';
+      const customGuide = data.session?.interviewGuide || '';
+      renderGuide('booked-guide', format, customGuide);
+
       showView('booked');
     }
 
@@ -554,13 +839,6 @@
     async function startReschedule() {
       if (!token) return;
       isRescheduleMode = true;
-
-      // 空き時間を再取得（セッションをactive状態として空き枠を取得する必要がある）
-      // get-session は booked の場合空き枠を返さないので、reschedule用の空き枠取得が必要
-      // → 一旦 get-session を呼んで session 情報を使い、FreeBusy を取得する
-      // 簡易実装: cancel-booking で reactivate → get-session → 再表示
-      // より安全: バックエンドに get-reschedule-slots アクションを追加
-      // ここでは既存の仕組みを活かし、ステータスは booked のまま空き枠だけ取得する
 
       showView('loading');
       try {
@@ -583,9 +861,10 @@
 
         if (data.session) sessionData = data.session;
 
-        // ステージタイトルを更新
+        // ウェルカムカードを更新
         document.getElementById('stage-title').textContent = (sessionData?.stage || '面接') + ' 日程変更';
-        document.getElementById('session-message').textContent = '新しい日程を選択してください。現在の予約は自動的にキャンセルされます。';
+        document.getElementById('welcome-message').textContent = '新しい日程を選択してください。現在の予約は自動的にキャンセルされます。';
+        document.getElementById('candidate-greeting').style.display = 'none';
 
         // 面接情報
         let infoHtml = '';
@@ -594,6 +873,9 @@
         }
         if (sessionData?.slotMinutes) infoHtml += '<div class="info-row"><span class="icon">⏱</span> 面接時間: ' + sessionData.slotMinutes + '分</div>';
         document.getElementById('session-info').innerHTML = infoHtml;
+
+        // プロフィール非表示（リスケ時）
+        document.getElementById('interviewer-profiles').classList.add('hidden');
 
         if (freeSlots.length > 0) {
           const firstDate = new Date(freeSlots[0].date + 'T00:00:00');
@@ -614,7 +896,6 @@
       const month = currentMonth.getMonth();
       document.getElementById('month-label').textContent = year + '年' + (month + 1) + '月';
 
-      // 空きスロットがある日付セット
       const slotDates = new Set(freeSlots.map(s => s.date));
 
       const firstDay = new Date(year, month, 1).getDay();
@@ -629,7 +910,6 @@
         html += '<div class="' + cls + '">' + d + '</div>';
       });
 
-      // 空白セル
       for (let i = 0; i < firstDay; i++) {
         html += '<div class="date-cell no-slots"></div>';
       }
@@ -675,7 +955,6 @@
       selectedSlot = null;
       renderCalendar();
 
-      // 選択した日のスロットを表示
       const daySlots = freeSlots.filter(s => s.date === dateStr);
       const d = new Date(dateStr + 'T00:00:00');
       const dateLabel = (d.getMonth() + 1) + '月' + d.getDate() + '日（' + ['日','月','火','水','木','金','土'][d.getDay()] + '）';
@@ -697,19 +976,19 @@
       el.classList.add('selected');
       selectedSlot = { start, end };
 
-      // 確認画面に反映
       const startDate = new Date(start);
-      const endDate = new Date(end);
       document.getElementById('confirm-datetime').textContent = formatDateTimeFull(startDate);
       document.getElementById('confirm-duration').textContent = sessionData.slotMinutes + '分';
 
       if (sessionData.format === 'online') {
         document.getElementById('confirm-format').textContent = 'オンライン (Google Meet)';
       } else {
-        document.getElementById('confirm-format').textContent = '対面' + (sessionData.location ? ' (' + sessionData.location + ')' : '');
+        let formatText = '対面';
+        if (sessionData.roomName) formatText += ' - ' + sessionData.roomName;
+        if (sessionData.location) formatText += ' (' + sessionData.location + ')';
+        document.getElementById('confirm-format').textContent = formatText;
       }
 
-      // リスケモードならボタンテキスト変更
       document.getElementById('book-btn').textContent = isRescheduleMode ? '日程を変更する' : '予約を確定する';
       showView('confirm');
     }
@@ -745,11 +1024,10 @@
         const data = await res.json();
 
         if (data.conflict) {
-          // スロットが埋まった → 再取得
           alert(data.message);
           btn.disabled = false;
           btn.textContent = '予約を確定する';
-          init(); // 再読み込み
+          init();
           return;
         }
 
@@ -776,6 +1054,11 @@
           meetUrl.textContent = data.meetLink;
         }
 
+        // 当日ガイドを完了画面に表示
+        const format = sessionData.format || 'online';
+        const customGuide = sessionData.interviewGuide || '';
+        renderGuide('done-guide', format, customGuide);
+
         showView('done');
       } catch (e) {
         alert('通信エラーが発生しました。もう一度お試しください。');
@@ -789,6 +1072,11 @@
     function formatDateTimeFull(date) {
       const opts = { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false };
       return date.toLocaleString('ja-JP', opts);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
     // ===== Start =====

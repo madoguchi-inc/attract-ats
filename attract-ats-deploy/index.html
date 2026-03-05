@@ -1934,6 +1934,9 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [bookingUrl, setBookingUrl] = useState("");
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingStatus, setBookingStatus] = useState(null); // null | {status, bookedAt, ...}
+  // CX強化 state
+  const [welcomeMessage, setWelcomeMessage] = useState("");
+  const [interviewGuide, setInterviewGuide] = useState("");
 
   // 予約済み面接情報
   const [bookedInterviews, setBookedInterviews] = useState([]);
@@ -2132,6 +2135,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
           addMeet: schedFormat === 'WEB',
           roomEmail: selectedRoom || '',
           roomName: selectedRoom ? (meetingRooms.find(r => r.email === selectedRoom)?.name || '') : '',
+          welcomeMessage: welcomeMessage || '',
+          interviewGuide: interviewGuide || '',
           message: '',
         }),
       });
@@ -4009,6 +4014,24 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     </select>
                   </div>
                 )}
+              </div>
+
+              {/* CX強化: ウェルカムメッセージ & 当日ガイド */}
+              <div style={{ marginBottom: 16, padding: 14, background: "#f5f3ff", borderRadius: 10, border: "1px solid #e9e5ff" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#6366f1", marginBottom: 10 }}>✨ 候補者体験カスタマイズ（任意）</div>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>ウェルカムメッセージ</label>
+                  <input type="text" value={welcomeMessage} onChange={e => setWelcomeMessage(e.target.value)}
+                    placeholder="例: カジュアルにお話しできればと思います！"
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>当日ガイド（面接当日の案内文）</label>
+                  <textarea value={interviewGuide} onChange={e => setInterviewGuide(e.target.value)}
+                    placeholder={schedFormat === 'WEB' ? "例: 開始5分前にGoogle Meetリンクからご参加ください。カメラONでお願いします。" : "例: 東京都渋谷区○○ビル3F 受付にてお名前をお伝えください。"}
+                    rows={3}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12, resize: "vertical", boxSizing: "border-box" }} />
+                </div>
               </div>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

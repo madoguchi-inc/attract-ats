@@ -297,6 +297,8 @@ exports.handler = async (event) => {
         message = '',
         roomEmail = '',
         roomName = '',
+        welcomeMessage = '',
+        interviewGuide = '',
       } = reqBody;
 
       if (!candidateId || !interviewerEmails || interviewerEmails.length === 0) {
@@ -326,6 +328,8 @@ exports.handler = async (event) => {
         message,
         room_email: roomEmail || null,
         room_name: roomName || null,
+        welcome_message: welcomeMessage || null,
+        interview_guide: interviewGuide || null,
         status: 'active',
         expires_at: expiresAt,
       });
@@ -441,6 +445,27 @@ exports.handler = async (event) => {
         }
       } catch (e) { /* ignore */ }
 
+      // 面接官プロフィール情報を取得
+      let interviewerProfiles = [];
+      try {
+        if (session.interviewer_emails && session.interviewer_emails.length > 0) {
+          const emailList = session.interviewer_emails.map(e => `"${e}"`).join(',');
+          const interviewers = await supabaseQuery(
+            SUPABASE_URL, SUPABASE_KEY,
+            `interviewers?email=in.(${emailList})&select=name,email,role,department,photo_url,bio`,
+          );
+          if (interviewers && interviewers.length > 0) {
+            interviewerProfiles = interviewers.map(iv => ({
+              name: iv.name || '',
+              role: iv.role || '',
+              department: iv.department || '',
+              photoUrl: iv.photo_url || '',
+              bio: iv.bio || '',
+            }));
+          }
+        }
+      } catch (e) { /* interviewers table might not have these columns yet */ }
+
       // Google Calendar FreeBusy でリアルタイム空き時間を取得
       const calEmail = CAL_EMAIL;
       const accessToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY, calEmail);
@@ -523,8 +548,11 @@ exports.handler = async (event) => {
             interviewerNames: session.interviewer_names,
             roomName: session.room_name || '',
             roomEmail: session.room_email || '',
+            welcomeMessage: session.welcome_message || '',
+            interviewGuide: session.interview_guide || '',
           },
           candidateName,
+          interviewerProfiles,
           freeSlots,
         }),
       };
