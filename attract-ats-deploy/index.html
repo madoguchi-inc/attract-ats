@@ -8878,6 +8878,46 @@ function App() {
     });
   }, []);
 
+  // ========== 面接予約確定のポーリング検知 ==========
+  const NETLIFY_BASE_APP = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('ats.')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+  const lastBookedIdsRef = useRef(null);
+
+  useEffect(() => {
+    if (!NETLIFY_BASE_APP) return;
+    const checkNewBookings = async () => {
+      try {
+        const res = await fetch(NETLIFY_BASE_APP + '/.netlify/functions/booking', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list-booked' }),
+        });
+        const data = await res.json();
+        if (!data.success || !data.events) return;
+        const currentIds = new Set(data.events.map(e => e.bookingSessionId || e.id));
+        if (lastBookedIdsRef.current !== null) {
+          data.events.forEach(ev => {
+            const evId = ev.bookingSessionId || ev.id;
+            if (!lastBookedIdsRef.current.has(evId)) {
+              const startDate = new Date(ev.bookedSlotStart);
+              const dateStr = startDate.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+              const timeStr = startDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false });
+              addNotification({
+                type: "booking_confirmed",
+                title: "面接予約確定",
+                message: `${ev.candidateName || '候補者'} さんの${ev.stage || '面接'}が ${dateStr} ${timeStr} に確定しました`,
+                icon: "📅",
+                candidateId: ev.candidateId,
+              });
+            }
+          });
+        }
+        lastBookedIdsRef.current = currentIds;
+      } catch (e) { /* silent */ }
+    };
+    checkNewBookings();
+    const interval = setInterval(checkNewBookings, 30000);
+    return () => clearInterval(interval);
+  }, [addNotification]);
+
   // 初回ロード時にデモ通知を生成（空なら）
   useEffect(() => {
     if (notifications.length === 0) {

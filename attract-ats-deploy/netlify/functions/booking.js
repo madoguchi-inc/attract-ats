@@ -798,6 +798,75 @@ exports.handler = async (event) => {
         console.log('[Booking] 通知メール送信スキップ:', e.message);
       }
 
+      // ===== 候補者への確認メール送信 =====
+      try {
+        if (candidateInfo.email) {
+          const GMAIL_EMAIL_C = process.env.GMAIL_USER_EMAIL;
+          if (GMAIL_EMAIL_C) {
+            const gmailScopeC = 'https://www.googleapis.com/auth/gmail.send';
+            const gmailTokenC = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY.replace(/\\n/g, '\n'), GMAIL_EMAIL_C, gmailScopeC);
+
+            const startJST_C = new Date(slotStart).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+            const endTimeC = new Date(slotEnd).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+            const companyName = process.env.COMPANY_NAME || '弊社';
+
+            const candSubject = `【${companyName}】面接日程確定のご連絡`;
+            const candBody = `${candidateInfo.name || ''} 様\n\n` +
+              `お世話になっております。\n${companyName}の採用担当でございます。\n\n` +
+              `面接の日程が下記のとおり確定いたしましたのでご連絡いたします。\n\n` +
+              `■ ステージ: ${session.stage || '面接'}\n` +
+              `■ 日時: ${startJST_C} 〜 ${endTimeC}\n` +
+              `■ 形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
+              (session.format === 'online' && meetLink ? `\n■ 参加URL: ${meetLink}` : '') +
+              (session.format !== 'online' && session.location ? `\n■ 場所: ${session.location}` : '') +
+              (session.room_name && session.format !== 'online' ? `\n■ 会議室: ${session.room_name}` : '') +
+              `\n\nご不明な点がございましたら、お気軽にご連絡ください。\n` +
+              `当日お会いできることを楽しみにしております。\n\n` +
+              `何卒よろしくお願いいたします。`;
+
+            await sendGmail(gmailTokenC, GMAIL_EMAIL_C, candidateInfo.email, candSubject, candBody);
+            console.log(`[Booking] 候補者確認メール送信成功: ${candidateInfo.email}`);
+          }
+        }
+      } catch (candMailErr) {
+        console.error('[Booking] 候補者確認メール送信失敗:', candMailErr.message);
+      }
+
+      // ===== 候補者へのLINE通知送信 =====
+      try {
+        const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+        if (LINE_TOKEN && session.candidate_id) {
+          // 候補者のline_user_idを取得
+          const candRows = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `candidates?id=eq.${session.candidate_id}&select=line_user_id`);
+          const lineUserId = candRows?.[0]?.line_user_id;
+          if (lineUserId) {
+            const startJST_L = new Date(slotStart).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+            const endTimeL = new Date(slotEnd).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+            const companyNameL = process.env.COMPANY_NAME || '弊社';
+
+            const lineMsg = `【面接日程確定のお知らせ】\n\n` +
+              `${candidateInfo.name || ''} 様\n\n` +
+              `${companyNameL}の面接日程が確定しました。\n\n` +
+              `📅 ${startJST_L} 〜 ${endTimeL}\n` +
+              `📋 ${session.stage || '面接'}\n` +
+              `🏢 ${session.format === 'online' ? 'オンライン' : '対面'}` +
+              (session.format === 'online' && meetLink ? `\n🔗 ${meetLink}` : '') +
+              (session.format !== 'online' && session.location ? `\n📍 ${session.location}` : '') +
+              `\n\n当日お会いできることを楽しみにしています！`;
+
+            // LINE Push API直接呼び出し
+            const lineRes = await fetch('https://api.line.me/v2/bot/message/push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LINE_TOKEN },
+              body: JSON.stringify({ to: lineUserId, messages: [{ type: 'text', text: lineMsg }] }),
+            });
+            console.log(`[Booking] 候補者LINE通知: ${lineRes.status}`);
+          }
+        }
+      } catch (lineErr) {
+        console.error('[Booking] 候補者LINE通知失敗:', lineErr.message);
+      }
+
       return {
         statusCode: 200,
         headers,
