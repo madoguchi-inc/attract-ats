@@ -1906,6 +1906,8 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
 function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidates, onUpdateCandidate, onDeleteCandidate, can = () => true, emailTemplates = [], isFeedbackMode = false }) {
   const CANDS = propCandidates || CANDIDATES;
   const c = CANDS.find(c => c.id === candidateId) || CANDS[0];
+  // c.name が未定義の場合、lastName + firstName で補完
+  if (!c.name) c.name = ((c.lastName || '') + ' ' + (c.firstName || '')).trim();
   const isNewGrad = c.recruitType === "新卒";
   const [activeTab, setActiveTab] = useState("timeline");
   const [memoText, setMemoText] = useState(c.notes || "");
@@ -2192,7 +2194,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     try {
       const { stage: inferredStage, isAdvanced } = inferSchedulingStage(c.stage, c.substatus);
       const displayStage = inferredStage || '面接';
-      const message = `${c.name || ''}さん、${displayStage}の日程予約のご案内です📅\n\n下記リンクから、ご都合の良い日時を選んでご予約ください。\n\n${bookingUrl}\n\n※ 有効期限は約2週間です。`;
+      const candFullName = ((c.lastName || '') + ' ' + (c.firstName || '')).trim();
+      const message = `${candFullName}さん、${displayStage}の日程予約のご案内です📅\n\n下記リンクから、ご都合の良い日時を選んでご予約ください。\n\n${bookingUrl}\n\n※ 有効期限は約2週間です。`;
 
       const res = await fetch(NETLIFY_BASE + '/.netlify/functions/line-send', {
         method: 'POST',
