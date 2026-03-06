@@ -1903,7 +1903,7 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
 }
 
 // Candidate Detail - 新卒/中途対応
-function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidates, onUpdateCandidate, can = () => true, emailTemplates = [], isFeedbackMode = false }) {
+function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidates, onUpdateCandidate, onDeleteCandidate, can = () => true, emailTemplates = [], isFeedbackMode = false }) {
   const CANDS = propCandidates || CANDIDATES;
   const c = CANDS.find(c => c.id === candidateId) || CANDS[0];
   const isNewGrad = c.recruitType === "新卒";
@@ -2260,6 +2260,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [selectedStage, setSelectedStage] = useState(c.stage);
   const [selectedSub, setSelectedSub] = useState(c.substatus || "");
   const [savingStage, setSavingStage] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingCandidate, setDeletingCandidate] = useState(false);
 
   // 選択中ステージの定義を取得
   const currentStageDef = getStageDefByName(selectedStage);
@@ -2288,6 +2290,20 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setSelectedStage(c.stage);
     setSelectedSub(c.substatus || "");
     setEditingStage(false);
+  };
+
+  // 候補者削除
+  const handleDeleteCandidate = async () => {
+    setDeletingCandidate(true);
+    try {
+      if (onDeleteCandidate) {
+        await onDeleteCandidate(c.id);
+      }
+    } catch (e) {
+      alert("削除に失敗しました: " + e.message);
+    }
+    setDeletingCandidate(false);
+    setShowDeleteConfirm(false);
   };
 
   // 評価・FB関連
@@ -2762,7 +2778,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setSending(false);
   };
 
-  // 実データからタイムラインを構築（8段階対応）
+  // 実データからタイムラインを構築（8段階対応）— フィードバック情報付き
   const buildTimeline = () => {
     const currentStage = c.stage || "";
     const currentSub = c.substatus || "";
@@ -2771,27 +2787,55 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     const currentOrder = currentDef ? currentDef.order : 0;
     const isExit = isExitStatus(currentSub);
 
+    let prevDate = null;
     return STAGE_DEFINITIONS.map(def => {
       let status = "pending";
       let result = null;
       let date = "未定";
+      let fb = null;
+      let daysFromPrev = null;
+
+      // このステージに対応するフィードバックを探す
+      const matchedFb = feedbacks.find(f => f.stage === def.name);
 
       if (def.id === currentStageId) {
         status = isExit ? "exit" : "current";
         result = currentSub || null;
         date = c.stageDate || "—";
         if (def.id === "entry") date = c.entryDate || c.stageDate || "—";
+        fb = matchedFb || null;
       } else if (def.order < currentOrder) {
         status = "completed";
         result = "通過";
         if (def.id === "entry") date = c.entryDate || "—";
+        else if (matchedFb) date = matchedFb.date || "—";
         else date = "—";
+        fb = matchedFb || null;
       } else {
         status = "pending";
         date = "未定";
       }
 
-      return { stage: def.name, date, status, result, color: def.color };
+      // 所要日数計算
+      if (date && date !== "未定" && date !== "—" && prevDate) {
+        try {
+          const d1 = new Date(prevDate);
+          const d2 = new Date(date);
+          if (!isNaN(d1) && !isNaN(d2)) {
+            daysFromPrev = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+          }
+        } catch(e) {}
+      }
+      if (date && date !== "未定" && date !== "—") prevDate = date;
+
+      // FBからスコア平均を計算
+      let avgScore = null;
+      if (fb && fb.scores) {
+        const vals = Object.values(fb.scores).filter(v => typeof v === 'number' && v > 0);
+        if (vals.length > 0) avgScore = (vals.reduce((a,b) => a+b, 0) / vals.length).toFixed(1);
+      }
+
+      return { stage: def.name, date, status, result, color: def.color, fb, avgScore, daysFromPrev };
     });
   };
   const timeline = buildTimeline();
@@ -3109,6 +3153,35 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       <button onClick={() => onNavigate("candidates")} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontSize: 13, marginBottom: 16 }}>
         <Icon name="arrow-left" size={16} /> 候補者一覧に戻る
       </button>
+      {/* 削除確認モーダル */}
+      {showDeleteConfirm && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowDeleteConfirm(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "white", borderRadius: 16, padding: 28, maxWidth: 420, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name="alert-triangle" size={22} color="#ef4444" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: 0 }}>候補者を削除</h3>
+                <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>この操作は取り消せません</p>
+              </div>
+            </div>
+            <div style={{ padding: "12px 16px", background: "#fef2f2", borderRadius: 10, marginBottom: 20, border: "1px solid #fecaca" }}>
+              <div style={{ fontSize: 13, color: "#991b1b" }}>
+                <strong>{c.lastName} {c.firstName}</strong> の候補者データ、フィードバック、メモなどすべての関連データが完全に削除されます。
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowDeleteConfirm(false)}
+                style={{ padding: "10px 20px", border: "1px solid #d1d5db", borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#6b7280", fontWeight: 500 }}>キャンセル</button>
+              <button onClick={handleDeleteCandidate} disabled={deletingCandidate}
+                style={{ padding: "10px 20px", border: "none", borderRadius: 10, background: "#ef4444", color: "white", fontSize: 13, cursor: deletingCandidate ? "default" : "pointer", fontWeight: 600, opacity: deletingCandidate ? 0.6 : 1 }}>
+                {deletingCandidate ? "削除中..." : "削除する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 }}>
         <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
           <div style={{ width: 72, height: 72, borderRadius: 16, background: isNewGrad ? "#eef2ff" : "#fffbeb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: isNewGrad ? "#4338ca" : "#92400e", flexShrink: 0 }}>{c.lastName[0]}</div>
@@ -3208,8 +3281,11 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 </div>
               </div>
             )}
-            <div style={{ display: "flex", gap: 8 }}>
-            </div>
+            <button onClick={() => setShowDeleteConfirm(true)}
+              style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", border: "1px solid #fecaca", borderRadius: 8, background: "white", fontSize: 11, cursor: "pointer", color: "#ef4444", opacity: 0.7, transition: "opacity 0.2s" }}
+              onMouseEnter={e => e.target.style.opacity = 1} onMouseLeave={e => e.target.style.opacity = 0.7}>
+              <Icon name="trash-2" size={12} /> 削除
+            </button>
           </div>
         </div>
       </div>
@@ -3225,7 +3301,21 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       {activeTab === "timeline" && (
         <>
           <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 20 }}>選考タイムライン</h3>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: 0 }}>選考タイムライン</h3>
+              {(() => {
+                const completedStages = timeline.filter(t => t.status === "completed" || t.status === "current").length;
+                const totalStages = timeline.length;
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 100, height: 6, borderRadius: 3, background: "#e5e7eb", overflow: "hidden" }}>
+                      <div style={{ width: `${(completedStages / totalStages) * 100}%`, height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #10b981, #6366f1)" }} />
+                    </div>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>{completedStages}/{totalStages}</span>
+                  </div>
+                );
+              })()}
+            </div>
             {timeline.map((t, i) => {
               const dotColor = t.status === "completed" ? "#10b981" : t.status === "current" ? "#6366f1" : t.status === "exit" ? "#ef4444" : "#d1d5db";
               const dotBorder = t.status === "current" ? "3px solid #c7d2fe" : t.status === "exit" ? "3px solid #fecaca" : "none";
@@ -3234,35 +3324,91 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               const isNegative = ["不合格", "欠席", "辞退", "承諾後辞退"].includes(t.result);
               const resultBg = isPositive ? "#dcfce7" : isNegative ? "#fee2e2" : t.result === "保留" ? "#f3f4f6" : "#fef3c7";
               const resultText = isPositive ? "#15803d" : isNegative ? "#dc2626" : t.result === "保留" ? "#6b7280" : "#92400e";
+              const hasFb = t.fb && t.status !== "pending";
               return (
                 <div key={i} style={{ display: "flex", gap: 16 }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
                     <div style={{ width: 12, height: 12, borderRadius: "50%", background: dotColor, border: dotBorder, boxSizing: "content-box", flexShrink: 0 }} />
-                    {i < timeline.length - 1 && <div style={{ width: 2, flex: 1, background: lineColor, minHeight: 40 }} />}
+                    {i < timeline.length - 1 && <div style={{ width: 2, flex: 1, background: lineColor, minHeight: hasFb ? 60 : 40 }} />}
                   </div>
-                  <div style={{ flex: 1, paddingBottom: 20 }}>
+                  <div style={{ flex: 1, paddingBottom: hasFb ? 16 : 20 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: t.status === "pending" ? "#9ca3af" : t.status === "exit" ? "#dc2626" : "#111827" }}>{t.stage}</div>
-                      <div style={{ fontSize: 12, color: "#9ca3af" }}>{t.date}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: t.status === "pending" ? "#9ca3af" : t.status === "exit" ? "#dc2626" : "#111827" }}>{t.stage}</div>
+                        {t.result && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: resultBg, color: resultText }}>{t.result}</span>}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {t.daysFromPrev !== null && t.daysFromPrev > 0 && (
+                          <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 6, background: t.daysFromPrev > 14 ? "#fef3c7" : "#f0fdf4", color: t.daysFromPrev > 14 ? "#92400e" : "#15803d" }}>
+                            {t.daysFromPrev}日
+                          </span>
+                        )}
+                        <div style={{ fontSize: 12, color: "#9ca3af" }}>{t.date}</div>
+                      </div>
                     </div>
-                    {t.result && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: resultBg, color: resultText, marginTop: 4, display: "inline-block" }}>{t.result}</span>}
+                    {/* 面接ステージの詳細情報 */}
+                    {hasFb && (
+                      <div style={{ marginTop: 8, padding: "10px 14px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12, color: "#6b7280" }}>
+                            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <Icon name="user" size={12} /> {t.fb.interviewer || "—"}
+                            </span>
+                            {t.fb.format && (
+                              <span style={{ padding: "1px 8px", borderRadius: 6, background: t.fb.format === "WEB" ? "#dbeafe" : "#fef3c7", color: t.fb.format === "WEB" ? "#1e40af" : "#92400e", fontSize: 10, fontWeight: 500 }}>
+                                {t.fb.format}
+                              </span>
+                            )}
+                          </div>
+                          {t.avgScore && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ fontSize: 11, color: "#9ca3af" }}>評価:</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: parseFloat(t.avgScore) >= 4 ? "#10b981" : parseFloat(t.avgScore) >= 3 ? "#f59e0b" : "#ef4444" }}>
+                                {t.avgScore}
+                              </span>
+                              <span style={{ fontSize: 10, color: "#d1d5db" }}>/5</span>
+                            </div>
+                          )}
+                        </div>
+                        {t.fb.summary && (
+                          <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280", lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                            {t.fb.summary}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* 現在ステージでFBなし → ヒント */}
+                    {t.status === "current" && !hasFb && !isExitStatus(t.result) && (
+                      <div style={{ marginTop: 6, fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
+                        {["日程調整中", "予約済"].includes(t.result) ? "📅 日程調整中..." : "進行中"}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
-          <div style={{ background: "white", borderRadius: 12, padding: 20, marginTop: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-            <h4 style={{ fontSize: 14, fontWeight: 600, color: "#111827", marginBottom: 12 }}>基本情報</h4>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", fontSize: 13 }}>
-              <div><span style={{ color: "#9ca3af" }}>現在のステージ:</span> <strong style={{ color: "#4338ca" }}>{c.stage}</strong></div>
-              <div><span style={{ color: "#9ca3af" }}>サブステータス:</span> <strong style={{ color: isExitStatus(c.substatus) ? "#dc2626" : "#374151" }}>{c.substatus || "—"}</strong></div>
-              {c.originalStage && <div><span style={{ color: "#9ca3af" }}>元ステージ:</span> <strong>{c.originalStage}</strong></div>}
-              {c.entryDate && <div><span style={{ color: "#9ca3af" }}>エントリー日:</span> <strong>{c.entryDate}</strong></div>}
-              {c.stageDate && <div><span style={{ color: "#9ca3af" }}>ステージ到達日:</span> <strong>{c.stageDate}</strong></div>}
-              {c.birthDate && <div><span style={{ color: "#9ca3af" }}>生年月日:</span> <strong>{c.birthDate}</strong></div>}
-              {c.graduationPeriod && <div><span style={{ color: "#9ca3af" }}>卒業予定:</span> <strong>{c.graduationPeriod}</strong></div>}
-              <div><span style={{ color: "#9ca3af" }}>登録日:</span> <strong>{c.createdAt}</strong></div>
-              <div><span style={{ color: "#9ca3af" }}>ステータス:</span> <strong>{c.status}</strong></div>
+          {/* 選考サマリー（基本情報の代わり） */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 16 }}>
+            <div style={{ background: "white", borderRadius: 12, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>選考経過日数</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#4338ca" }}>
+                {c.entryDate ? Math.max(0, Math.round((new Date() - new Date(c.entryDate)) / (1000 * 60 * 60 * 24))) : "—"}
+                {c.entryDate && <span style={{ fontSize: 12, fontWeight: 400, color: "#9ca3af" }}>日</span>}
+              </div>
+            </div>
+            <div style={{ background: "white", borderRadius: 12, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>FB件数</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: feedbacks.length > 0 ? "#10b981" : "#d1d5db" }}>
+                {feedbacks.length}<span style={{ fontSize: 12, fontWeight: 400, color: "#9ca3af" }}>件</span>
+              </div>
+            </div>
+            <div style={{ background: "white", borderRadius: 12, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>総合評価</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: (() => { const avg = feedbacks.length ? feedbacks.reduce((s,f) => { const vals = Object.values(f.scores || {}).filter(v => v > 0); return s + (vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0); }, 0) / feedbacks.length : 0; return avg >= 4 ? "#10b981" : avg >= 3 ? "#f59e0b" : avg > 0 ? "#ef4444" : "#d1d5db"; })() }}>
+                {feedbacks.length ? (feedbacks.reduce((s,f) => { const vals = Object.values(f.scores || {}).filter(v => v > 0); return s + (vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0); }, 0) / feedbacks.length).toFixed(1) : "—"}
+                {feedbacks.length > 0 && <span style={{ fontSize: 12, fontWeight: 400, color: "#9ca3af" }}>/5</span>}
+              </div>
             </div>
           </div>
         </>
@@ -8996,6 +9142,19 @@ function App() {
     }
   }, [rawUpdateCandidate, candidates, autoGenerateTasks, addNotification]);
 
+  const deleteCandidate = useCallback(async (id) => {
+    try {
+      // Supabase対応: 本番ではDBから削除
+      // ローカル: candidatesリストから除外
+      setCandidates(prev => prev.filter(c => c.id !== id));
+      addNotification({ type: "info", title: "候補者削除", message: "候補者データを削除しました", icon: "🗑️" });
+      navigate("candidates");
+    } catch (e) {
+      console.error("deleteCandidate error:", e);
+      throw e;
+    }
+  }, [addNotification, navigate]);
+
   const handleMigration = async () => {
     if (!window.confirm('候補者データを新しい8ステージ形式に一括変換します。\\n（既存のステージ・サブステータスが上書きされます）\\n\\n実行しますか？')) return;
     setMigrationStatus('running');
@@ -9050,7 +9209,7 @@ function App() {
     switch (currentPage) {
       case "dashboard": return <DashboardPage onNavigate={navigate} recruitFilter={recruitFilter} tasks={tasks} />;
       case "candidates": return <CandidatesPage onNavigate={navigate} recruitFilter={recruitFilter} pipelineFilter={pipelineFilter} onClearPipelineFilter={() => setPipelineFilter(null)} candidates={candidates} onUpdateCandidate={updateCandidate} onBulkUpdateStatus={bulkUpdateStatus} onShowAddModal={() => setShowAddModal(true)} can={can} emailTemplates={emailTemplates} />;
-      case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} can={can} emailTemplates={emailTemplates} isFeedbackMode={feedbackMode.active} />;
+      case "candidate-detail": return <CandidateDetailPage candidateId={selectedCandidateId} onNavigate={navigate} candidates={candidates} onUpdateCandidate={updateCandidate} onDeleteCandidate={deleteCandidate} can={can} emailTemplates={emailTemplates} isFeedbackMode={feedbackMode.active} />;
       case "pipeline": return <PipelinePage recruitFilter={recruitFilter} onNavigateFromPipeline={navigateFromPipeline} candidates={candidates} />;
       case "messages": return <MessagesPage candidates={candidates} emailTemplates={emailTemplates} onNavigate={navigate} />;
       case "schedule": return <SchedulePage recruitFilter={recruitFilter} candidates={candidates} onNavigate={navigate} />;
