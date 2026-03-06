@@ -689,7 +689,10 @@ function useSupabaseCandidates(recruitFilter) {
     }
     // camelCase → snake_case
     const dbUpdates = {};
-    if (updates.stage !== undefined) dbUpdates.stage = updates.stage;
+    if (updates.stage !== undefined) {
+      dbUpdates.stage = updates.stage;
+      dbUpdates.stage_date = new Date().toISOString().split('T')[0]; // ステージ変更日を自動記録
+    }
     if (updates.substatus !== undefined) dbUpdates.substatus = updates.substatus;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.format !== undefined) dbUpdates.format = updates.format;
@@ -2861,12 +2864,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
   // 実データからタイムラインを構築（8段階対応）— フィードバック情報付き
   const buildTimeline = () => {
-    const currentStage = c.stage || "";
-    const currentSub = c.substatus || "";
+    const rawStage = c.stage || "";
+    const currentStage = rawStage.includes("/") ? rawStage.split("/")[0].trim() : rawStage;
+    const currentSub = c.substatus || (rawStage.includes("/") ? rawStage.split("/").slice(1).join("/").trim() : "");
     const currentStageId = candidateToStageId(currentStage);
     const currentDef = getStageDefById(currentStageId);
     const currentOrder = currentDef ? currentDef.order : 0;
     const isExit = isExitStatus(currentSub);
+    const today = new Date().toISOString().split('T')[0];
 
     let prevDate = null;
     return STAGE_DEFINITIONS.map(def => {
@@ -2882,8 +2887,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       if (def.id === currentStageId) {
         status = isExit ? "exit" : "current";
         result = currentSub || null;
-        date = c.stageDate || "—";
-        if (def.id === "entry") date = c.entryDate || c.stageDate || "—";
+        date = c.stageDate || today;
+        if (def.id === "entry") date = c.entryDate || c.stageDate || today;
         fb = matchedFb || null;
       } else if (def.order < currentOrder) {
         status = "completed";
@@ -3461,7 +3466,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     {/* 現在ステージでFBなし → ヒント */}
                     {t.status === "current" && !hasFb && !isExitStatus(t.result) && (
                       <div style={{ marginTop: 6, fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
-                        {["日程調整中", "予約済"].includes(t.result) ? "📅 日程調整中..." : "進行中"}
+                        {t.result === "日程調整中" ? "📅 日程調整中..." : t.result === "予約済" && nextInterview ? `📅 面接予約済（${new Date(nextInterview.bookedSlotStart).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })}）` : t.result === "予約済" ? "📅 面接予約済" : "進行中"}
                       </div>
                     )}
                   </div>
