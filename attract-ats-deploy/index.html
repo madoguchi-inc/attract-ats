@@ -2506,8 +2506,12 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
   // AI要約実行（2段階: ブラウザ→Whisper直接 + サーバー→GPT-4分析）
   const runAiAnalysis = async (overrideBlob) => {
-    const blob = overrideBlob || audioBlob;
+    let blob = overrideBlob || audioBlob;
     if (!blob) { setAiError("録音データがありません"); return; }
+    // blob が Blob/File でない場合のガード
+    if (!(blob instanceof Blob)) {
+      setAiError("録音データが無効です。再度録音してください。"); return;
+    }
     setAiLoading(true); setAiError(""); setAiAnalysis(null); setAiTranscript(""); setAiStep("key");
     setFbFormTab("ai");
     try {
@@ -2519,7 +2523,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       // Step 2: Whisper文字起こし（ブラウザから直接）
       setAiStep("transcribe");
       const fd = new FormData();
-      fd.append('file', blob, blob.name || 'recording.webm');
+      const fileName = (blob instanceof File && blob.name) ? blob.name : 'recording.webm';
+      fd.append('file', blob, fileName);
       fd.append('model', 'whisper-1');
       fd.append('language', 'ja');
       fd.append('response_format', 'text');
@@ -5200,8 +5205,12 @@ function InterviewFBPage({ onNavigate }) {
   const [aiStepSA, setAiStepSA] = useState("");
 
   const runAiSA = async (overrideBlob) => {
-    const blob = overrideBlob || audioBlob;
+    let blob = overrideBlob || audioBlob;
     if (!blob) { setAiErrorSA("録音データがありません"); return; }
+    // blob が Blob/File でない場合のガード
+    if (!(blob instanceof Blob)) {
+      setAiErrorSA("録音データが無効です。再度録音してください。"); return;
+    }
     setAiLoadingSA(true); setAiErrorSA(""); setAiAnalysisSA(null); setAiTranscriptSA(""); setAiStepSA("key"); setActiveTab("ai");
     try {
       const configRes = await fetch('/.netlify/functions/ai-config');
@@ -5210,7 +5219,8 @@ function InterviewFBPage({ onNavigate }) {
 
       setAiStepSA("transcribe");
       const fd = new FormData();
-      fd.append('file', blob, blob.name || 'recording.webm');
+      const fileName = (blob instanceof File && blob.name) ? blob.name : 'recording.webm';
+      fd.append('file', blob, fileName);
       fd.append('model', 'whisper-1');
       fd.append('language', 'ja');
       fd.append('response_format', 'text');
