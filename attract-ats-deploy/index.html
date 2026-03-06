@@ -2447,7 +2447,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm', audioBitsPerSecond: 32000 });
       audioChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = () => {
@@ -2502,7 +2502,38 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); validateAndSetAudio(e.dataTransfer.files?.[0]); };
 
   // AI要約ステータス
-  const [aiStep, setAiStep] = useState(""); // "key" | "transcribe" | "analyze"
+  const [aiStep, setAiStep] = useState(""); // "key" | "transcribe" | "analyze" | "compress"
+
+  // 音声圧縮ヘルパー: 25MB超のファイルを AudioContext で再エンコード
+  const compressAudioBlob = async (srcBlob) => {
+    const WHISPER_LIMIT = 24 * 1024 * 1024; // 24MB (余裕をもって)
+    if (srcBlob.size <= WHISPER_LIMIT) return srcBlob;
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const arrayBuf = await srcBlob.arrayBuffer();
+    const decoded = await audioCtx.decodeAudioData(arrayBuf);
+    // モノラル 16kHz にダウンサンプル
+    const targetRate = 16000;
+    const offCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+    const src = offCtx.createBufferSource();
+    src.buffer = decoded;
+    src.connect(offCtx.destination);
+    src.start();
+    const rendered = await offCtx.startRendering();
+    audioCtx.close();
+    // WAV にエンコード（Whisper は wav を受け付ける）
+    const numSamples = rendered.length;
+    const wavBuf = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(wavBuf);
+    const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    writeStr(0, 'RIFF'); view.setUint32(4, 36 + numSamples * 2, true); writeStr(8, 'WAVE');
+    writeStr(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    writeStr(36, 'data'); view.setUint32(40, numSamples * 2, true);
+    const ch = rendered.getChannelData(0);
+    let off = 44;
+    for (let i = 0; i < numSamples; i++) { const s = Math.max(-1, Math.min(1, ch[i])); view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2; }
+    return new Blob([wavBuf], { type: 'audio/wav' });
+  };
 
   // AI要約実行（2段階: ブラウザ→Whisper直接 + サーバー→GPT-4分析）
   const runAiAnalysis = async (overrideBlob) => {
@@ -2515,6 +2546,12 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setAiLoading(true); setAiError(""); setAiAnalysis(null); setAiTranscript(""); setAiStep("key");
     setFbFormTab("ai");
     try {
+      // Step 0: ファイルサイズチェック＆圧縮
+      if (blob.size > 24 * 1024 * 1024) {
+        setAiStep("compress");
+        blob = await compressAudioBlob(blob);
+      }
+
       // Step 1: APIキー取得
       const configRes = await fetch('/.netlify/functions/ai-config');
       if (!configRes.ok) throw new Error('AI設定の取得に失敗しました');
@@ -2523,7 +2560,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       // Step 2: Whisper文字起こし（ブラウザから直接）
       setAiStep("transcribe");
       const fd = new FormData();
-      const fileName = (blob instanceof File && blob.name) ? blob.name : 'recording.webm';
+      const fileName = (blob instanceof File && blob.name) ? blob.name : (blob.type === 'audio/wav' ? 'recording.wav' : 'recording.webm');
       fd.append('file', blob, fileName);
       fd.append('model', 'whisper-1');
       fd.append('language', 'ja');
@@ -3974,12 +4011,13 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 280, margin: "0 auto" }}>
                         {[
                           { step: "key", label: "AI設定を取得中" },
+                          { step: "compress", label: "音声を圧縮中..." },
                           { step: "transcribe", label: "音声を文字起こし中（1〜3分）" },
                           { step: "analyze", label: "面接内容を構造化分析中" },
-                        ].map(({ step, label }) => (
+                        ].filter(({ step }) => step !== "compress" || aiStep === "compress" || ["transcribe","analyze"].includes(aiStep)).map(({ step, label }) => (
                           <div key={step} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
                             <div style={{ width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10,
-                              background: aiStep === step ? "#4338ca" : (["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "#22c55e" : "#e5e7eb"),
+                              background: aiStep === step ? "#4338ca" : (["key","compress","transcribe","analyze"].indexOf(aiStep) > ["key","compress","transcribe","analyze"].indexOf(step) ? "#22c55e" : "#e5e7eb"),
                               color: aiStep === step || ["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "white" : "#9ca3af" }}>
                               {["key","transcribe","analyze"].indexOf(aiStep) > ["key","transcribe","analyze"].indexOf(step) ? "✓" : ["key","transcribe","analyze"].indexOf(step) + 1}
                             </div>
@@ -5174,7 +5212,7 @@ function InterviewFBPage({ onNavigate }) {
   const startRec = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream); chunksRef.current = [];
+      const mr = new MediaRecorder(stream, { audioBitsPerSecond: 32000 }); chunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = () => { const blob = new Blob(chunksRef.current, { type: 'audio/webm' }); setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob)); stream.getTracks().forEach(t => t.stop()); };
       mr.start(); mediaRecRef.current = mr; setIsRecording(true); setRecordingTime(0);
@@ -5204,6 +5242,35 @@ function InterviewFBPage({ onNavigate }) {
 
   const [aiStepSA, setAiStepSA] = useState("");
 
+  // 音声圧縮ヘルパー (SA版)
+  const compressAudioBlobSA = async (srcBlob) => {
+    const WHISPER_LIMIT = 24 * 1024 * 1024;
+    if (srcBlob.size <= WHISPER_LIMIT) return srcBlob;
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const arrayBuf = await srcBlob.arrayBuffer();
+    const decoded = await audioCtx.decodeAudioData(arrayBuf);
+    const targetRate = 16000;
+    const offCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+    const src = offCtx.createBufferSource();
+    src.buffer = decoded;
+    src.connect(offCtx.destination);
+    src.start();
+    const rendered = await offCtx.startRendering();
+    audioCtx.close();
+    const numSamples = rendered.length;
+    const wavBuf = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(wavBuf);
+    const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    writeStr(0, 'RIFF'); view.setUint32(4, 36 + numSamples * 2, true); writeStr(8, 'WAVE');
+    writeStr(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    writeStr(36, 'data'); view.setUint32(40, numSamples * 2, true);
+    const ch = rendered.getChannelData(0);
+    let off = 44;
+    for (let i = 0; i < numSamples; i++) { const s = Math.max(-1, Math.min(1, ch[i])); view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2; }
+    return new Blob([wavBuf], { type: 'audio/wav' });
+  };
+
   const runAiSA = async (overrideBlob) => {
     let blob = overrideBlob || audioBlob;
     if (!blob) { setAiErrorSA("録音データがありません"); return; }
@@ -5213,13 +5280,19 @@ function InterviewFBPage({ onNavigate }) {
     }
     setAiLoadingSA(true); setAiErrorSA(""); setAiAnalysisSA(null); setAiTranscriptSA(""); setAiStepSA("key"); setActiveTab("ai");
     try {
+      // ファイルサイズチェック＆圧縮
+      if (blob.size > 24 * 1024 * 1024) {
+        setAiStepSA("compress");
+        blob = await compressAudioBlobSA(blob);
+      }
+
       const configRes = await fetch('/.netlify/functions/ai-config');
       if (!configRes.ok) throw new Error('AI設定の取得に失敗しました');
       const { key: apiKey } = await configRes.json();
 
       setAiStepSA("transcribe");
       const fd = new FormData();
-      const fileName = (blob instanceof File && blob.name) ? blob.name : 'recording.webm';
+      const fileName = (blob instanceof File && blob.name) ? blob.name : (blob.type === 'audio/wav' ? 'recording.wav' : 'recording.webm');
       fd.append('file', blob, fileName);
       fd.append('model', 'whisper-1');
       fd.append('language', 'ja');
@@ -5408,13 +5481,14 @@ function InterviewFBPage({ onNavigate }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 280, margin: "0 auto" }}>
                 {[
                   { step: "key", label: "AI設定を取得中" },
+                  { step: "compress", label: "音声を圧縮中..." },
                   { step: "transcribe", label: "音声を文字起こし中（1〜3分）" },
                   { step: "analyze", label: "面接内容を構造化分析中" },
-                ].map(({ step, label }) => (
+                ].filter(({ step }) => step !== "compress" || aiStepSA === "compress" || ["transcribe","analyze"].includes(aiStepSA)).map(({ step, label }) => (
                   <div key={step} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
                     <div style={{ width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10,
-                      background: aiStepSA === step ? "#4338ca" : (["key","transcribe","analyze"].indexOf(aiStepSA) > ["key","transcribe","analyze"].indexOf(step) ? "#22c55e" : "#e5e7eb"),
-                      color: aiStepSA === step || ["key","transcribe","analyze"].indexOf(aiStepSA) > ["key","transcribe","analyze"].indexOf(step) ? "white" : "#9ca3af" }}>
+                      background: aiStepSA === step ? "#4338ca" : (["key","compress","transcribe","analyze"].indexOf(aiStepSA) > ["key","compress","transcribe","analyze"].indexOf(step) ? "#22c55e" : "#e5e7eb"),
+                      color: aiStepSA === step || ["key","compress","transcribe","analyze"].indexOf(aiStepSA) > ["key","compress","transcribe","analyze"].indexOf(step) ? "white" : "#9ca3af" }}>
                       {["key","transcribe","analyze"].indexOf(aiStepSA) > ["key","transcribe","analyze"].indexOf(step) ? "✓" : ["key","transcribe","analyze"].indexOf(step) + 1}
                     </div>
                     <span style={{ color: aiStepSA === step ? "#4338ca" : "#6b7280", fontWeight: aiStepSA === step ? 600 : 400 }}>{label}</span>
