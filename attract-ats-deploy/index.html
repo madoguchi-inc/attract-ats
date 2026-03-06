@@ -9287,7 +9287,10 @@ function App() {
         });
         if (!res.ok) throw new Error('DB削除に失敗しました');
       }
-      setCandidates(prev => prev.filter(c => c.id !== id));
+      // setCandidatesが利用可能か確認してからフィルタリング
+      if (typeof setCandidates === 'function') {
+        setCandidates(prev => prev.filter(c => c.id !== id));
+      }
       addNotification({ type: "info", title: "候補者削除", message: "候補者データを削除しました", icon: "🗑️" });
       navigate("candidates");
     } catch (e) {
