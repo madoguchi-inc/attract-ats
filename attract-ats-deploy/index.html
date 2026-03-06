@@ -9276,10 +9276,15 @@ function App() {
     }
   }, [rawUpdateCandidate, candidates, autoGenerateTasks, addNotification]);
 
-  const deleteCandidate = useCallback(async (id) => {
+  const deleteCandidate = async (id) => {
     try {
-      // Supabase対応: 本番ではDBから削除
-      // ローカル: candidatesリストから除外
+      if (SUPABASE_READY) {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/candidates?id=eq.${id}`, {
+          method: 'DELETE',
+          headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${tokenStore.accessToken || SUPABASE_ANON_KEY}` },
+        });
+        if (!res.ok) throw new Error('DB削除に失敗しました');
+      }
       setCandidates(prev => prev.filter(c => c.id !== id));
       addNotification({ type: "info", title: "候補者削除", message: "候補者データを削除しました", icon: "🗑️" });
       navigate("candidates");
@@ -9287,7 +9292,7 @@ function App() {
       console.error("deleteCandidate error:", e);
       throw e;
     }
-  }, [addNotification, navigate]);
+  };
 
   const handleMigration = async () => {
     if (!window.confirm('候補者データを新しい8ステージ形式に一括変換します。\\n（既存のステージ・サブステータスが上書きされます）\\n\\n実行しますか？')) return;
