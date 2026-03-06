@@ -446,8 +446,8 @@ exports.handler = async (event) => {
         // 候補者名取得
         let bookedCandidateName = '';
         try {
-          const cands = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `candidates?id=eq.${session.candidate_id}&select=name`);
-          if (cands && cands.length > 0) bookedCandidateName = cands[0].name || '';
+          const cands = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `candidates?id=eq.${session.candidate_id}&select=last_name,first_name`);
+          if (cands && cands.length > 0) bookedCandidateName = ((cands[0].last_name || '') + ' ' + (cands[0].first_name || '')).trim();
         } catch (e) { /* ignore */ }
 
         return {
@@ -507,10 +507,10 @@ exports.handler = async (event) => {
       try {
         const candidates = await supabaseQuery(
           SUPABASE_URL, SUPABASE_KEY,
-          `candidates?id=eq.${session.candidate_id}&select=name,email,stage`,
+          `candidates?id=eq.${session.candidate_id}&select=last_name,first_name,email,stage`,
         );
         if (candidates && candidates.length > 0) {
-          candidateName = candidates[0].name || '';
+          candidateName = ((candidates[0].last_name || '') + ' ' + (candidates[0].first_name || '')).trim();
         }
       } catch (e) { /* ignore */ }
 
@@ -690,11 +690,13 @@ exports.handler = async (event) => {
       try {
         const candidates = await supabaseQuery(
           SUPABASE_URL, SUPABASE_KEY,
-          `candidates?id=eq.${session.candidate_id}&select=name,email`,
+          `candidates?id=eq.${session.candidate_id}&select=last_name,first_name,email`,
         );
         if (candidates && candidates.length > 0) {
-          candidateInfo.name = candidateInfo.name || candidates[0].name || '';
-          candidateInfo.email = candidateInfo.email || candidates[0].email || '';
+          const c = candidates[0];
+          const fullName = ((c.last_name || '') + ' ' + (c.first_name || '')).trim();
+          candidateInfo.name = candidateInfo.name || fullName || '';
+          candidateInfo.email = candidateInfo.email || c.email || '';
         }
       } catch (e) { /* ignore */ }
 
@@ -1163,10 +1165,11 @@ exports.handler = async (event) => {
       // 3. 候補者名取得
       let candidateInfo = { name: '', email: '' };
       try {
-        const candidates = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `candidates?id=eq.${session.candidate_id}&select=name,email`);
+        const candidates = await supabaseQuery(SUPABASE_URL, SUPABASE_KEY, `candidates?id=eq.${session.candidate_id}&select=last_name,first_name,email`);
         if (candidates && candidates.length > 0) {
-          candidateInfo.name = candidates[0].name || '';
-          candidateInfo.email = candidates[0].email || '';
+          const c = candidates[0];
+          candidateInfo.name = ((c.last_name || '') + ' ' + (c.first_name || '')).trim();
+          candidateInfo.email = c.email || '';
         }
       } catch (e) { /* ignore */ }
 
