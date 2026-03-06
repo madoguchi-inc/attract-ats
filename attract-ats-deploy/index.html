@@ -6926,6 +6926,16 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const [filter, setFilter] = useState("all"); // all, sent, received, email, line
   const [search, setSearch] = useState("");
   const [selectedMsg, setSelectedMsg] = useState(null);
+
+  // レスポンシブ: 画面幅を監視
+  const [winW, setWinW] = useState(window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWinW(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const isMobile = winW < 768;
+  const isTablet = winW < 1024;
   const [showCompose, setShowCompose] = useState(false);
   const [composeData, setComposeData] = useState({ to: "", candidateId: null, candidateName: "", subject: "", body: "", channel: "email" });
   const [sending, setSending] = useState(false);
@@ -7094,11 +7104,11 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 1200 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>メッセージ</h1>
+    <div style={{ padding: isMobile ? 12 : 24, maxWidth: 1200 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isMobile ? 12 : 20, flexWrap: "wrap", gap: 8 }}>
+        <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 700, color: "#111827" }}>メッセージ</h1>
         <button onClick={() => { setShowCompose(true); setSendResult({ type: "", text: "" }); }}
-          style={{ padding: "10px 24px", border: "none", borderRadius: 10, background: "#1d4aff", color: "white", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+          style={{ padding: isMobile ? "8px 16px" : "10px 24px", border: "none", borderRadius: 10, background: "#1d4aff", color: "white", fontSize: isMobile ? 12 : 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
           <Icon name="edit" size={14} /> 新規メール作成
         </button>
       </div>
@@ -7113,7 +7123,7 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       {/* メール作成モーダル */}
       {showCompose && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={(e) => { if (e.target === e.currentTarget) setShowCompose(false); }}>
-          <div style={{ background: "white", borderRadius: 16, width: 680, maxHeight: "90vh", overflow: "auto", padding: 28 }}>
+          <div style={{ background: "white", borderRadius: isMobile ? 12 : 16, width: isMobile ? "95vw" : 680, maxWidth: "95vw", maxHeight: "90vh", overflow: "auto", padding: isMobile ? 16 : 28 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>新規メール作成</h2>
               <button onClick={() => setShowCompose(false)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: "#9ca3af" }}>✕</button>
@@ -7183,23 +7193,25 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       )}
 
       {/* フィルター & 検索 */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 10, padding: 4 }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 8 : 12, marginBottom: 16, alignItems: isMobile ? "stretch" : "center" }}>
+        <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 10, padding: 4, overflowX: "auto", flexShrink: 0 }}>
           {[["all", "すべて"], ["email", "✉️ メール"], ["line", "💬 LINE"], ["sent", "送信済み"], ["received", "受信"]].map(([id, label]) => (
             <button key={id} onClick={() => setFilter(id)}
-              style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? (id === "line" ? "#06c755" : "#4338ca") : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>{label}</button>
+              style={{ padding: isMobile ? "6px 10px" : "6px 14px", border: "none", borderRadius: 8, fontSize: isMobile ? 11 : 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? (id === "line" ? "#06c755" : "#4338ca") : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none", whiteSpace: "nowrap" }}>{label}</button>
           ))}
         </div>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 件名・本文・候補者名で検索..."
-          style={{ flex: 1, padding: "8px 14px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, outline: "none", background: "#fafbfc" }} />
-        <button onClick={loadMessages} disabled={loading}
-          style={{ padding: "8px 14px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
-          {loading ? "読込中..." : "↻ 更新"}
-        </button>
+        <div style={{ display: "flex", gap: 8, flex: 1 }}>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 件名・本文・候補者名で検索..."
+            style={{ flex: 1, padding: "8px 14px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, outline: "none", background: "#fafbfc", minWidth: 0 }} />
+          <button onClick={loadMessages} disabled={loading}
+            style={{ padding: "8px 14px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280", whiteSpace: "nowrap" }}>
+            {loading ? "読込中..." : "↻ 更新"}
+          </button>
+        </div>
       </div>
 
       {/* メッセージ一覧 & 詳細 */}
-      <div style={{ display: "grid", gridTemplateColumns: selectedMsg ? "1fr 1fr" : "1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: selectedMsg && !isMobile ? (isTablet ? "1fr 1fr" : "1fr 1fr") : "1fr", gap: 16 }}>
         {/* 一覧 */}
         <div style={{ ...cardStyle, overflow: "hidden" }}>
           {loading && messages.length === 0 ? (
@@ -7218,7 +7230,7 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
                 return (
                   <div key={msg.id || i} onClick={() => setSelectedMsg(msg)}
                     style={{
-                      padding: "14px 18px", cursor: "pointer", borderBottom: "1px solid #f3f4f6",
+                      padding: isMobile ? "10px 12px" : "14px 18px", cursor: "pointer", borderBottom: "1px solid #f3f4f6",
                       background: isSelected ? "#eef2ff" : "white",
                       transition: "background 0.15s",
                     }}
@@ -7254,9 +7266,15 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
           )}
         </div>
 
-        {/* 詳細パネル */}
+        {/* 詳細パネル（モバイルではモーダル表示） */}
+        {selectedMsg && isMobile && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 999 }} onClick={(e) => { if (e.target === e.currentTarget) setSelectedMsg(null); }} />
+        )}
         {selectedMsg && (
-          <div style={{ ...cardStyle, padding: 24, position: "sticky", top: 24 }}>
+          <div style={{
+            ...cardStyle, padding: isMobile ? 16 : 24,
+            ...(isMobile ? { position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 1000, borderRadius: "16px 16px 0 0", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 -4px 20px rgba(0,0,0,0.15)" } : { position: "sticky", top: 24 }),
+          }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
