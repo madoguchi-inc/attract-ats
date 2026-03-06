@@ -2301,12 +2301,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     try {
       if (onDeleteCandidate) {
         await onDeleteCandidate(c.id);
+        // onDeleteCandidate内でnavigate済み。コンポーネントはアンマウントされるのでここで終了
+        return;
       }
     } catch (e) {
       alert("削除に失敗しました: " + e.message);
+      setDeletingCandidate(false);
+      setShowDeleteConfirm(false);
     }
-    setDeletingCandidate(false);
-    setShowDeleteConfirm(false);
   };
 
   // 評価・FB関連
