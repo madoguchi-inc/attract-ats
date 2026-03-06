@@ -7103,22 +7103,6 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
         </button>
       </div>
 
-      {/* 統計カード */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
-        {[
-          { label: "総メッセージ", value: stats.total, icon: "📨", color: "#6366f1" },
-          { label: "✉️ メール", value: stats.emailCount, icon: "", color: "#1d4aff" },
-          { label: "💬 LINE", value: stats.lineCount, icon: "", color: "#06c755" },
-          { label: "受信", value: stats.received, icon: "📥", color: "#3b82f6" },
-          { label: "今日", value: stats.today, icon: "📅", color: "#f59e0b" },
-        ].map((item, i) => (
-          <div key={i} style={{ ...cardStyle, padding: "14px 16px", borderLeft: `3px solid ${item.color}` }}>
-            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>{item.icon}{item.icon ? " " : ""}{item.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
-          </div>
-        ))}
-      </div>
-
       {/* 成功/エラー通知 */}
       {sendResult.text && (
         <div style={{ padding: 12, borderRadius: 8, marginBottom: 16, background: sendResult.type === "success" ? "#ecfdf5" : "#fef2f2", border: `1px solid ${sendResult.type === "success" ? "#a7f3d0" : "#fecaca"}`, color: sendResult.type === "success" ? "#065f46" : "#dc2626", fontSize: 13 }}>
