@@ -2726,7 +2726,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [loadingMessages, setLoadingMessages] = useState(false);
 
   // LINE メッセージ state
-  const [msgSubTab, setMsgSubTab] = useState("all"); // "all" | "email" | "line"
+  const [msgSubTab, setMsgSubTab] = useState("email"); // "email" | "line"
   const [lineMessages, setLineMessages] = useState([]);
   const [lineLoading, setLineLoading] = useState(false);
   const [lineInput, setLineInput] = useState("");
@@ -2760,7 +2760,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setLineLoading(false);
   }, [NETLIFY_DOMAIN_CD, c.id]);
 
-  useEffect(() => { if (activeTab === 'messages') loadLineData(); }, [activeTab]);
+  useEffect(() => { if (msgSubTab === 'line') loadLineData(); }, [msgSubTab]);
   useEffect(() => { if (lineMsgEndRef.current) lineMsgEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [lineMessages]);
 
   const sendLineMessage = async () => {
@@ -4243,85 +4243,34 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         </div>
       )}
 
-      {/* ===== メッセージタブ（統合タイムライン） ===== */}
-      {activeTab === "messages" && (() => {
-        // メール・LINEメッセージを統合して時系列ソート
-        const allMessages = [
-          ...messageHistory.map(m => ({
-            ...m,
-            channel: "email",
-            sortDate: m.date ? new Date(m.date).getTime() : 0,
-          })),
-          ...lineMessages.map(m => ({
-            ...m,
-            channel: "line",
-            sortDate: m.created_at ? new Date(m.created_at).getTime() : 0,
-          })),
-        ]
-          .filter(m => msgSubTab === "all" || m.channel === msgSubTab)
-          .sort((a, b) => b.sortDate - a.sortDate);
-
-        const isLoading = loadingMessages || lineLoading;
-
-        return (
+      {/* ===== メッセージタブ ===== */}
+      {activeTab === "messages" && (
         <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-          {/* ヘッダー: タイトル + メッセージ作成ボタン */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>メッセージ</h3>
-            <div style={{ display: "flex", gap: 8, position: "relative" }}>
+            {msgSubTab === "email" && (
               <button onClick={() => { setShowCompose(!showCompose); setSendError(""); setSendSuccess(""); }}
                 style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: showCompose ? "#ef4444" : "#1d4aff", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
                 {showCompose ? "✕ 閉じる" : "✉ メール作成"}
               </button>
-              {lineLinked?.linked && (
-                <button onClick={() => { setMsgSubTab("line"); }}
-                  style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#06c755", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
-                  💬 LINE送信
-                </button>
-              )}
-            </div>
+            )}
           </div>
 
-          {/* フィルタチップ */}
-          <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-            {[
-              { key: "all", label: "すべて", color: "#6366f1" },
-              { key: "email", label: "✉️ メール", color: "#1d4aff" },
-              { key: "line", label: "💬 LINE", color: "#06c755" },
-            ].map(chip => (
-              <button key={chip.key} onClick={() => setMsgSubTab(chip.key)}
-                style={{
-                  padding: "5px 14px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer",
-                  border: msgSubTab === chip.key ? "none" : "1px solid #d1d5db",
-                  background: msgSubTab === chip.key ? chip.color : "white",
-                  color: msgSubTab === chip.key ? "white" : "#6b7280",
-                }}>
-                {chip.label}
-                {chip.key === "email" && messageHistory.length > 0 && <span style={{ marginLeft: 4, opacity: 0.8 }}>({messageHistory.length})</span>}
-                {chip.key === "line" && lineMessages.length > 0 && <span style={{ marginLeft: 4, opacity: 0.8 }}>({lineMessages.length})</span>}
-                {chip.key === "all" && (messageHistory.length + lineMessages.length) > 0 && <span style={{ marginLeft: 4, opacity: 0.8 }}>({messageHistory.length + lineMessages.length})</span>}
-              </button>
-            ))}
-            <div style={{ flex: 1 }}></div>
-            <button onClick={() => { loadMessages(); loadLineData(); }} disabled={isLoading}
-              style={{ padding: "4px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>
-              {isLoading ? "読込中..." : "↻ 更新"}
+          {/* サブタブ: メール / LINE */}
+          <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid #e5e7eb" }}>
+            <button onClick={() => setMsgSubTab("email")}
+              style={{ padding: "8px 16px", border: "none", borderBottom: msgSubTab === "email" ? "2px solid #1d4aff" : "2px solid transparent", background: "none", fontSize: 13, fontWeight: msgSubTab === "email" ? 600 : 400, color: msgSubTab === "email" ? "#1d4aff" : "#6b7280", cursor: "pointer" }}>
+              ✉️ メール
+            </button>
+            <button onClick={() => setMsgSubTab("line")}
+              style={{ padding: "8px 16px", border: "none", borderBottom: msgSubTab === "line" ? "2px solid #06c755" : "2px solid transparent", background: "none", fontSize: 13, fontWeight: msgSubTab === "line" ? 600 : 400, color: msgSubTab === "line" ? "#06c755" : "#6b7280", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+              💬 LINE
+              {lineLinked?.linked && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#06c755", display: "inline-block" }}></span>}
             </button>
           </div>
 
-          {/* LINE連携ステータスバナー */}
-          {(msgSubTab === "all" || msgSubTab === "line") && lineLinked?.linked && (
-            <div style={{ display: "flex", alignItems: "center", padding: "6px 12px", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0", marginBottom: 12, fontSize: 12 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#06c755", marginRight: 8 }}></span>
-              <span style={{ color: "#15803d", fontWeight: 500 }}>LINE連携済み</span>
-              {lineLinked.display_name && <span style={{ color: "#6b7280", marginLeft: 6 }}>({lineLinked.display_name})</span>}
-            </div>
-          )}
-          {(msgSubTab === "all" || msgSubTab === "line") && lineLinked !== null && lineLinked?.linked === false && (
-            <div style={{ padding: "8px 14px", background: "#fffbeb", borderRadius: 8, border: "1px solid #fde68a", marginBottom: 12, fontSize: 12, color: "#92400e" }}>
-              ⚠️ LINE未連携 — 候補者がLINE友だち追加後、名前またはメールで自動紐付けされます
-            </div>
-          )}
+          {/* ===== メールサブタブ ===== */}
+          {msgSubTab === "email" && (<>
 
           {/* 送信成功メッセージ */}
           {sendSuccess && (
@@ -4345,6 +4294,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     {c.lastName} {c.firstName} &lt;{c.email || "メール未登録"}&gt;
                   </div>
                 </div>
+                {/* テンプレート選択 */}
                 {emailTemplates.length > 0 && (
                   <div style={{ marginBottom: 14 }}>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>テンプレート</label>
@@ -4414,76 +4364,29 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
             </div>
           )}
 
-          {/* ===== LINE送信フォーム（フィルタがLINEの時、または LINE送信ボタン押下時に表示） ===== */}
-          {msgSubTab === "line" && lineLinked?.linked && (
-            <div style={{ background: "#f9fafb", borderRadius: 10, padding: 14, marginBottom: 16, border: "1px solid #e5e7eb" }}>
-              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                <select
-                  onChange={e => {
-                    if (!e.target.value) return;
-                    try {
-                      const tpls = JSON.parse(localStorage.getItem('ats_line_templates') || '[]');
-                      const tpl = (tpls.length ? tpls : DEFAULT_LINE_TEMPLATES).find(t => t.id === e.target.value);
-                      if (tpl) {
-                        const name = `${c.lastName || ''} ${c.firstName || ''}`.trim();
-                        setLineInput(tpl.body.replace(/\{\{name\}\}/g, name).replace(/\{\{company\}\}/g, '株式会社madoguchi'));
-                      }
-                    } catch(err) {}
-                    e.target.value = "";
-                  }}
-                  style={{ padding: "5px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 11, color: "#6b7280", background: "white", cursor: "pointer" }}>
-                  <option value="">📝 テンプレート</option>
-                  {(() => { try { const t = JSON.parse(localStorage.getItem('ats_line_templates') || '[]'); return (t.length ? t : DEFAULT_LINE_TEMPLATES); } catch(e) { return DEFAULT_LINE_TEMPLATES; } })().map(t => (
-                    <option key={t.id} value={t.id}>[{t.category}] {t.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <textarea
-                  value={lineInput}
-                  onChange={e => setLineInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendLineMessage(); } }}
-                  placeholder="LINEメッセージを入力..."
-                  rows={lineInput.includes('\n') ? Math.min(lineInput.split('\n').length + 1, 6) : 1}
-                  style={{ flex: 1, padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 16, fontSize: 13, outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.5 }}
-                />
-                <button
-                  onClick={sendLineMessage}
-                  disabled={!lineInput.trim() || lineSending}
-                  style={{
-                    padding: "10px 20px", border: "none", borderRadius: 20, alignSelf: "flex-end",
-                    background: lineInput.trim() ? "#06c755" : "#d1d5db",
-                    color: "white", fontSize: 13, fontWeight: 500,
-                    cursor: lineInput.trim() ? "pointer" : "not-allowed",
-                    opacity: lineSending ? 0.6 : 1,
-                  }}>
-                  {lineSending ? "送信中..." : "💬 送信"}
-                </button>
-              </div>
+          {/* メッセージ履歴 (Gmail API) */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>メール履歴</h4>
+              <button onClick={loadMessages} disabled={loadingMessages}
+                style={{ padding: "4px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>
+                {loadingMessages ? "読込中..." : "↻ 更新"}
+              </button>
             </div>
-          )}
-
-          {/* ===== 統合メッセージタイムライン ===== */}
-          {isLoading && allMessages.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 30, color: "#9ca3af", fontSize: 13 }}>読み込み中...</div>
-          ) : allMessages.length === 0 ? (
-            <div style={{ padding: 30, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>{msgSubTab === "line" ? "💬" : msgSubTab === "email" ? "✉️" : "💬✉️"}</div>
-              <div>
-                {msgSubTab === "all" ? "この候補者とのメッセージ履歴はありません" :
-                 msgSubTab === "email" ? "この候補者とのメール履歴はありません" :
-                 "この候補者とのLINE履歴はありません"}
+            {loadingMessages && messageHistory.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 20, color: "#9ca3af", fontSize: 13 }}>読み込み中...</div>
+            ) : messageHistory.length === 0 ? (
+              <div style={{ padding: 24, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                <Icon name="mail" size={24} color="#d1d5db" />
+                <div style={{ marginTop: 8 }}>この候補者とのメール履歴はありません</div>
+                <div style={{ marginTop: 4, fontSize: 12 }}>「メール作成」ボタンからメールを送信できます</div>
               </div>
-              <div style={{ marginTop: 4, fontSize: 12 }}>上のボタンからメッセージを送信できます</div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {allMessages.map((msg, i) => {
-                if (msg.channel === "email") {
-                  // メールカード
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {messageHistory.map((msg, i) => {
                   const isInbound = msg.direction === "inbound";
                   return (
-                    <div key={"e-" + (msg.id || i)} style={{
+                    <div key={msg.id || i} style={{
                       border: "1px solid " + (isInbound ? "#bfdbfe" : "#e5e7eb"),
                       borderRadius: 8, padding: 14,
                       background: isInbound ? "#eff6ff" : "#fff",
@@ -4491,7 +4394,6 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ background: "#e0e7ff", color: "#4338ca", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600 }}>✉️ メール</span>
                           <span style={{
                             background: isInbound ? "#dbeafe" : "#e0e7ff",
                             color: isInbound ? "#1d4aff" : "#4338ca",
@@ -4511,43 +4413,138 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                       <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 80, overflow: "hidden" }}>{msg.body}</div>
                     </div>
                   );
-                } else {
-                  // LINEメッセージカード
-                  const isOut = msg.direction === 'outbound';
-                  const time = msg.created_at ? new Date(msg.created_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-                  return (
-                    <div key={"l-" + (msg.id || i)} style={{
-                      border: "1px solid " + (isOut ? "#bbf7d0" : "#d1fae5"),
-                      borderRadius: 8, padding: 14,
-                      background: isOut ? "#f0fdf4" : "#ecfdf5",
-                      borderLeft: "3px solid #06c755",
-                    }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ background: "#d1fae5", color: "#059669", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600 }}>💬 LINE</span>
-                          <span style={{
-                            background: isOut ? "#d1fae5" : "#a7f3d0",
-                            color: "#059669",
-                            padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
-                          }}>
-                            {isOut ? "→ 送信" : "← 受信"}
-                          </span>
-                        </div>
-                        <span style={{ fontSize: 11, color: "#9ca3af" }}>{time}</span>
-                      </div>
-                      <div style={{ fontSize: 13, color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                        {msg.message_type === 'text' ? msg.content : <span style={{ fontStyle: "italic", color: "#9ca3af" }}>[{msg.message_type}]</span>}
-                      </div>
+                })}
+              </div>
+            )}
+          </div>
+          </>)}
+
+          {/* ===== LINEサブタブ ===== */}
+          {msgSubTab === "line" && (
+            <div>
+              {/* LINE連携ステータス */}
+              {lineLoading ? (
+                <div style={{ textAlign: "center", padding: 20, color: "#9ca3af", fontSize: 13 }}>読み込み中...</div>
+              ) : lineLinked === null || lineLinked?.linked === undefined ? (
+                <div style={{ padding: 24, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
+                  <div>LINE連携が設定されていません</div>
+                  <div style={{ marginTop: 4, fontSize: 12 }}>設定画面の「LINE連携」タブから設定してください</div>
+                </div>
+              ) : !lineLinked.linked ? (
+                <div style={{ padding: 20, background: "#fffbeb", borderRadius: 10, border: "1px solid #fde68a", marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 18 }}>⚠️</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>LINE未連携</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#92400e", lineHeight: 1.6 }}>
+                    この候補者はまだLINEアカウントと紐付けされていません。<br />
+                    候補者がLINE公式アカウントを友だち追加し、名前またはメールアドレスを送信すると自動で紐付けされます。<br />
+                    設定画面の「LINE連携」タブから手動で紐付けることもできます。
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* 連携済みヘッダー */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0", marginBottom: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#06c755" }}></span>
+                      <span style={{ fontSize: 12, color: "#15803d", fontWeight: 500 }}>LINE連携済み</span>
+                      {lineLinked.display_name && <span style={{ fontSize: 12, color: "#6b7280" }}>({lineLinked.display_name})</span>}
                     </div>
-                  );
-                }
-              })}
-              <div ref={lineMsgEndRef} />
+                    <button onClick={loadLineData} style={{ padding: "4px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>
+                      ↻ 更新
+                    </button>
+                  </div>
+
+                  {/* チャット風メッセージ表示 */}
+                  <div style={{ background: "#e8e4df", borderRadius: 12, padding: 16, minHeight: 300, maxHeight: 450, overflowY: "auto", marginBottom: 12 }}>
+                    {lineMessages.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: 40, color: "#9ca3af", fontSize: 13 }}>
+                        まだLINEメッセージはありません
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {lineMessages.map((msg, i) => {
+                          const isOut = msg.direction === 'outbound';
+                          const time = msg.created_at ? new Date(msg.created_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                          return (
+                            <div key={msg.id || i} style={{ display: "flex", justifyContent: isOut ? "flex-end" : "flex-start" }}>
+                              <div style={{
+                                maxWidth: "70%",
+                                background: isOut ? "#06c755" : "white",
+                                color: isOut ? "white" : "#111827",
+                                borderRadius: isOut ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                                padding: "10px 14px",
+                                fontSize: 13, lineHeight: 1.6,
+                                boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
+                                position: "relative",
+                              }}>
+                                {msg.message_type === 'text' ? (
+                                  <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                                ) : (
+                                  <div style={{ fontStyle: "italic", opacity: 0.7 }}>[{msg.message_type}]</div>
+                                )}
+                                <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 4 }}>{time}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div ref={lineMsgEndRef} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* テンプレート選択 + 送信フォーム */}
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                    <select
+                      onChange={e => {
+                        if (!e.target.value) return;
+                        try {
+                          const tpls = JSON.parse(localStorage.getItem('ats_line_templates') || '[]');
+                          const tpl = (tpls.length ? tpls : DEFAULT_LINE_TEMPLATES).find(t => t.id === e.target.value);
+                          if (tpl) {
+                            const name = `${c.lastName || ''} ${c.firstName || ''}`.trim();
+                            setLineInput(tpl.body.replace(/\{\{name\}\}/g, name).replace(/\{\{company\}\}/g, '株式会社madoguchi'));
+                          }
+                        } catch(err) {}
+                        e.target.value = "";
+                      }}
+                      style={{ padding: "5px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 11, color: "#6b7280", background: "white", cursor: "pointer" }}>
+                      <option value="">📝 テンプレート</option>
+                      {(() => { try { const t = JSON.parse(localStorage.getItem('ats_line_templates') || '[]'); return (t.length ? t : DEFAULT_LINE_TEMPLATES); } catch(e) { return DEFAULT_LINE_TEMPLATES; } })().map(t => (
+                        <option key={t.id} value={t.id}>[{t.category}] {t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <textarea
+                      value={lineInput}
+                      onChange={e => setLineInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendLineMessage(); } }}
+                      placeholder="LINEメッセージを入力..."
+                      rows={lineInput.includes('\n') ? Math.min(lineInput.split('\n').length + 1, 6) : 1}
+                      style={{ flex: 1, padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 16, fontSize: 13, outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.5 }}
+                    />
+                    <button
+                      onClick={sendLineMessage}
+                      disabled={!lineInput.trim() || lineSending}
+                      style={{
+                        padding: "10px 20px", border: "none", borderRadius: 20, alignSelf: "flex-end",
+                        background: lineInput.trim() ? "#06c755" : "#d1d5db",
+                        color: "white", fontSize: 13, fontWeight: 500,
+                        cursor: lineInput.trim() ? "pointer" : "not-allowed",
+                        opacity: lineSending ? 0.6 : 1,
+                      }}>
+                      {lineSending ? "送信中..." : "送信"}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
-        );
-      })()}
+      )}
 
       {/* ===== メモタブ ===== */}
       {activeTab === "memo" && (
