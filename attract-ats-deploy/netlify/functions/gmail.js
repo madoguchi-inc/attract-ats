@@ -2,7 +2,9 @@
 // 環境変数:
 //   GOOGLE_SERVICE_ACCOUNT_EMAIL - サービスアカウントのメール
 //   GOOGLE_PRIVATE_KEY - サービスアカウントの秘密鍵 (PEM形式, \n をそのまま)
-//   GMAIL_USER_EMAIL - 送受信に使うメールアドレス (例: recruitment@madoguchi.inc)
+//   GMAIL_USER_EMAIL - Gmail API認証に使う実ユーザー (例: r.watanabe@madoguchi.inc)
+//   GMAIL_SEND_AS_EMAIL - (任意) 送信元アドレス。エイリアス対応 (例: recruit@madoguchi.inc)
+//                         未設定の場合は GMAIL_USER_EMAIL が送信元になる
 
 const crypto = require('crypto');
 
@@ -185,7 +187,8 @@ exports.handler = async (event) => {
   // 環境変数チェック
   const SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const PRIVATE_KEY = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const GMAIL_USER = process.env.GMAIL_USER_EMAIL;
+  const GMAIL_USER = process.env.GMAIL_USER_EMAIL;          // 認証用（実ユーザー）
+  const SEND_AS = process.env.GMAIL_SEND_AS_EMAIL || GMAIL_USER; // 送信元（エイリアス可）
 
   if (!SA_EMAIL || !PRIVATE_KEY || !GMAIL_USER) {
     return {
@@ -201,7 +204,7 @@ exports.handler = async (event) => {
     const reqBody = JSON.parse(event.body);
     const { action } = reqBody;
 
-    // アクセストークン取得
+    // アクセストークン取得 (認証は実ユーザーで行う)
     const accessToken = await getAccessToken(SA_EMAIL, PRIVATE_KEY, GMAIL_USER);
 
     if (action === 'send') {
@@ -209,7 +212,8 @@ exports.handler = async (event) => {
       if (!to || !subject || !body) {
         return { statusCode: 400, headers, body: JSON.stringify({ error: '宛先、件名、本文は必須です' }) };
       }
-      const result = await sendEmail(accessToken, GMAIL_USER, to, subject, body);
+      // 送信元はエイリアス（SEND_AS）を使用
+      const result = await sendEmail(accessToken, SEND_AS, to, subject, body);
       return {
         statusCode: 200,
         headers,
