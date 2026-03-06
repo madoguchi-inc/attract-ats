@@ -1043,7 +1043,8 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
     let matchStage = true;
     if (effectiveStageFilter !== "all") {
       const mappedStage = PIPELINE_STAGE_MAP[effectiveStageFilter] || effectiveStageFilter;
-      matchStage = c.stage === effectiveStageFilter || c.stage === mappedStage;
+      const stageBase = (c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : (c.stage || "");
+      matchStage = c.stage === effectiveStageFilter || c.stage === mappedStage || stageBase === effectiveStageFilter || stageBase === mappedStage;
     }
     // サブステータスフィルタ（チェックボックス）：何もチェックされていなければ全表示
     let matchSubstatus = true;
@@ -1508,7 +1509,7 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
                     {isNewGrad ? c.gradYear : c.experience ? `${c.experience}年` : "—"}
                   </td>
                   <td style={{ padding: "12px 10px", fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" }}>{c.entryDate || "—"}</td>
-                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 8px", borderRadius: 12, background: "#eef2ff", color: "#4338ca", whiteSpace: "nowrap" }}>{c.stage}</span></td>
+                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 8px", borderRadius: 12, background: "#eef2ff", color: "#4338ca", whiteSpace: "nowrap" }}>{(c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : c.stage}</span></td>
                   <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}><FormatBadge format={c.format} /></td>
                   <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 8px", borderRadius: 12, background: sc.bg, color: sc.text, whiteSpace: "nowrap" }}>{c.status}</span></td>
                   <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}>{[...Array(5)].map((_, i) => <span key={i} style={{ color: i < c.aspiration ? "#f59e0b" : "#e5e7eb", fontSize: 12 }}>★</span>)}</td>
@@ -2260,8 +2261,11 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
   // ステージ変更用 state
   const [editingStage, setEditingStage] = useState(false);
-  const [selectedStage, setSelectedStage] = useState(c.stage);
-  const [selectedSub, setSelectedSub] = useState(c.substatus || "");
+  // stage に "エントリー/受付済" のような結合値が入っている場合があるので分離する
+  const normalizedStage = (c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : (c.stage || "");
+  const normalizedSub = c.substatus || ((c.stage || "").includes("/") ? c.stage.split("/").slice(1).join("/").trim() : "");
+  const [selectedStage, setSelectedStage] = useState(normalizedStage);
+  const [selectedSub, setSelectedSub] = useState(normalizedSub);
   const [savingStage, setSavingStage] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingCandidate, setDeletingCandidate] = useState(false);
@@ -2290,8 +2294,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
   // キャンセル
   const handleCancelStage = () => {
-    setSelectedStage(c.stage);
-    setSelectedSub(c.substatus || "");
+    setSelectedStage(normalizedStage);
+    setSelectedSub(normalizedSub);
     setEditingStage(false);
   };
 
@@ -3303,13 +3307,13 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
             {!can("changeStage") ? (
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", border: "2px solid #e5e7eb", borderRadius: 10, background: "#f9fafb", fontSize: 13, color: "#111827", fontWeight: 600, minWidth: 200, justifyContent: "center" }}>
                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
-                {c.stage} {c.substatus ? `/ ${c.substatus}` : ""}
+                {normalizedStage} {normalizedSub ? `/ ${normalizedSub}` : ""}
               </div>
             ) : !editingStage ? (
               <button onClick={() => setEditingStage(true)}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", border: `2px solid ${currentStageDef ? currentStageDef.color : "#6366f1"}`, borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#111827", fontWeight: 600, minWidth: 200, justifyContent: "center" }}>
                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: currentStageDef ? currentStageDef.color : "#6366f1" }} />
-                {c.stage} {c.substatus ? `/ ${c.substatus}` : ""}
+                {normalizedStage} {normalizedSub ? `/ ${normalizedSub}` : ""}
                 <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 4 }}>▼ 変更</span>
               </button>
             ) : (
@@ -3341,9 +3345,9 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                   })}
                 </div>
                 {/* 変更前 → 変更後プレビュー */}
-                {(selectedStage !== c.stage || selectedSub !== (c.substatus || "")) && (
+                {(selectedStage !== normalizedStage || selectedSub !== normalizedSub) && (
                   <div style={{ padding: "8px 10px", background: "#f9fafb", borderRadius: 8, fontSize: 11, marginBottom: 10, lineHeight: 1.8 }}>
-                    <span style={{ color: "#9ca3af" }}>{c.stage}/{c.substatus || "—"}</span>
+                    <span style={{ color: "#9ca3af" }}>{normalizedStage}/{normalizedSub || "—"}</span>
                     <span style={{ margin: "0 6px", color: "#6366f1" }}>→</span>
                     <strong style={{ color: isExitStatus(selectedSub) ? "#dc2626" : "#4338ca" }}>{selectedStage}/{selectedSub}</strong>
                   </div>
@@ -3351,8 +3355,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                   <button onClick={handleCancelStage}
                     style={{ padding: "6px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>キャンセル</button>
-                  <button onClick={handleSaveStage} disabled={savingStage || (selectedStage === c.stage && selectedSub === (c.substatus || ""))}
-                    style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: (selectedStage === c.stage && selectedSub === (c.substatus || "")) ? "#d1d5db" : "#6366f1", color: "white", fontSize: 12, cursor: savingStage ? "default" : "pointer", fontWeight: 600 }}>
+                  <button onClick={handleSaveStage} disabled={savingStage || (selectedStage === normalizedStage && selectedSub === normalizedSub)}
+                    style={{ padding: "6px 16px", border: "none", borderRadius: 8, background: (selectedStage === normalizedStage && selectedSub === normalizedSub) ? "#d1d5db" : "#6366f1", color: "white", fontSize: 12, cursor: savingStage ? "default" : "pointer", fontWeight: 600 }}>
                     {savingStage ? "保存中..." : "保存"}
                   </button>
                 </div>
@@ -6577,7 +6581,7 @@ function AnalyticsPage({ recruitFilter, candidates = [] }) {
   const funnelData = useMemo(() => {
     const stageCounts = {};
     STAGE_DEFINITIONS.forEach(s => { stageCounts[s.name] = 0; });
-    candidates.forEach(c => { if (stageCounts[c.stage] !== undefined) stageCounts[c.stage]++; });
+    candidates.forEach(c => { const sb = (c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : (c.stage || ""); if (stageCounts[sb] !== undefined) stageCounts[sb]++; });
     // 累積: 各ステージに「到達した」人数 = そのステージ以降にいる全員
     const stageNames = STAGE_DEFINITIONS.map(s => s.name);
     const cumulative = stageNames.map((name, i) => {
@@ -6639,7 +6643,8 @@ function AnalyticsPage({ recruitFilter, candidates = [] }) {
       const u = c.university || "不明";
       if (!map[u]) map[u] = { total: 0, advanced: 0 };
       map[u].total++;
-      const si = STAGE_DEFINITIONS.findIndex(s => s.name === c.stage);
+      const csb = (c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : (c.stage || "");
+      const si = STAGE_DEFINITIONS.findIndex(s => s.name === csb);
       if (si >= 4) map[u].advanced++; // 二次面接以降
     });
     return Object.entries(map)
@@ -6674,9 +6679,10 @@ function AnalyticsPage({ recruitFilter, candidates = [] }) {
   // ===== KPIサマリー =====
   const kpi = useMemo(() => {
     const total = candidates.length;
-    const offerCount = candidates.filter(c => c.stage === "内定" || c.stage === "内定承諾").length;
-    const acceptedCount = candidates.filter(c => c.stage === "内定承諾").length;
-    const interviewCount = candidates.filter(c => ["一次面接", "二次面接", "最終面接"].includes(c.stage)).length;
+    const getBase = (s) => (s || "").includes("/") ? s.split("/")[0].trim() : (s || "");
+    const offerCount = candidates.filter(c => { const s = getBase(c.stage); return s === "内定" || s === "内定承諾"; }).length;
+    const acceptedCount = candidates.filter(c => getBase(c.stage) === "内定承諾").length;
+    const interviewCount = candidates.filter(c => ["一次面接", "二次面接", "最終面接"].includes(getBase(c.stage))).length;
     const offerRate = total > 0 ? ((offerCount / total) * 100).toFixed(1) : "0";
     const acceptRate = offerCount > 0 ? ((acceptedCount / offerCount) * 100).toFixed(1) : "0";
     return { total, offerCount, acceptedCount, interviewCount, offerRate, acceptRate };
@@ -7648,7 +7654,8 @@ function AgentsPage({ candidates = [] }) {
     candidates.forEach(c => {
       if (c.agent && stats[c.agent]) {
         stats[c.agent].total++;
-        stats[c.agent].byStage[c.stage] = (stats[c.agent].byStage[c.stage] || 0) + 1;
+        const csb = (c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : (c.stage || "");
+        stats[c.agent].byStage[csb] = (stats[c.agent].byStage[csb] || 0) + 1;
         if (c.recruitType) stats[c.agent].byRecruitType[c.recruitType] = (stats[c.agent].byRecruitType[c.recruitType] || 0) + 1;
       }
     });
@@ -7694,7 +7701,7 @@ function AgentsPage({ candidates = [] }) {
         {[
           { label: "契約中", count: agents.filter(a => a.active).length, bg: "#dcfce7", color: "#15803d" },
           { label: "紹介候補者数", count: candidates.filter(c => c.agent).length, bg: "#eef2ff", color: "#4338ca" },
-          { label: "内定以降", count: candidates.filter(c => c.agent && (c.stage === "内定" || c.stage === "内定承諾")).length, bg: "#fef3c7", color: "#92400e" },
+          { label: "内定以降", count: candidates.filter(c => { const sb = (c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : (c.stage || ""); return c.agent && (sb === "内定" || sb === "内定承諾"); }).length, bg: "#fef3c7", color: "#92400e" },
           { label: "契約期限切れ", count: agents.filter(a => isExpired(a)).length, bg: "#fee2e2", color: "#dc2626" },
         ].map((c, i) => (
           <div key={i} style={{ flex: 1, padding: "14px 16px", background: c.bg, borderRadius: 10 }}>
@@ -7808,7 +7815,8 @@ function AgentsPage({ candidates = [] }) {
                 ) : (
                   <div style={{ maxHeight: 300, overflowY: "auto" }}>
                     {selectedCandidates.map(c => {
-                      const stDef = getStageDefByName(c.stage);
+                      const csb = (c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : (c.stage || "");
+                      const stDef = getStageDefByName(csb);
                       return (
                         <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}>
                           <div style={{ width: 32, height: 32, borderRadius: "50%", background: stDef?.color || "#6b7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "white", fontWeight: 600 }}>{(c.lastName || "?").charAt(0)}</div>
@@ -7816,7 +7824,7 @@ function AgentsPage({ candidates = [] }) {
                             <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>{c.lastName} {c.firstName}</div>
                             <div style={{ fontSize: 10, color: "#9ca3af" }}>{c.recruitType} ・ {c.university || c.company || ""}</div>
                           </div>
-                          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: (stDef?.color || "#6b7280") + "18", color: stDef?.color || "#6b7280", fontWeight: 600 }}>{c.stage}</span>
+                          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: (stDef?.color || "#6b7280") + "18", color: stDef?.color || "#6b7280", fontWeight: 600 }}>{csb}</span>
                         </div>
                       );
                     })}
