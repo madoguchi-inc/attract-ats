@@ -6923,7 +6923,7 @@ function AnalyticsPage({ recruitFilter, candidates = [] }) {
 function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState("all"); // all, sent, received, draft
+  const [filter, setFilter] = useState("all"); // all, sent, received, email, line
   const [search, setSearch] = useState("");
   const [selectedMsg, setSelectedMsg] = useState(null);
   const [showCompose, setShowCompose] = useState(false);
@@ -6932,21 +6932,41 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const [sendResult, setSendResult] = useState({ type: "", text: "" });
   const [selectedTemplate, setSelectedTemplate] = useState("");
 
-  // Supabaseからメッセージ履歴を取得
+  // Supabaseからメッセージ履歴を取得（メール + LINE統合）
   const loadMessages = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await sbApi.select('messages', 'order=created_at.desc');
-      if (!error && data) {
-        // 候補者名をマッピング
-        const candMap = {};
-        candidates.forEach(c => { candMap[c.id] = (c.lastName || "") + " " + (c.firstName || ""); });
-        setMessages(data.map(m => ({
-          ...m,
-          candidateName: candMap[m.candidate_id] || "不明",
-          date: m.created_at,
-        })));
-      }
+      const candMap = {};
+      candidates.forEach(c => { candMap[c.id] = (c.lastName || "") + " " + (c.firstName || ""); });
+
+      // メール取得
+      const { data: emailData, error: emailErr } = await sbApi.select('messages', 'order=created_at.desc');
+      const emails = (!emailErr && emailData) ? emailData.map(m => ({
+        ...m,
+        channel: m.channel || "email",
+        candidateName: candMap[m.candidate_id] || "不明",
+        date: m.created_at,
+      })) : [];
+
+      // LINEメッセージ取得
+      const { data: lineData, error: lineErr } = await sbApi.select('line_messages', 'order=created_at.desc');
+      const lineMessages = (!lineErr && lineData) ? lineData.map(m => ({
+        id: m.id,
+        candidate_id: m.candidate_id,
+        direction: m.direction || "inbound",
+        channel: "line",
+        subject: m.message_type === "text" ? (m.content || "").slice(0, 30) + ((m.content || "").length > 30 ? "..." : "") : `[${m.message_type}]`,
+        body: m.content || "",
+        to_email: "",
+        status: "sent",
+        candidateName: candMap[m.candidate_id] || "不明",
+        date: m.created_at,
+        created_at: m.created_at,
+      })) : [];
+
+      // 統合して時系列ソート
+      const allMessages = [...emails, ...lineMessages].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+      setMessages(allMessages);
     } catch (err) {
       console.error("メッセージ取得エラー:", err);
     }
@@ -6960,6 +6980,8 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
     let list = messages;
     if (filter === "sent") list = list.filter(m => m.direction === "outbound");
     else if (filter === "received") list = list.filter(m => m.direction === "inbound");
+    else if (filter === "email") list = list.filter(m => m.channel !== "line");
+    else if (filter === "line") list = list.filter(m => m.channel === "line");
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(m =>
@@ -6977,13 +6999,15 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
     const total = messages.length;
     const sent = messages.filter(m => m.direction === "outbound").length;
     const received = messages.filter(m => m.direction === "inbound").length;
+    const lineCount = messages.filter(m => m.channel === "line").length;
+    const emailCount = messages.filter(m => m.channel !== "line").length;
     const today = messages.filter(m => {
       if (!m.date) return false;
       const d = new Date(m.date);
       const now = new Date();
       return d.toDateString() === now.toDateString();
     }).length;
-    return { total, sent, received, today };
+    return { total, sent, received, today, lineCount, emailCount };
   }, [messages]);
 
   // テンプレート選択
@@ -7080,15 +7104,16 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       </div>
 
       {/* 統計カード */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
         {[
           { label: "総メッセージ", value: stats.total, icon: "📨", color: "#6366f1" },
-          { label: "送信済み", value: stats.sent, icon: "📤", color: "#10b981" },
+          { label: "✉️ メール", value: stats.emailCount, icon: "", color: "#1d4aff" },
+          { label: "💬 LINE", value: stats.lineCount, icon: "", color: "#06c755" },
           { label: "受信", value: stats.received, icon: "📥", color: "#3b82f6" },
           { label: "今日", value: stats.today, icon: "📅", color: "#f59e0b" },
         ].map((item, i) => (
           <div key={i} style={{ ...cardStyle, padding: "14px 16px", borderLeft: `3px solid ${item.color}` }}>
-            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>{item.icon} {item.label}</div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>{item.icon}{item.icon ? " " : ""}{item.label}</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
           </div>
         ))}
@@ -7176,9 +7201,9 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       {/* フィルター & 検索 */}
       <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center" }}>
         <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 10, padding: 4 }}>
-          {[["all", "すべて"], ["sent", "送信済み"], ["received", "受信"]].map(([id, label]) => (
+          {[["all", "すべて"], ["email", "✉️ メール"], ["line", "💬 LINE"], ["sent", "送信済み"], ["received", "受信"]].map(([id, label]) => (
             <button key={id} onClick={() => setFilter(id)}
-              style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? "#4338ca" : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>{label}</button>
+              style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? (id === "line" ? "#06c755" : "#4338ca") : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none" }}>{label}</button>
           ))}
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 件名・本文・候補者名で検索..."
@@ -7199,7 +7224,7 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
             <div style={{ padding: 40, textAlign: "center" }}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
               <div style={{ color: "#9ca3af", fontSize: 13 }}>{messages.length === 0 ? "メッセージ履歴がまだありません" : "条件に一致するメッセージがありません"}</div>
-              <div style={{ color: "#d1d5db", fontSize: 12, marginTop: 4 }}>候補者にメールを送信すると、ここに履歴が表示されます</div>
+              <div style={{ color: "#d1d5db", fontSize: 12, marginTop: 4 }}>候補者にメールやLINEを送信すると、ここに履歴が表示されます</div>
             </div>
           ) : (
             <div>
@@ -7217,16 +7242,22 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "white"; }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{
-                          fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
-                          background: isInbound ? "#dbeafe" : "#e0e7ff",
-                          color: isInbound ? "#1d4aff" : "#4338ca",
+                          fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                          background: msg.channel === "line" ? "#dcfce7" : "#e0e7ff",
+                          color: msg.channel === "line" ? "#15803d" : "#4338ca",
+                        }}>
+                          {msg.channel === "line" ? "💬 LINE" : "✉️ メール"}
+                        </span>
+                        <span style={{
+                          fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: 500,
+                          background: isInbound ? "#dbeafe" : "#f3f4f6",
+                          color: isInbound ? "#1d4aff" : "#6b7280",
                         }}>
                           {isInbound ? "受信" : "送信"}
                         </span>
                         <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{msg.candidateName}</span>
-                        {msg.channel === "line" && <span style={{ fontSize: 10, background: "#dcfce7", color: "#15803d", padding: "1px 6px", borderRadius: 4 }}>LINE</span>}
                       </div>
                       <span style={{ fontSize: 11, color: "#9ca3af" }}>{formatDate(msg.date)}</span>
                     </div>
