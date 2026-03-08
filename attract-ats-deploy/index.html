@@ -15,6 +15,7 @@
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif; }
 @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 @keyframes expandDown { from { max-height: 0; opacity: 0; } to { max-height: 600px; opacity: 1; } }
 </style>
@@ -231,6 +232,8 @@ function Icon({ name, size = 16, color = "currentColor", style: extraStyle }) {
     zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
     building: "M6 22V4a2 2 0 012-2h8a2 2 0 012 2v18zM6 12H4a2 2 0 00-2 2v6a2 2 0 002 2h2M18 9h2a2 2 0 012 2v9a2 2 0 01-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4",
     menu: "M3 12h18M3 6h18M3 18h18",
+    eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 100 6 3 3 0 000-6z",
+    "eye-off": "M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19M14.12 14.12a3 3 0 01-4.24-4.24M1 1l22 22",
     "bar-chart": "M12 20V10M18 20V4M6 20v-4",
     "check-square": "M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11",
     settings: "M12 15a3 3 0 100-6 3 3 0 000 6z",
@@ -525,6 +528,8 @@ function LoginPage({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [focusField, setFocusField] = useState(null);
+  const [showPw, setShowPw] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -539,7 +544,6 @@ function LoginPage({ onLogin }) {
       }
       onLogin(user);
     } else {
-      // デモモード（Supabase未設定時）
       if (email && password) {
         onLogin({ email, id: "demo" });
       } else {
@@ -549,37 +553,141 @@ function LoginPage({ onLogin }) {
     }
   };
 
+  // アニメーション用スタイルを注入
+  useEffect(() => {
+    if (document.getElementById('login-anim-style')) return;
+    const styleEl = document.createElement('style');
+    styleEl.id = 'login-anim-style';
+    styleEl.textContent = `
+      @keyframes loginFloat1 { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(60px,-40px) scale(1.1); } 66% { transform: translate(-30px,30px) scale(0.95); } }
+      @keyframes loginFloat2 { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(-50px,50px) scale(1.08); } 66% { transform: translate(40px,-20px) scale(0.92); } }
+      @keyframes loginFloat3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(30px,40px) scale(1.15); } }
+      @keyframes loginPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+      @keyframes loginCardIn { from { opacity: 0; transform: translateY(30px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+      @keyframes loginShimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+      .login-input:focus { border-color: #818cf8 !important; box-shadow: 0 0 0 3px rgba(129,140,248,0.15) !important; }
+      .login-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(99,102,241,0.4) !important; }
+      .login-btn:active:not(:disabled) { transform: translateY(0); }
+    `;
+    document.head.appendChild(styleEl);
+    return () => { const el = document.getElementById('login-anim-style'); if (el) el.remove(); };
+  }, []);
+
+  const inputStyle = (field) => ({
+    width: "100%", padding: "12px 14px", paddingLeft: 42,
+    border: "1.5px solid " + (focusField === field ? "#818cf8" : "rgba(0,0,0,0.08)"),
+    borderRadius: 12, fontSize: 14, outline: "none", boxSizing: "border-box",
+    background: "rgba(255,255,255,0.7)", backdropFilter: "blur(4px)",
+    transition: "all 0.2s ease", color: "#1e1b4b",
+  });
+
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0d2eb5 0%, #1d4aff 50%, #3562f6 100%)" }}>
-      <div style={{ background: "white", borderRadius: 20, padding: "48px 40px", width: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <img src="logo.svg" alt="Attract" style={{ width: 200, marginBottom: 4, filter: "brightness(0) saturate(100%) invert(22%) sepia(93%) saturate(4000%) hue-rotate(228deg) brightness(100%) contrast(102%)" }} />
-          <div style={{ fontSize: 13, color: "#6b7280" }}>採用管理システム</div>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden", background: "linear-gradient(135deg, #0f0c29 0%, #1a1145 30%, #24243e 60%, #0f0c29 100%)" }}>
+      {/* 動的な背景オーブ */}
+      <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
+        <div style={{ position: "absolute", top: "-10%", left: "-5%", width: 500, height: 500, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(99,102,241,0.35) 0%, transparent 70%)",
+          animation: "loginFloat1 12s ease-in-out infinite", filter: "blur(40px)" }} />
+        <div style={{ position: "absolute", bottom: "-15%", right: "-10%", width: 600, height: 600, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(139,92,246,0.3) 0%, transparent 70%)",
+          animation: "loginFloat2 15s ease-in-out infinite", filter: "blur(50px)" }} />
+        <div style={{ position: "absolute", top: "40%", left: "60%", width: 350, height: 350, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(59,130,246,0.25) 0%, transparent 70%)",
+          animation: "loginFloat3 10s ease-in-out infinite", filter: "blur(35px)" }} />
+        {/* グリッドドット */}
+        <div style={{ position: "absolute", inset: 0, opacity: 0.04,
+          backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)",
+          backgroundSize: "32px 32px" }} />
+      </div>
+
+      {/* カード */}
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: "rgba(255,255,255,0.08)", backdropFilter: "blur(24px) saturate(1.4)",
+        borderRadius: 24, padding: "44px 40px", width: 420, maxWidth: "92vw",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        animation: "loginCardIn 0.6s ease-out",
+      }}>
+        {/* ロゴ */}
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <img src="logo.svg" alt="Attract" style={{ width: 180, marginBottom: 6, filter: "brightness(0) invert(1)", opacity: 0.95 }} />
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", letterSpacing: 2, fontWeight: 500 }}>RECRUITMENT MANAGEMENT</div>
         </div>
+
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>メールアドレス</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com"
-              style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+          {/* メールアドレス */}
+          <div style={{ marginBottom: 16, position: "relative" }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.55)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>メールアドレス</label>
+            <div style={{ position: "relative" }}>
+              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+                <Icon name="mail" size={16} color={focusField === "email" ? "#818cf8" : "rgba(255,255,255,0.3)"} />
+              </div>
+              <input className="login-input" type="email" value={email} onChange={e => setEmail(e.target.value)}
+                onFocus={() => setFocusField("email")} onBlur={() => setFocusField(null)}
+                placeholder="you@example.com"
+                style={inputStyle("email")} />
+            </div>
           </div>
-          <div style={{ marginBottom: 24 }}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>パスワード</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワードを入力"
-              style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+
+          {/* パスワード */}
+          <div style={{ marginBottom: 24, position: "relative" }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.55)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>パスワード</label>
+            <div style={{ position: "relative" }}>
+              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+                <Icon name="shield" size={16} color={focusField === "pw" ? "#818cf8" : "rgba(255,255,255,0.3)"} />
+              </div>
+              <input className="login-input" type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                onFocus={() => setFocusField("pw")} onBlur={() => setFocusField(null)}
+                placeholder="••••••••"
+                style={{ ...inputStyle("pw"), paddingRight: 42 }} />
+              <button type="button" onClick={() => setShowPw(!showPw)}
+                style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 2 }}>
+                <Icon name={showPw ? "eye-off" : "eye"} size={16} color="rgba(255,255,255,0.35)" />
+              </button>
+            </div>
           </div>
+
+          {/* エラー */}
           {error && (
-            <div style={{ padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, color: "#dc2626", fontSize: 12, marginBottom: 16 }}>{error}</div>
+            <div style={{ padding: "10px 14px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 10, color: "#fca5a5", fontSize: 12, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name="alert-circle" size={14} color="#fca5a5" />
+              {error}
+            </div>
           )}
-          <button type="submit" disabled={loading}
-            style={{ width: "100%", padding: "12px", background: loading ? "#a5b4fc" : "#4338ca", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: loading ? "default" : "pointer" }}>
-            {loading ? "ログイン中..." : "ログイン"}
+
+          {/* ログインボタン */}
+          <button className="login-btn" type="submit" disabled={loading}
+            style={{
+              width: "100%", padding: "13px", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: loading ? "default" : "pointer",
+              color: "white", position: "relative", overflow: "hidden",
+              background: loading ? "rgba(129,140,248,0.4)" : "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #6366f1 100%)",
+              backgroundSize: "200% auto",
+              boxShadow: "0 4px 16px rgba(99,102,241,0.3)",
+              transition: "all 0.25s ease",
+            }}>
+            {loading ? (
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" style={{ animation: "spin 1s linear infinite" }}>
+                  <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="3" fill="none" />
+                  <path d="M12 2a10 10 0 019.95 9" stroke="white" strokeWidth="3" fill="none" strokeLinecap="round" />
+                </svg>
+                ログイン中...
+              </span>
+            ) : "ログイン"}
           </button>
         </form>
+
         {!SUPABASE_READY && (
-          <div style={{ marginTop: 20, padding: "12px 14px", background: "#fefce8", border: "1px solid #fde68a", borderRadius: 8, fontSize: 11, color: "#92400e" }}>
-            <strong>デモモード:</strong> Supabase未接続のため、任意のメール・パスワードでログインできます。データはブラウザ内のダミーデータです。
+          <div style={{ marginTop: 20, padding: "12px 14px", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 10, fontSize: 11, color: "rgba(251,191,36,0.8)" }}>
+            <strong>デモモード:</strong> Supabase未接続のため、任意のメール・パスワードでログインできます。
           </div>
         )}
+
+        {/* 下部アクセント */}
+        <div style={{ marginTop: 28, textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>Powered by madoguchi inc.</div>
+        </div>
       </div>
     </div>
   );
