@@ -9278,12 +9278,27 @@ function App() {
     return { candidateId: cid, active: !!cid };
   }, []);
 
+  // ========== URLハッシュベースルーティング ==========
+  const parseHash = useCallback(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (!hash) return { page: "dashboard", candidateId: null };
+    const parts = hash.split('/');
+    const page = parts[0] || "dashboard";
+    const candidateId = parts[1] || null;
+    return { page, candidateId };
+  }, []);
+
+  const initialRoute = useMemo(() => {
+    if (feedbackMode.active) return { page: "candidate-detail", candidateId: feedbackMode.candidateId };
+    return parseHash();
+  }, []);
+
   const [user, setUser] = useState(null);
-  const [userRole, setUserRole] = useState("admin"); // デフォルト: admin（初回ユーザー＝管理者）
+  const [userRole, setUserRole] = useState("admin");
   const [userProfile, setUserProfile] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [currentPage, setCurrentPage] = useState(feedbackMode.active ? "candidate-detail" : "dashboard");
-  const [selectedCandidateId, setSelectedCandidateId] = useState(feedbackMode.active ? feedbackMode.candidateId : null);
+  const [currentPage, setCurrentPage] = useState(initialRoute.page);
+  const [selectedCandidateId, setSelectedCandidateId] = useState(initialRoute.candidateId);
   const [recruitFilter, setRecruitFilter] = useState("all");
   const [pipelineFilter, setPipelineFilter] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -9546,16 +9561,47 @@ function App() {
     return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f0f5" }}><div style={{ fontSize: 14, color: "#6b7280" }}>読み込み中...</div></div>;
   }
 
-  const navigate = (page, id) => {
+  const navigate = useCallback((page, id) => {
     setCurrentPage(page);
     if (id) setSelectedCandidateId(id);
     if (page !== "candidates" || !id) setPipelineFilter(null);
     setSidebarOpen(false);
-  };
+    // URLハッシュを更新（pushState）
+    const hash = id ? `#${page}/${id}` : `#${page}`;
+    if (window.location.hash !== hash) {
+      window.history.pushState({ page, candidateId: id || null }, '', hash);
+    }
+  }, []);
+
+  // ブラウザバック/フォワード対応
+  useEffect(() => {
+    const onPopState = (e) => {
+      if (e.state && e.state.page) {
+        setCurrentPage(e.state.page);
+        setSelectedCandidateId(e.state.candidateId || null);
+        if (e.state.page !== "candidates" || !e.state.candidateId) setPipelineFilter(null);
+      } else {
+        // stateがない場合はハッシュからパース
+        const { page, candidateId } = parseHash();
+        setCurrentPage(page);
+        setSelectedCandidateId(candidateId);
+      }
+      setSidebarOpen(false);
+    };
+    window.addEventListener('popstate', onPopState);
+    // 初期状態をhistoryに記録
+    if (!window.history.state) {
+      const { page, candidateId } = parseHash();
+      const hash = candidateId ? `#${page}/${candidateId}` : `#${page}`;
+      window.history.replaceState({ page, candidateId }, '', hash || '#dashboard');
+    }
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [parseHash]);
 
   const navigateFromPipeline = (stageName, substatus) => {
     setPipelineFilter({ stageName, substatus });
     setCurrentPage("candidates");
+    window.history.pushState({ page: "candidates", candidateId: null }, '', '#candidates');
   };
 
   const renderPage = () => {
