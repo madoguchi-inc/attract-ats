@@ -769,6 +769,7 @@ exports.handler = async (event) => {
       // 面接官への通知メール送信
       try {
         const GMAIL_EMAIL = process.env.GMAIL_USER_EMAIL;
+        const SEND_AS = process.env.GMAIL_SEND_AS_EMAIL || GMAIL_EMAIL;
         if (GMAIL_EMAIL && session.interviewer_emails && session.interviewer_emails.length > 0) {
           const gmailScope = 'https://www.googleapis.com/auth/gmail.send';
           const gmailToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY.replace(/\\n/g, '\n'), GMAIL_EMAIL, gmailScope);
@@ -789,7 +790,7 @@ exports.handler = async (event) => {
 
           for (const email of session.interviewer_emails) {
             try {
-              await sendGmail(gmailToken, GMAIL_EMAIL, email, subject, body);
+              await sendGmail(gmailToken, SEND_AS, email, subject, body);
               console.log(`[Booking] 通知メール送信成功: ${email}`);
             } catch (mailErr) {
               console.error(`[Booking] 通知メール送信失敗 (${email}):`, mailErr.message);
@@ -804,6 +805,7 @@ exports.handler = async (event) => {
       try {
         if (candidateInfo.email) {
           const GMAIL_EMAIL_C = process.env.GMAIL_USER_EMAIL;
+          const SEND_AS_C = process.env.GMAIL_SEND_AS_EMAIL || GMAIL_EMAIL_C;
           if (GMAIL_EMAIL_C) {
             const gmailScopeC = 'https://www.googleapis.com/auth/gmail.send';
             const gmailTokenC = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY.replace(/\\n/g, '\n'), GMAIL_EMAIL_C, gmailScopeC);
@@ -826,7 +828,7 @@ exports.handler = async (event) => {
               `当日お会いできることを楽しみにしております。\n\n` +
               `何卒よろしくお願いいたします。`;
 
-            await sendGmail(gmailTokenC, GMAIL_EMAIL_C, candidateInfo.email, candSubject, candBody);
+            await sendGmail(gmailTokenC, SEND_AS_C, candidateInfo.email, candSubject, candBody);
             console.log(`[Booking] 候補者確認メール送信成功: ${candidateInfo.email}`);
           }
         }
@@ -1210,6 +1212,7 @@ exports.handler = async (event) => {
       // 6. 面接官への通知メール
       try {
         const GMAIL_EMAIL = process.env.GMAIL_USER_EMAIL;
+        const SEND_AS = process.env.GMAIL_SEND_AS_EMAIL || GMAIL_EMAIL;
         if (GMAIL_EMAIL && session.interviewer_emails.length > 0) {
           const gmailScope = 'https://www.googleapis.com/auth/gmail.send';
           const gmailToken = await getGoogleAccessToken(SA_EMAIL, PRIVATE_KEY.replace(/\\n/g, '\n'), GMAIL_EMAIL, gmailScope);
@@ -1219,7 +1222,7 @@ exports.handler = async (event) => {
           const body = `候補者が面接日程を変更しました。\n\n■ 候補者: ${candidateInfo.name}\n■ ステージ: ${session.stage || '面接'}\n■ 新日時: ${startJST} 〜 ${endTime}\n■ 形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
             (meetLink ? `\n■ Meet: ${meetLink}` : '') + `\n\n※ Googleカレンダーは自動更新済みです。`;
           for (const email of session.interviewer_emails) {
-            try { await sendGmail(gmailToken, GMAIL_EMAIL, email, subject, body); } catch (e) { console.error(`[Reschedule] 通知失敗 (${email}):`, e.message); }
+            try { await sendGmail(gmailToken, SEND_AS, email, subject, body); } catch (e) { console.error(`[Reschedule] 通知失敗 (${email}):`, e.message); }
           }
         }
       } catch (e) { console.log('[Reschedule] 通知メールスキップ:', e.message); }
