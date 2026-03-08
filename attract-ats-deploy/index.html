@@ -9341,10 +9341,6 @@ function App() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
   const appIsMobile = appWinW < 768;
-  // ========== グローバル検索 ==========
-  const [globalSearch, setGlobalSearch] = useState("");
-  const [globalSearchFocused, setGlobalSearchFocused] = useState(false);
-  const globalSearchRef = useRef(null);
 
   // ========== 通知機能 ==========
   const [showNotifications, setShowNotifications] = useState(false);
@@ -9529,25 +9525,6 @@ function App() {
     }
   };
 
-  // グローバル検索 - ひらがな→カタカナ変換対応
-  const toKatakana = (str) => str.replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
-  const globalSearchResults = useMemo(() => {
-    if (!globalSearch.trim()) return [];
-    const q = toKatakana(globalSearch.trim()).toLowerCase();
-    return candidates.filter(c => {
-      const target = `${c.lastName || ""}${c.firstName || ""}${c.lastNameKana || ""}${c.firstNameKana || ""}${c.university || ""}${c.company || ""}${c.position || ""}${c.email || ""}`.toLowerCase();
-      return target.includes(q);
-    }).slice(0, 8);
-  }, [globalSearch, candidates]);
-
-  useEffect(() => {
-    const handleClick = (e) => {
-      if (globalSearchRef.current && !globalSearchRef.current.contains(e.target)) setGlobalSearchFocused(false);
-    };
-    if (globalSearchFocused) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [globalSearchFocused]);
-
   const handleMigration = async () => {
     if (!window.confirm('候補者データを新しい8ステージ形式に一括変換します。\\n（既存のステージ・サブステータスが上書きされます）\\n\\n実行しますか？')) return;
     setMigrationStatus('running');
@@ -9690,46 +9667,6 @@ function App() {
             )}
             {!appIsMobile && !SUPABASE_READY && (
               <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "#fef3c7", color: "#92400e", fontWeight: 600 }}>デモモード</span>
-            )}
-            {!appIsMobile && (
-              <div ref={globalSearchRef} style={{ position: "relative", width: 280 }}>
-                <Icon name="search" size={14} color="#9ca3af" style={{ position: "absolute", left: 8, top: 8, zIndex: 1 }} />
-                <input
-                  value={globalSearch}
-                  onChange={e => setGlobalSearch(e.target.value)}
-                  onFocus={() => setGlobalSearchFocused(true)}
-                  placeholder="候補者を検索（名前・カナ・大学・企業）..."
-                  style={{ width: "100%", padding: "6px 6px 6px 28px", border: globalSearchFocused ? "1px solid #6366f1" : "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, outline: "none", boxSizing: "border-box", background: globalSearchFocused ? "#fff" : "#f9fafb", transition: "all 0.15s" }}
-                />
-                {globalSearchFocused && globalSearch.trim() && (
-                  <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#fff", borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", border: "1px solid #e5e7eb", zIndex: 9999, maxHeight: 360, overflowY: "auto" }}>
-                    {globalSearchResults.length === 0 ? (
-                      <div style={{ padding: "16px 14px", fontSize: 12, color: "#9ca3af", textAlign: "center" }}>該当する候補者が見つかりません</div>
-                    ) : (
-                      globalSearchResults.map(c => (
-                        <div key={c.id}
-                          onClick={() => { navigate("candidate-detail", c.id); setGlobalSearch(""); setGlobalSearchFocused(false); }}
-                          style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid #f3f4f6", transition: "background 0.1s" }}
-                          onMouseEnter={e => e.currentTarget.style.background = "#f5f3ff"}
-                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                        >
-                          <div style={{ width: 32, height: 32, borderRadius: "50%", background: c.recruitType === "中途" ? "#e0e7ff" : "#dbeafe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: c.recruitType === "中途" ? "#4338ca" : "#1d4ed8", flexShrink: 0 }}>
-                            {(c.lastName || "?")[0]}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{c.lastName} {c.firstName}</div>
-                            <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 1 }}>
-                              {c.recruitType === "中途" ? (c.company || "") + (c.position ? ` / ${c.position}` : "") : (c.university || "")}
-                              {(c.lastNameKana || c.firstNameKana) ? ` ・ ${c.lastNameKana || ""} ${c.firstNameKana || ""}` : ""}
-                            </div>
-                          </div>
-                          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: c.recruitType === "中途" ? "#eef2ff" : "#dbeafe", color: c.recruitType === "中途" ? "#4338ca" : "#1d4ed8", fontWeight: 600, flexShrink: 0 }}>{c.stage}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
             )}
             {appIsMobile && (
               <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>
