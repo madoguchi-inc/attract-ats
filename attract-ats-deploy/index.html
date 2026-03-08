@@ -1195,7 +1195,8 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
     const searchTarget = recruitFilter === "中途" || c.recruitType === "中途"
       ? `${c.lastName}${c.firstName}${kana}${c.company || ""}${c.position || ""}`
       : `${c.lastName}${c.firstName}${kana}${c.university || ""}`;
-    const matchSearch = searchTarget.includes(searchTerm);
+    const normalizedTerm = searchTerm.replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+    const matchSearch = searchTarget.includes(normalizedTerm);
     // ステージフィルタ
     let matchStage = true;
     if (effectiveStageFilter !== "all") {
@@ -9344,22 +9345,6 @@ function App() {
   const [globalSearch, setGlobalSearch] = useState("");
   const [globalSearchFocused, setGlobalSearchFocused] = useState(false);
   const globalSearchRef = useRef(null);
-  const globalSearchResults = useMemo(() => {
-    if (!globalSearch.trim()) return [];
-    const q = globalSearch.trim().toLowerCase();
-    return candidates.filter(c => {
-      const target = `${c.lastName || ""}${c.firstName || ""}${c.lastNameKana || ""}${c.firstNameKana || ""}${c.university || ""}${c.company || ""}${c.position || ""}${c.email || ""}`.toLowerCase();
-      return target.includes(q);
-    }).slice(0, 8);
-  }, [globalSearch, candidates]);
-
-  useEffect(() => {
-    const handleClick = (e) => {
-      if (globalSearchRef.current && !globalSearchRef.current.contains(e.target)) setGlobalSearchFocused(false);
-    };
-    if (globalSearchFocused) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [globalSearchFocused]);
 
   // ========== 通知機能 ==========
   const [showNotifications, setShowNotifications] = useState(false);
@@ -9543,6 +9528,25 @@ function App() {
       throw e;
     }
   };
+
+  // グローバル検索 - ひらがな→カタカナ変換対応
+  const toKatakana = (str) => str.replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+  const globalSearchResults = useMemo(() => {
+    if (!globalSearch.trim()) return [];
+    const q = toKatakana(globalSearch.trim()).toLowerCase();
+    return candidates.filter(c => {
+      const target = `${c.lastName || ""}${c.firstName || ""}${c.lastNameKana || ""}${c.firstNameKana || ""}${c.university || ""}${c.company || ""}${c.position || ""}${c.email || ""}`.toLowerCase();
+      return target.includes(q);
+    }).slice(0, 8);
+  }, [globalSearch, candidates]);
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (globalSearchRef.current && !globalSearchRef.current.contains(e.target)) setGlobalSearchFocused(false);
+    };
+    if (globalSearchFocused) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [globalSearchFocused]);
 
   const handleMigration = async () => {
     if (!window.confirm('候補者データを新しい8ステージ形式に一括変換します。\\n（既存のステージ・サブステータスが上書きされます）\\n\\n実行しますか？')) return;
