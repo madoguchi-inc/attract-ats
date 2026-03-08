@@ -9542,6 +9542,11 @@ function App() {
         setUser(u || null);
         if (u) await loadProfile(u.id, u.email);
         setAuthChecked(true);
+      }).catch(err => {
+        console.error('Auth check failed:', err);
+        tokenStore.clear();
+        setUser(null);
+        setAuthChecked(true);
       });
     } else {
       setAuthChecked(true);
