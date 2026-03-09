@@ -488,6 +488,48 @@ const CANDIDATES = [
   { id: 23, recruitType: "中途", lastName: "西村", firstName: "健", lastNameKana: "ニシムラ", firstNameKana: "ケン", university: null, faculty: null, gradYear: null, majorType: null, company: "マッキンゼー", position: "アソシエイト", experience: 4, stage: "説明会", substatus: "案内済", status: "案内済", format: null, email: "ken@example.com", phone: "090-9900-1122", route: "ビズリーチ", aspiration: 3, agent: null, gender: "男性", score: null, createdAt: "2026/02/21" },
 ];
 
+// ===== 紹介会社フォームからの推薦データを取り込み =====
+(function mergeAgentSubmissions() {
+  try {
+    const raw = localStorage.getItem('ats_agent_submissions');
+    if (!raw) return;
+    const submissions = JSON.parse(raw);
+    if (!Array.isArray(submissions) || submissions.length === 0) return;
+    const maxId = Math.max(...CANDIDATES.map(c => c.id));
+    submissions.forEach((s, i) => {
+      // 重複チェック（メールアドレスで判定）
+      if (s.email && CANDIDATES.some(c => c.email === s.email)) return;
+      CANDIDATES.push({
+        id: maxId + i + 1,
+        recruitType: s.recruitType || "新卒",
+        lastName: s.lastName || "",
+        firstName: s.firstName || "",
+        lastNameKana: s.lastNameKana || "",
+        firstNameKana: s.firstNameKana || "",
+        university: s.university || null,
+        faculty: s.faculty || null,
+        gradYear: s.gradYear ? parseInt(s.gradYear) : null,
+        majorType: null,
+        company: null,
+        position: null,
+        experience: null,
+        stage: s.stage || "エントリー",
+        substatus: s.substatus || "受付済",
+        status: "新規",
+        format: null,
+        email: s.email || null,
+        phone: s.phone || null,
+        route: "紹介会社",
+        aspiration: null,
+        agent: s.agentCompany || null,
+        gender: null,
+        score: null,
+        createdAt: s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g, '/') : new Date().toLocaleDateString('ja-JP'),
+      });
+    });
+  } catch(e) { console.warn('[Agent merge]', e); }
+})();
+
 // ===== 候補者書類モックデータ =====
 const CANDIDATE_DOCUMENTS = {
   1:  [{ id: "d1-1", name: "履歴書_山田花子.pdf", type: "履歴書", size: "245 KB", uploadedAt: "2026/01/16", icon: "file-text" }, { id: "d1-2", name: "エントリーシート_山田花子.pdf", type: "ES", size: "180 KB", uploadedAt: "2026/01/16", icon: "file-text" }],
