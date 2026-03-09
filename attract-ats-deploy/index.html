@@ -2394,7 +2394,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         body: JSON.stringify({
           action: 'create',
           summary: `【${c.stage || "面接"}】${c.name}`,
-          description: `候補者: ${c.name}\n面接官: ${interviewerNames}\n形式: ${schedFormat === "WEB" ? "オンライン" : "対面"}`,
+          description: `候補者: ${c.name}\n面接官: ${interviewerNames}\n形式: ${schedFormat === "WEB" ? "オンライン" : "対面"}\n\n━━━━━━━━━━━━━━━━━━━\n📋 面接準備・フィードバック入力:\n${window.location.origin}/?feedback=${c.id}\n━━━━━━━━━━━━━━━━━━━`,
           startDateTime: slot.start,
           endDateTime: slot.end,
           attendees,
@@ -2567,7 +2567,12 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
           setFbFormData({ ...emptyFbFormData(), interviewer: "", date: new Date().toISOString().slice(0,10), format: "WEB" });
         }
         setFbFormTab("scores");
-        setFbFormOpen(true);
+        // 別タブから開かれた場合はフォームを自動で開く
+        if (ctx.autoOpen !== false) setFbFormOpen(true);
+      } else {
+        // カレンダーリンクから直接来た場合: ステージを自動推定
+        const nextStage = INTERVIEW_STAGES.find(s => !feedbacks.some(f => f.stage === s)) || c.stage || "一次面接";
+        setFbFormStage(nextStage);
       }
     } catch(e) { console.error('FB context read error:', e); }
   }, [isFeedbackMode]);
@@ -3081,16 +3086,189 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   };
   const timeline = buildTimeline();
 
-  // フィードバック専用モード: フォームのみ表示
-  if (isFeedbackMode && fbFormOpen) {
+  // ステージ別の面接重点ポイント定義
+  const STAGE_FOCUS_POINTS = {
+    "一次面接": {
+      title: "人柄・基本適性の確認",
+      points: ["第一印象・コミュニケーション力", "志望動機の明確さ", "基本的な価値観・人間性", "社会人としてのマナー・礼儀"],
+      tips: "候補者がリラックスできる雰囲気を作り、素の人柄を引き出すことを意識してください。"
+    },
+    "二次面接": {
+      title: "スキル・経験の深掘り",
+      points: ["業務経験の具体性と成果", "課題解決力・論理的思考力", "ストレス耐性・逆境時の対応", "チームワーク・リーダーシップ"],
+      tips: "一次面接の評価を踏まえ、懸念点があれば重点的に確認してください。具体的なエピソードを引き出すことが重要です。"
+    },
+    "最終面接": {
+      title: "カルチャーフィット・入社意欲の最終確認",
+      points: ["経営ビジョンへの共感", "長期的なキャリアプラン", "入社意欲の本気度", "他社選考状況・意思決定の軸"],
+      tips: "これまでの面接評価を総合的に踏まえ、会社の将来を一緒に作れる人材かどうかを見極めてください。"
+    },
+  };
+
+  // フィードバック専用モード: 包括的な面接準備画面
+  if (isFeedbackMode) {
+    const currentStageFocus = STAGE_FOCUS_POINTS[fbFormStage] || STAGE_FOCUS_POINTS[c.stage] || STAGE_FOCUS_POINTS["一次面接"];
+    const pastFeedbacks = feedbacks.filter(f => f.stage !== fbFormStage);
+    const avgOverall = pastFeedbacks.length ? (pastFeedbacks.reduce((s,f) => s + (f.overall || 0), 0) / pastFeedbacks.length).toFixed(1) : null;
+
     return (
-      <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
-        {/* FB入力フォーム部分はactiveTab === "evaluation"の中で描画される */}
-        {/* ここでは直接フォームを描画 */}
-        <div style={{ minHeight: "100vh", background: "#f0f0f5", padding: "24px 0" }}>
-          <div style={{ background: "white", borderRadius: 16, padding: 28, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", border: "2px solid #6366f1", width: "100%", maxWidth: 800, margin: "0 auto" }}>
+      <div style={{ minHeight: "100vh", background: "#f0f0f5", padding: "24px 16px" }}>
+        <div style={{ maxWidth: 960, margin: "0 auto" }}>
+          {/* ヘッダー */}
+          <div style={{ background: "linear-gradient(135deg, #4338ca 0%, #6366f1 100%)", borderRadius: 16, padding: "24px 28px", marginBottom: 20, color: "white" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 4 }}>面接準備・フィードバック入力</div>
+                <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{(c.lastName || '') + ' ' + (c.firstName || '')}
+                  <span style={{ fontSize: 13, fontWeight: 400, opacity: 0.8, marginLeft: 8 }}>{c.lastNameKana && c.firstNameKana ? `（${c.lastNameKana} ${c.firstNameKana}）` : ""}</span>
+                </h1>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>現在のステージ</div>
+                <div style={{ fontSize: 16, fontWeight: 600, marginTop: 2 }}>{c.stage || "未設定"}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* 候補者プロフィール要約 */}
+          <div style={{ background: "white", borderRadius: 14, padding: 22, marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: "#374151", margin: "0 0 14px 0", display: "flex", alignItems: "center", gap: 6 }}>
+              👤 候補者プロフィール
+            </h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+              {isNewGrad ? (
+                <>
+                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>大学</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.university || "未登録"}</div>
+                  </div>
+                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>学部・学科</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.faculty || "未登録"}</div>
+                  </div>
+                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>卒業予定</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.graduationYear || "未登録"}</div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>現職</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.company || "未登録"}</div>
+                  </div>
+                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>ポジション</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.position || "未登録"}</div>
+                  </div>
+                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>経験年数</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.experience || "未登録"}</div>
+                  </div>
+                </>
+              )}
+              <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>採用区分</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.recruitType || "未設定"}</div>
+              </div>
+              <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>メール</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.email || "未登録"}</div>
+              </div>
+              {avgOverall && (
+                <div style={{ padding: "10px 14px", background: "#eef2ff", borderRadius: 10, border: "1px solid #c7d2fe" }}>
+                  <div style={{ fontSize: 10, color: "#6366f1", marginBottom: 2 }}>これまでの総合評価</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#4338ca" }}>★ {avgOverall}<span style={{ fontSize: 11, fontWeight: 400 }}> / 5.0</span></div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 今回の面接重点ポイント */}
+          <div style={{ background: "white", borderRadius: 14, padding: 22, marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", border: "1px solid #fbbf24" }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: "#92400e", margin: "0 0 12px 0", display: "flex", alignItems: "center", gap: 6 }}>
+              🎯 今回の面接で重点的に確認するポイント — {currentStageFocus.title}
+            </h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8, marginBottom: 12 }}>
+              {currentStageFocus.points.map((pt, i) => (
+                <div key={i} style={{ padding: "10px 14px", background: "#fffbeb", borderRadius: 10, fontSize: 13, color: "#78350f", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>{["①","②","③","④"][i]}</span> {pt}
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: "#92400e", background: "#fef3c7", padding: "10px 14px", borderRadius: 8, lineHeight: 1.6 }}>
+              💡 {currentStageFocus.tips}
+            </div>
+            {/* 前回の懸念点を表示 */}
+            {pastFeedbacks.length > 0 && pastFeedbacks[pastFeedbacks.length - 1].concerns && (
+              <div style={{ fontSize: 12, color: "#dc2626", background: "#fef2f2", padding: "10px 14px", borderRadius: 8, marginTop: 8, lineHeight: 1.6 }}>
+                ⚠️ <strong>前回面接からの申し送り:</strong> {pastFeedbacks[pastFeedbacks.length - 1].concerns}
+              </div>
+            )}
+          </div>
+
+          {/* 過去の面接フィードバック履歴 */}
+          {pastFeedbacks.length > 0 && (
+            <div style={{ background: "white", borderRadius: 14, padding: 22, marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, color: "#374151", margin: "0 0 14px 0", display: "flex", alignItems: "center", gap: 6 }}>
+                📝 過去の面接評価
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {pastFeedbacks.map((fb, i) => (
+                  <div key={i} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 18, background: "#fafafa" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ padding: "4px 10px", background: "#eef2ff", borderRadius: 6, fontSize: 12, fontWeight: 600, color: "#4338ca" }}>{fb.stage}</span>
+                        <span style={{ fontSize: 12, color: "#6b7280" }}>{fb.date} / {fb.interviewer}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: fb.overall >= 4 ? "#10b981" : fb.overall >= 3 ? "#f59e0b" : "#ef4444" }}>
+                          ★ {fb.overall}
+                        </span>
+                        <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                          background: fb.result === "合格" ? "#dcfce7" : fb.result === "不合格" ? "#fee2e2" : "#f3f4f6",
+                          color: fb.result === "合格" ? "#15803d" : fb.result === "不合格" ? "#dc2626" : "#6b7280" }}>{fb.result}</span>
+                      </div>
+                    </div>
+                    {/* スコアバー */}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                      {EVAL_CRITERIA.map(cr => (
+                        <div key={cr.key} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", background: "white", borderRadius: 6, fontSize: 11, border: "1px solid #f3f4f6" }}>
+                          <span>{cr.icon}</span>
+                          <span style={{ color: "#6b7280" }}>{cr.label.length > 4 ? cr.label.slice(0,4) : cr.label}</span>
+                          <span style={{ fontWeight: 600, color: (fb.scores[cr.key] || 0) >= 4 ? "#10b981" : (fb.scores[cr.key] || 0) >= 3 ? "#f59e0b" : "#ef4444" }}>
+                            {fb.scores[cr.key] || "-"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* 要約・コメント */}
+                    {fb.summary && (
+                      <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, marginBottom: 6, padding: "8px 12px", background: "white", borderRadius: 8, border: "1px solid #f3f4f6" }}>
+                        <strong style={{ color: "#6b7280" }}>要約:</strong> {fb.summary}
+                      </div>
+                    )}
+                    {fb.comment && (
+                      <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, padding: "8px 12px", background: "white", borderRadius: 8, border: "1px solid #f3f4f6" }}>
+                        <strong style={{ color: "#6b7280" }}>面接官コメント:</strong> {fb.comment}
+                      </div>
+                    )}
+                    {fb.concerns && (
+                      <div style={{ fontSize: 12, color: "#dc2626", marginTop: 6, padding: "6px 12px", background: "#fef2f2", borderRadius: 8 }}>
+                        ⚠️ 懸念点: {fb.concerns}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* フィードバック入力フォーム */}
+          {fbFormOpen ? (
+          <div style={{ background: "white", borderRadius: 16, padding: 28, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", border: "2px solid #6366f1", marginBottom: 20 }}>
             <div style={{ marginBottom: 16, padding: "8px 16px", background: "#eef2ff", borderRadius: 8, fontSize: 12, color: "#4338ca" }}>
-              候補者: <strong>{(c.lastName || '') + ' ' + (c.firstName || '')}</strong>
+              📝 フィードバック入力中 — 候補者: <strong>{(c.lastName || '') + ' ' + (c.firstName || '')}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ fontSize: 16, fontWeight: 600, color: "#4338ca" }}>📝 フィードバック入力 — {fbFormStage}</h3>
@@ -3387,6 +3565,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </button>
             </div>
           </div>
+          ) : (
+            /* フォーム未開: フィードバック入力開始ボタン */
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <button onClick={() => openFbForm()} style={{ padding: "16px 40px", border: "none", borderRadius: 12, background: "linear-gradient(135deg, #4338ca 0%, #6366f1 100%)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(99,102,241,0.4)", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                📝 フィードバックを入力する
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -5934,7 +6120,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
           body: JSON.stringify({
             action: 'create',
             summary: `【${newEvent.stage || newEvent.title}】${newEvent.candidateName || newEvent.title}`,
-            description: `候補者: ${newEvent.candidateName || "—"}\n面接官: ${newEvent.interviewer || "—"}\nメモ: ${newEvent.memo || ""}`,
+            description: `候補者: ${newEvent.candidateName || "—"}\n面接官: ${newEvent.interviewer || "—"}\nメモ: ${newEvent.memo || ""}\n\n━━━━━━━━━━━━━━━━━━━\n📋 面接準備・フィードバック入力:\n${window.location.origin}/?feedback=${newEvent.candidateId || ""}\n━━━━━━━━━━━━━━━━━━━`,
             startDateTime,
             endDateTime,
             attendees,
