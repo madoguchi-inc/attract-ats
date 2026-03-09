@@ -7440,6 +7440,10 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState({ type: "", text: "" });
   const [selectedTemplate, setSelectedTemplate] = useState("");
+  // LINE返信用
+  const [showLineReply, setShowLineReply] = useState(false);
+  const [lineReplyData, setLineReplyData] = useState({ candidateId: null, candidateName: "", message: "" });
+  const [lineReplySending, setLineReplySending] = useState(false);
 
   // Supabaseからメッセージ履歴を取得（メール + LINE統合）
   const loadMessages = useCallback(async () => {
@@ -7604,6 +7608,35 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
     setSending(false);
   };
 
+  // LINE返信送信
+  const handleLineReply = async () => {
+    if (!lineReplyData.message.trim()) { setSendResult({ type: "error", text: "メッセージを入力してください" }); return; }
+    setLineReplySending(true);
+    setSendResult({ type: "", text: "" });
+    try {
+      const NETLIFY_DOMAIN_MSG = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('madoguchi')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+      if (!NETLIFY_DOMAIN_MSG) { setSendResult({ type: "error", text: "Netlify Functions が利用できません" }); setLineReplySending(false); return; }
+      const res = await fetch(NETLIFY_DOMAIN_MSG + '/.netlify/functions/line-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (tokenStore.accessToken || 'demo') },
+        body: JSON.stringify({ action: 'send', candidate_id: lineReplyData.candidateId, message: lineReplyData.message.trim(), sent_by: null }),
+      });
+      if (res.ok) {
+        setSendResult({ type: "success", text: "LINEメッセージを送信しました" });
+        setLineReplyData({ candidateId: null, candidateName: "", message: "" });
+        setShowLineReply(false);
+        loadMessages();
+        setTimeout(() => setSendResult({ type: "", text: "" }), 3000);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setSendResult({ type: "error", text: err.error || "LINE送信に失敗しました" });
+      }
+    } catch (err) {
+      setSendResult({ type: "error", text: "送信エラー: " + err.message });
+    }
+    setLineReplySending(false);
+  };
+
   const cardStyle = { background: "rgba(255,255,255,0.75)", backdropFilter: "blur(12px)", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.03)" };
   const formatDate = (d) => {
     if (!d) return "";
@@ -7696,6 +7729,45 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
               <button onClick={handleSend} disabled={sending}
                 style={{ padding: "10px 28px", border: "none", borderRadius: 10, background: sending ? "#93c5fd" : "#1d4aff", color: "white", fontSize: 13, cursor: sending ? "default" : "pointer", fontWeight: 600 }}>
                 {sending ? "送信中..." : "✉ 送信する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LINE返信モーダル */}
+      {showLineReply && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={(e) => { if (e.target === e.currentTarget) setShowLineReply(false); }}>
+          <div style={{ background: "white", borderRadius: isMobile ? 12 : 16, width: isMobile ? "95vw" : 480, maxWidth: "95vw", maxHeight: "90vh", overflow: "auto", padding: isMobile ? 16 : 28 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 24 }}>💬</span>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>LINE返信</h2>
+              </div>
+              <button onClick={() => setShowLineReply(false)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: "#9ca3af" }}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: 16, padding: 12, background: "#f0fdf4", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>送信先</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#15803d" }}>👤 {lineReplyData.candidateName}</div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 6 }}>メッセージ</label>
+              <textarea value={lineReplyData.message} onChange={(e) => setLineReplyData(prev => ({ ...prev, message: e.target.value }))}
+                rows={6} placeholder="LINEメッセージを入力..."
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleLineReply(); } }}
+                style={{ width: "100%", padding: 12, border: "1px solid #d1d5db", borderRadius: 10, fontSize: 14, lineHeight: 1.7, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setShowLineReply(false)}
+                style={{ padding: "10px 24px", border: "1px solid #d1d5db", borderRadius: 10, background: "white", fontSize: 13, cursor: "pointer", color: "#6b7280" }}>
+                キャンセル
+              </button>
+              <button onClick={handleLineReply} disabled={lineReplySending}
+                style={{ padding: "10px 28px", border: "none", borderRadius: 10, background: lineReplySending ? "#86efac" : "#06c755", color: "white", fontSize: 13, cursor: lineReplySending ? "default" : "pointer", fontWeight: 600 }}>
+                {lineReplySending ? "送信中..." : "💬 LINE送信"}
               </button>
             </div>
           </div>
@@ -7828,18 +7900,23 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
                 </button>
               )}
               <button onClick={() => {
-                setComposeData({
-                  to: selectedMsg.to_email || "",
-                  candidateId: selectedMsg.candidate_id,
-                  candidateName: selectedMsg.candidateName,
-                  subject: "Re: " + (selectedMsg.subject || ""),
-                  body: "\n\n---\n" + (selectedMsg.body || ""),
-                  channel: "email",
-                });
-                setShowCompose(true);
+                if (selectedMsg.channel === "line") {
+                  setLineReplyData({ candidateId: selectedMsg.candidate_id, candidateName: selectedMsg.candidateName, message: "" });
+                  setShowLineReply(true);
+                } else {
+                  setComposeData({
+                    to: selectedMsg.to_email || "",
+                    candidateId: selectedMsg.candidate_id,
+                    candidateName: selectedMsg.candidateName,
+                    subject: "Re: " + (selectedMsg.subject || ""),
+                    body: "\n\n---\n" + (selectedMsg.body || ""),
+                    channel: "email",
+                  });
+                  setShowCompose(true);
+                }
               }}
-                style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "linear-gradient(135deg, #6366f1, #7c3aed)", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
-                ↩ 返信
+                style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: selectedMsg.channel === "line" ? "linear-gradient(135deg, #06c755, #00b900)" : "linear-gradient(135deg, #6366f1, #7c3aed)", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
+                {selectedMsg.channel === "line" ? "💬 LINE返信" : "↩ 返信"}
               </button>
             </div>
           </div>
