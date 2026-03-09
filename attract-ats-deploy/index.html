@@ -7799,7 +7799,7 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       {/* フィルター & 検索 */}
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 8 : 12, marginBottom: 16, alignItems: isMobile ? "stretch" : "center" }}>
         <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 10, padding: 4, overflowX: "auto", flexShrink: 0 }}>
-          {[["pending", `📥 対応待ち${stats.pending > 0 ? ` (${stats.pending})` : ""}`], ["all", "すべて"], ["archived", "対応済み"], ["sent", "送信済み"], ["line", "💬 LINE"], ["email", "✉️ メール"]].map(([id, label]) => (
+          {[["pending", `📥 対応待ち${stats.pending > 0 ? ` (${stats.pending})` : ""}`], ["all", "すべて"], ["archived", "対応済み"], ["sent", "送信済み"]].map(([id, label]) => (
             <button key={id} onClick={() => setFilter(id)}
               style={{ padding: isMobile ? "6px 10px" : "6px 14px", border: "none", borderRadius: 8, fontSize: isMobile ? 11 : 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? (id === "pending" ? "#dc2626" : id === "line" ? "#06c755" : "#4338ca") : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none", whiteSpace: "nowrap" }}>{label}</button>
           ))}
