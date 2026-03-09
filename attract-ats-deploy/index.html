@@ -7524,6 +7524,12 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
     return { total, sent, received, today, lineCount, emailCount, unread };
   }, [messages, readMsgIds]);
 
+  // 未読カウントをlocalStorageに同期（サイドバーバッジ用）
+  useEffect(() => {
+    localStorage.setItem('ats_unread_count', String(stats.unread));
+    window.dispatchEvent(new Event('ats_read_updated'));
+  }, [stats.unread]);
+
   // テンプレート選択
   const handleTemplateSelect = (templateId) => {
     const tmpl = emailTemplates.find(t => t.id === templateId);
@@ -9701,7 +9707,23 @@ function App() {
     const interval = setInterval(onStorage, 2000);
     return () => { window.removeEventListener('storage', onStorage); window.removeEventListener('ats_read_updated', onCustom); clearInterval(interval); };
   }, []);
-  const globalUnreadCount = UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length;
+  // localStorageからMessagesPageが書き込んだ実際の未読数を取得（モック+Supabase両方含む）
+  const [globalUnreadCount, setGlobalUnreadCount] = useState(() => {
+    const saved = localStorage.getItem('ats_unread_count');
+    if (saved !== null) return parseInt(saved, 10) || 0;
+    // フォールバック：MessagesPageがまだ未読数を書き込んでない場合はモックデータで計算
+    return UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length;
+  });
+  useEffect(() => {
+    const syncCount = () => {
+      const saved = localStorage.getItem('ats_unread_count');
+      if (saved !== null) { setGlobalUnreadCount(parseInt(saved, 10) || 0); }
+      else { setGlobalUnreadCount(UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length); }
+    };
+    window.addEventListener('ats_read_updated', syncCount);
+    const iv = setInterval(syncCount, 2000);
+    return () => { window.removeEventListener('ats_read_updated', syncCount); clearInterval(iv); };
+  }, [globalReadMsgIds]);
 
   // ========== レスポンシブ対応 ==========
   const [appWinW, setAppWinW] = useState(window.innerWidth);
