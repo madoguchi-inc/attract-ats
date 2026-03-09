@@ -725,6 +725,7 @@ exports.handler = async (event) => {
         summary: `【${session.stage || '面接'}】${candidateInfo.name || '候補者'}`,
         description: `候補者: ${candidateInfo.name}\nメール: ${candidateInfo.email}\n面接ステージ: ${session.stage}\n形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
           (session.room_name ? `\n会議室: ${session.room_name}` : '') +
+          `\n\n━━━━━━━━━━━━━━━━━━━\n📋 面接準備・フィードバック入力:\nhttps://ats.madoguchi.inc/?feedback=${session.candidate_id || ''}\n━━━━━━━━━━━━━━━━━━━` +
           `\n\n※ 予約リンクから候補者が直接予約しました`,
         startDateTime: slotStart,
         endDateTime: slotEnd,
@@ -786,6 +787,7 @@ exports.handler = async (event) => {
             (session.room_name ? `\n■ 会議室: ${session.room_name}` : '') +
             (meetLink ? `\n■ Meet: ${meetLink}` : '') +
             (session.location && session.format !== 'online' ? `\n■ 場所: ${session.location}` : '') +
+            `\n\n━━━━━━━━━━━━━━━━━━━\n📋 面接準備・フィードバック入力:\nhttps://ats.madoguchi.inc/?feedback=${session.candidate_id || ''}\n━━━━━━━━━━━━━━━━━━━` +
             `\n\n※ Googleカレンダーにも登録済みです。\n※ 候補者が予約リンクから直接予約しました。`;
 
           for (const email of session.interviewer_emails) {
@@ -1188,6 +1190,7 @@ exports.handler = async (event) => {
         summary: `【${session.stage || '面接'}】${candidateInfo.name || '候補者'}`,
         description: `候補者: ${candidateInfo.name}\nメール: ${candidateInfo.email}\n面接ステージ: ${session.stage}\n形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
           (session.room_name ? `\n会議室: ${session.room_name}` : '') +
+          `\n\n━━━━━━━━━━━━━━━━━━━\n📋 面接準備・フィードバック入力:\nhttps://ats.madoguchi.inc/?feedback=${session.candidate_id || ''}\n━━━━━━━━━━━━━━━━━━━` +
           `\n\n※ 候補者がリスケジュールしました`,
         startDateTime: slotStart,
         endDateTime: slotEnd,
@@ -1220,7 +1223,9 @@ exports.handler = async (event) => {
           const endTime = new Date(slotEnd).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
           const subject = `【面接日程変更】${candidateInfo.name || '候補者'} - ${session.stage || '面接'}`;
           const body = `候補者が面接日程を変更しました。\n\n■ 候補者: ${candidateInfo.name}\n■ ステージ: ${session.stage || '面接'}\n■ 新日時: ${startJST} 〜 ${endTime}\n■ 形式: ${session.format === 'online' ? 'オンライン' : '対面'}` +
-            (meetLink ? `\n■ Meet: ${meetLink}` : '') + `\n\n※ Googleカレンダーは自動更新済みです。`;
+            (meetLink ? `\n■ Meet: ${meetLink}` : '') +
+            `\n\n━━━━━━━━━━━━━━━━━━━\n📋 面接準備・フィードバック入力:\nhttps://ats.madoguchi.inc/?feedback=${session.candidate_id || ''}\n━━━━━━━━━━━━━━━━━━━` +
+            `\n\n※ Googleカレンダーは自動更新済みです。`;
           for (const email of session.interviewer_emails) {
             try { await sendGmail(gmailToken, SEND_AS, email, subject, body); } catch (e) { console.error(`[Reschedule] 通知失敗 (${email}):`, e.message); }
           }
