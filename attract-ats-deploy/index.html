@@ -783,7 +783,7 @@ function useSupabaseCandidates(recruitFilter) {
     const { data, error } = await sbApi.select('candidates', params);
     if (!error && data) {
       // DB のカラム名 → フロントのキー名にマッピング
-      setCandidates(data.map(r => ({
+      const sbCandidates = data.map(r => ({
         id: r.id,
         recruitType: r.recruit_type,
         lastName: r.last_name,
@@ -817,7 +817,38 @@ function useSupabaseCandidates(recruitFilter) {
         stageDate: r.stage_date || null,
         originalStage: r.original_stage || null,
         lineUserId: r.line_user_id || null,
-      })));
+      }));
+      // 紹介会社フォームからの未登録データをマージ
+      try {
+        const agentRaw = localStorage.getItem('ats_agent_submissions');
+        if (agentRaw) {
+          const agentSubs = JSON.parse(agentRaw);
+          if (Array.isArray(agentSubs) && agentSubs.length > 0) {
+            const maxId = sbCandidates.length > 0 ? Math.max(...sbCandidates.map(c => typeof c.id === 'number' ? c.id : 0)) : 10000;
+            agentSubs.forEach((s, i) => {
+              // メールで重複チェック
+              if (s.email && sbCandidates.some(c => c.email === s.email)) return;
+              sbCandidates.push({
+                id: maxId + i + 1,
+                recruitType: s.recruitType || "新卒",
+                lastName: s.lastName || "", firstName: s.firstName || "",
+                lastNameKana: s.lastNameKana || "", firstNameKana: s.firstNameKana || "",
+                university: s.university || null, faculty: s.faculty || null,
+                gradYear: s.gradYear ? parseInt(s.gradYear) : null, majorType: null,
+                company: null, position: null, experience: null,
+                stage: s.stage || "エントリー", substatus: s.substatus || "受付済", status: "新規", format: null,
+                email: s.email || null, phone: s.phone || null,
+                route: "紹介会社", aspiration: null, agent: s.agentCompany || null,
+                gender: null, score: null,
+                createdAt: s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/-/g,'/') : new Date().toLocaleDateString('ja-JP'),
+                _fromAgentForm: true,
+              });
+            });
+            console.log('[Agent merge] ' + agentSubs.length + '件の紹介会社データをマージしました');
+          }
+        }
+      } catch(e) { console.warn('[Agent merge error]', e); }
+      setCandidates(sbCandidates);
     }
     setLoading(false);
   }, [recruitFilter]);
