@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>候補者ご推薦フォーム | 窓口インク</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif; background: #f8fafc; color: #1e293b; line-height: 1.6; }
+
+.header { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; padding: 24px 20px; text-align: center; }
+.header h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+.header p { font-size: 13px; opacity: 0.85; }
+
+.container { max-width: 720px; margin: 0 auto; padding: 20px; }
+
+/* ステップインジケーター */
+.steps { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; }
+.step { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #94a3b8; font-weight: 600; }
+.step.active { color: #4f46e5; }
+.step .num { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #e2e8f0; font-size: 11px; font-weight: 700; }
+.step.active .num { background: #4f46e5; color: white; }
+.step.done .num { background: #10b981; color: white; }
+
+/* カード */
+.card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 16px; }
+.card h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.card .desc { font-size: 13px; color: #64748b; margin-bottom: 16px; }
+
+/* ペースト入力エリア */
+.paste-area { width: 100%; min-height: 240px; border: 2px dashed #c7d2fe; border-radius: 10px; padding: 16px; font-size: 14px; font-family: inherit; resize: vertical; transition: border-color 0.2s; outline: none; }
+.paste-area:focus { border-color: #4f46e5; }
+.paste-area::placeholder { color: #94a3b8; }
+
+.paste-hint { margin-top: 10px; padding: 12px; background: #f0f9ff; border-radius: 8px; font-size: 12px; color: #0369a1; }
+.paste-hint strong { display: block; margin-bottom: 4px; }
+
+/* ボタン */
+.btn-parse { width: 100%; padding: 14px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 16px; transition: opacity 0.2s; }
+.btn-parse:hover { opacity: 0.9; }
+.btn-parse:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-submit { width: 100%; padding: 14px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity 0.2s; }
+.btn-submit:hover { opacity: 0.9; }
+.btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-back { width: 100%; padding: 12px; background: white; color: #64748b; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+
+/* 確認フォーム */
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 3px; }
+.field label .required { color: #dc2626; margin-left: 2px; }
+.field input, .field select, .field textarea { width: 100%; padding: 9px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; transition: border-color 0.2s; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: #4f46e5; }
+.field input.has-value { background: #f0fdf4; border-color: #86efac; }
+.field-row { display: flex; gap: 10px; }
+.field-row .field { flex: 1; }
+
+.confidence { display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+.confidence.high { background: #dcfce7; color: #15803d; }
+.confidence.medium { background: #fef9c3; color: #a16207; }
+
+/* 候補者カード（複数人一覧） */
+.candidate-list-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #ede9fe; border-radius: 8px; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: #5b21b6; }
+
+.candidate-card { background: white; border: 2px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 10px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.candidate-card:hover { border-color: #a5b4fc; box-shadow: 0 2px 8px rgba(99,102,241,0.1); }
+.candidate-card.active { border-color: #4f46e5; box-shadow: 0 2px 12px rgba(99,102,241,0.15); }
+.candidate-card.has-error { border-color: #fca5a5; }
+.candidate-card .cc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.candidate-card .cc-name { font-size: 15px; font-weight: 700; }
+.candidate-card .cc-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+.candidate-card .cc-badge.ok { background: #dcfce7; color: #15803d; }
+.candidate-card .cc-badge.warn { background: #fef9c3; color: #a16207; }
+.candidate-card .cc-badge.err { background: #fee2e2; color: #dc2626; }
+.candidate-card .cc-details { font-size: 12px; color: #64748b; }
+.candidate-card .cc-details span { margin-right: 10px; }
+
+/* 個別編集パネル */
+.edit-panel { background: #fafbff; border: 1px solid #c7d2fe; border-radius: 10px; padding: 20px; margin-bottom: 12px; }
+.edit-panel h3 { font-size: 14px; font-weight: 700; color: #4f46e5; margin-bottom: 12px; }
+
+.btn-remove { background: none; border: none; color: #ef4444; font-size: 12px; cursor: pointer; font-weight: 600; padding: 4px 8px; border-radius: 4px; }
+.btn-remove:hover { background: #fef2f2; }
+
+/* 完了画面 */
+.done-screen { text-align: center; padding: 40px 20px; }
+.done-icon { font-size: 56px; margin-bottom: 16px; }
+.done-screen h2 { font-size: 20px; margin-bottom: 8px; }
+.done-screen p { color: #64748b; font-size: 14px; margin-bottom: 24px; }
+.btn-another { padding: 12px 32px; background: #4f46e5; color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
+
+/* メッセージ */
+.msg { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 12px; }
+.msg.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.msg.success { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+
+/* 紹介会社情報 */
+.agent-bar { background: #ede9fe; border: 1px solid #c4b5fd; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 8px; font-weight: 600; color: #5b21b6; }
+
+/* エラー画面（無効URL） */
+.error-screen { text-align: center; padding: 60px 20px; }
+.error-screen .error-icon { font-size: 56px; margin-bottom: 16px; }
+.error-screen h2 { font-size: 20px; margin-bottom: 12px; color: #dc2626; }
+.error-screen p { color: #64748b; font-size: 14px; line-height: 1.8; }
+
+@media (max-width: 480px) {
+  .field-row { flex-direction: column; gap: 0; }
+  .container { padding: 12px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📋 候補者ご推薦フォーム</h1>
+  <p>窓口インク株式会社 採用チーム宛</p>
+</div>
+
+<div class="container" id="app"></div>
+
+<script>
+const app = document.getElementById('app');
+
+// URLパラメータから紹介会社名を取得
+const urlParams = new URLSearchParams(window.location.search);
+const agentCompany = urlParams.get('company') || '';
+const agentId = urlParams.get('id') || '';
+
+// State
+let currentStep = agentCompany ? 1 : -1; // -1: エラー, 1: paste, 2: confirm, 3: done
+let candidates = []; // 複数候補者
+let editingIndex = -1; // -1 = none, 0+ = editing that candidate
+let submittedCount = 0;
+
+// ===== 自動判別ロジック =====
+function parseCandidate(text) {
+  const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+  const result = { lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', email: '', phone: '', university: '', faculty: '', department: '', gradYear: '', memo: '', _confidence: {} };
+  const fullText = lines.join(' ');
+
+  // Email
+  const emailMatch = fullText.match(/[\w.\-+]+@[\w.\-]+\.\w+/);
+  if (emailMatch) { result.email = emailMatch[0]; result._confidence.email = 'high'; }
+
+  // Phone
+  const phoneMatch = fullText.match(/(0[789]0[\-\s]?\d{4}[\-\s]?\d{4})/);
+  if (phoneMatch) { result.phone = phoneMatch[1].replace(/[\-\s]/g, ''); result._confidence.phone = 'high'; }
+
+  // University
+  const univMatch = fullText.match(/([^\s、,（(]+大学(?:大学院)?)/);
+  if (univMatch) { result.university = univMatch[1]; result._confidence.university = 'high'; }
+  if (!result.university) {
+    const gakuinMatch = fullText.match(/([^\s、,（(]+学院)/);
+    if (gakuinMatch) { result.university = gakuinMatch[1]; result._confidence.university = 'high'; }
+  }
+
+  // Faculty
+  const facultyMatch = fullText.match(/([^\s、,]+学部)/);
+  if (facultyMatch) { result.faculty = facultyMatch[1]; result._confidence.faculty = 'high'; }
+
+  // Department
+  const deptMatch = fullText.match(/([^\s、,]+(?:学科|研究科|専攻|コース))/);
+  if (deptMatch && deptMatch[1] !== result.faculty) { result.department = deptMatch[1]; result._confidence.department = 'medium'; }
+
+  // Grad year
+  const gradPatterns = [/(\d{4})\s*年\s*(?:卒|春|[3３]月|度)/, /(\d{4})\s*(?:卒|年卒)/, /(\d{4})\s*\/\s*[3-4]/];
+  for (const pat of gradPatterns) {
+    const m = fullText.match(pat);
+    if (m) { result.gradYear = m[1]; result._confidence.gradYear = 'high'; break; }
+  }
+
+  // Kana name
+  const kanaMatch = fullText.match(/([\u30A0-\u30FF]{2,})\s+([\u30A0-\u30FF]{2,})/);
+  if (kanaMatch) {
+    result.lastNameKana = kanaMatch[1]; result.firstNameKana = kanaMatch[2];
+    result._confidence.lastNameKana = 'high'; result._confidence.firstNameKana = 'high';
+  }
+
+  // Kanji name
+  const labelNameMatch = fullText.match(/(?:氏名|名前|お名前|候補者)[：:\s]*([^\s\d]{1,5})\s+([^\s\d]{1,5})/);
+  if (labelNameMatch) {
+    result.lastName = labelNameMatch[1]; result.firstName = labelNameMatch[2];
+    result._confidence.lastName = 'high'; result._confidence.firstName = 'high';
+  } else {
+    for (const line of lines.slice(0, 3)) {
+      const nameMatch = line.match(/^([\u4E00-\u9FFF]{1,5})\s+([\u4E00-\u9FFF\u3040-\u309F]{1,5})$/);
+      if (nameMatch) {
+        result.lastName = nameMatch[1]; result.firstName = nameMatch[2];
+        result._confidence.lastName = 'medium'; result._confidence.firstName = 'medium';
+        break;
+      }
+    }
+  }
+  if (!result.lastName && kanaMatch) {
+    const beforeKana = fullText.split(kanaMatch[0])[0];
+    const kanjiBeforeMatch = beforeKana.match(/([\u4E00-\u9FFF]{1,5})\s+([\u4E00-\u9FFF]{1,5})\s*$/);
+    if (kanjiBeforeMatch) {
+      result.lastName = kanjiBeforeMatch[1]; result.firstName = kanjiBeforeMatch[2];
+      result._confidence.lastName = 'medium'; result._confidence.firstName = 'medium';
+    }
+  }
+
+  // Memo
+  const usedValues = Object.values(result).filter(v => typeof v === 'string' && v);
+  const unusedLines = lines.filter(line => !usedValues.some(val => line.includes(val)));
+  if (unusedLines.length > 0) result.memo = unusedLines.join('\n');
+
+  return result;
+}
+
+// ===== 複数候補者を分割する =====
+function splitCandidates(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return [''];
+
+  // 分割パターン: 空行2つ以上、"---"区切り、"===", 番号付き(1. 2. 3.)
+  // まず空行2行以上で分割を試みる
+  let blocks = trimmed.split(/\n\s*\n\s*\n/);
+  if (blocks.length > 1) return blocks.map(b => b.trim()).filter(Boolean);
+
+  // --- や === で分割
+  blocks = trimmed.split(/\n\s*[-=]{3,}\s*\n/);
+  if (blocks.length > 1) return blocks.map(b => b.trim()).filter(Boolean);
+
+  // 空行1つで分割して、各ブロックにメール or 電話があるか確認
+  blocks = trimmed.split(/\n\s*\n/);
+  if (blocks.length > 1) {
+    // 各ブロックにメールまたは名前っぽいものがあるか確認
+    const hasIdentifier = (block) => {
+      return /[\w.\-+]+@[\w.\-]+\.\w+/.test(block) ||
+             /0[789]0[\-\s]?\d{4}[\-\s]?\d{4}/.test(block) ||
+             /[\u4E00-\u9FFF]{1,5}\s+[\u4E00-\u9FFF]{1,5}/.test(block.split('\n')[0]);
+    };
+
+    // 各ブロックが個別の候補者データっぽいかチェック
+    const identifiedBlocks = blocks.filter(b => hasIdentifier(b.trim()));
+    if (identifiedBlocks.length > 1) {
+      return blocks.map(b => b.trim()).filter(Boolean);
+    }
+  }
+
+  // 分割できなければ1人として扱う
+  return [trimmed];
+}
+
+// ===== バリデーション =====
+function validateCandidate(c) {
+  const errors = [];
+  if (!c.lastName) errors.push('姓が未入力');
+  if (!c.firstName) errors.push('名が未入力');
+  return errors;
+}
+
+function getCandidateStatus(c) {
+  const errors = validateCandidate(c);
+  if (errors.length > 0) return { status: 'err', label: '要入力', errors };
+  const filled = ['email','phone','university','faculty','gradYear'].filter(k => c[k]).length;
+  if (filled >= 4) return { status: 'ok', label: '入力済', errors: [] };
+  return { status: 'warn', label: '一部未入力', errors: [] };
+}
+
+// ===== レンダリング =====
+function render() {
+  if (currentStep === -1) renderErrorScreen();
+  else if (currentStep === 1) renderPasteStep();
+  else if (currentStep === 2) renderConfirmStep();
+  else renderDoneStep();
+}
+
+function renderErrorScreen() {
+  app.innerHTML = `
+    <div class="card error-screen">
+      <div class="error-icon">🔒</div>
+      <h2>無効なURLです</h2>
+      <p>このフォームは紹介会社様ごとに専用URLが発行されています。<br>
+      窓口インク採用チームから共有されたURLをご利用ください。</p>
+      <p style="margin-top:20px;color:#94a3b8;font-size:12px;">
+        URL例: ...?company=〇〇株式会社<br>
+        お心当たりがない場合は採用担当までご連絡ください。
+      </p>
+    </div>
+  `;
+}
+
+function renderPasteStep() {
+  app.innerHTML = `
+    <div class="steps">
+      <div class="step active"><span class="num">1</span>情報入力</div>
+      <div class="step"><span class="num">2</span>確認・修正</div>
+      <div class="step"><span class="num">3</span>完了</div>
+    </div>
+    <div class="agent-bar">
+      <span>🏢</span> ${esc(agentCompany)} 様　専用フォーム
+    </div>
+    <div class="card">
+      <h2>候補者情報を貼り付けてください</h2>
+      <p class="desc">メール・システム等からコピーした情報をそのまま貼り付けてください。<strong>複数名もまとめて貼り付けOK</strong>です（空行で区切ってください）。</p>
+      <textarea class="paste-area" id="pasteInput" placeholder="【1名の場合】
+山田 太郎
+ヤマダ タロウ
+東京大学 工学部
+taro.yamada@example.com
+090-1234-5678
+2027年卒
+
+【複数名の場合は空行で区切る】
+山田 太郎
+東京大学 工学部
+taro.yamada@example.com
+090-1234-5678
+2027年卒
+
+佐藤 花子
+慶應義塾大学 経済学部
+hanako.sato@example.com
+080-9876-5432
+2027年卒
+
+田中 次郎
+早稲田大学 商学部
+jiro.tanaka@example.com
+070-1111-2222
+2027年卒"></textarea>
+      <div class="paste-hint">
+        <strong>💡 複数名の貼り付け方：</strong>
+        候補者ごとに<strong>空行</strong>を1行入れて区切ってください。「---」での区切りもOKです。フォーマットはバラバラでも自動判別します。
+      </div>
+      <button class="btn-parse" onclick="handleParse()">📋 自動判別して確認画面へ</button>
+    </div>
+    <div class="card" style="border-left: 3px solid #c7d2fe;">
+      <h2 style="font-size: 14px; color: #6366f1;">💡 手入力でも登録できます</h2>
+      <p class="desc" style="margin-bottom: 0;">テキストを貼らずに「確認画面へ」を押すと、空のフォームで手入力もできます。</p>
+    </div>
+  `;
+}
+
+function renderConfirmStep() {
+  const total = candidates.length;
+  const okCount = candidates.filter(c => getCandidateStatus(c).status === 'ok').length;
+  const errCount = candidates.filter(c => getCandidateStatus(c).status === 'err').length;
+
+  let html = `
+    <div class="steps">
+      <div class="step done"><span class="num">✓</span>情報入力</div>
+      <div class="step active"><span class="num">2</span>確認・修正</div>
+      <div class="step"><span class="num">3</span>完了</div>
+    </div>
+    <div class="agent-bar">
+      <span>🏢</span> ${esc(agentCompany)} 様
+    </div>
+    <div id="msgArea"></div>
+    <div class="candidate-list-bar">
+      <span>👥 ${total}名の候補者を検出しました</span>
+      <span>${okCount}名 入力済 ${errCount > 0 ? `/ ${errCount}名 要入力` : ''}</span>
+    </div>
+  `;
+
+  // 各候補者のカード
+  candidates.forEach((c, idx) => {
+    const st = getCandidateStatus(c);
+    const isEditing = editingIndex === idx;
+    const name = (c.lastName && c.firstName) ? `${c.lastName} ${c.firstName}` : `候補者 ${idx + 1}（氏名未入力）`;
+
+    html += `<div class="candidate-card ${isEditing ? 'active' : ''} ${st.status === 'err' ? 'has-error' : ''}" onclick="toggleEdit(${idx})">`;
+    html += `<div class="cc-header">`;
+    html += `<span class="cc-name">${esc(name)}</span>`;
+    html += `<div>`;
+    html += `<span class="cc-badge ${st.status}">${st.label}</span>`;
+    if (total > 1) html += ` <button class="btn-remove" onclick="event.stopPropagation();removeCandidate(${idx})">✕ 削除</button>`;
+    html += `</div></div>`;
+    html += `<div class="cc-details">`;
+    if (c.university) html += `<span>🏫 ${esc(c.university)}</span>`;
+    if (c.email) html += `<span>✉️ ${esc(c.email)}</span>`;
+    if (c.phone) html += `<span>📱 ${esc(c.phone)}</span>`;
+    if (c.gradYear) html += `<span>🎓 ${esc(c.gradYear)}年卒</span>`;
+    if (st.errors.length > 0) html += `<span style="color:#dc2626;">⚠️ ${st.errors.join(', ')}</span>`;
+    html += `</div></div>`;
+
+    // 編集パネル
+    if (isEditing) {
+      const conf = c._confidence || {};
+      const badge = (f) => { const v = conf[f]; return v ? `<span class="confidence ${v}">${v==='high'?'自動検出':'推定'}</span>` : ''; };
+      const val = (f) => esc(c[f] || '');
+      const cls = (f) => c[f] ? 'has-value' : '';
+
+      html += `<div class="edit-panel"><h3>📝 候補者 ${idx + 1} の情報を編集</h3>`;
+      html += `<div class="field-row"><div class="field"><label>姓<span class="required" style="color:#dc2626;"> *</span>${badge('lastName')}</label><input type="text" data-idx="${idx}" data-field="lastName" value="${val('lastName')}" class="${cls('lastName')}" onchange="updateField(this)" /></div>`;
+      html += `<div class="field"><label>名<span class="required" style="color:#dc2626;"> *</span>${badge('firstName')}</label><input type="text" data-idx="${idx}" data-field="firstName" value="${val('firstName')}" class="${cls('firstName')}" onchange="updateField(this)" /></div></div>`;
+      html += `<div class="field-row"><div class="field"><label>セイ ${badge('lastNameKana')}</label><input type="text" data-idx="${idx}" data-field="lastNameKana" value="${val('lastNameKana')}" class="${cls('lastNameKana')}" onchange="updateField(this)" /></div>`;
+      html += `<div class="field"><label>メイ ${badge('firstNameKana')}</label><input type="text" data-idx="${idx}" data-field="firstNameKana" value="${val('firstNameKana')}" class="${cls('firstNameKana')}" onchange="updateField(this)" /></div></div>`;
+      html += `<div class="field"><label>メールアドレス ${badge('email')}</label><input type="email" data-idx="${idx}" data-field="email" value="${val('email')}" class="${cls('email')}" onchange="updateField(this)" /></div>`;
+      html += `<div class="field"><label>電話番号 ${badge('phone')}</label><input type="tel" data-idx="${idx}" data-field="phone" value="${val('phone')}" class="${cls('phone')}" onchange="updateField(this)" /></div>`;
+      html += `<div class="field"><label>大学名 ${badge('university')}</label><input type="text" data-idx="${idx}" data-field="university" value="${val('university')}" class="${cls('university')}" onchange="updateField(this)" /></div>`;
+      html += `<div class="field-row"><div class="field"><label>学部 ${badge('faculty')}</label><input type="text" data-idx="${idx}" data-field="faculty" value="${val('faculty')}" class="${cls('faculty')}" onchange="updateField(this)" /></div>`;
+      html += `<div class="field"><label>学科・専攻 ${badge('department')}</label><input type="text" data-idx="${idx}" data-field="department" value="${val('department')}" class="${cls('department')}" onchange="updateField(this)" /></div></div>`;
+      html += `<div class="field"><label>卒業予定時期 ${badge('gradYear')}</label><select data-idx="${idx}" data-field="gradYear" onchange="updateField(this)">`;
+      html += `<option value="">選択してください</option>`;
+      ['2026','2027','2028'].forEach(y => { html += `<option value="${y}" ${c.gradYear===y?'selected':''}>${y}年卒</option>`; });
+      html += `</select></div>`;
+      html += `<div class="field"><label>備考・メモ</label><textarea data-idx="${idx}" data-field="memo" style="width:100%;min-height:50px;border:1px solid #e2e8f0;border-radius:8px;padding:9px;font-size:14px;font-family:inherit;resize:vertical;" onchange="updateField(this)">${val('memo')}</textarea></div>`;
+      html += `</div>`;
+    }
+  });
+
+  // 追加ボタン
+  html += `<div style="text-align:center;margin:12px 0;">
+    <button onclick="addEmptyCandidate()" style="background:none;border:1px dashed #a5b4fc;color:#6366f1;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">＋ 候補者を追加</button>
+  </div>`;
+
+  // 送信ボタン
+  html += `<button class="btn-submit" onclick="handleSubmitAll()" ${errCount > 0 ? '' : ''}>✅ ${total}名をまとめて推薦する</button>`;
+  html += `<button class="btn-back" onclick="goBack()">← 戻って修正する</button>`;
+
+  app.innerHTML = html;
+}
+
+function renderDoneStep() {
+  app.innerHTML = `
+    <div class="steps">
+      <div class="step done"><span class="num">✓</span>情報入力</div>
+      <div class="step done"><span class="num">✓</span>確認・修正</div>
+      <div class="step active"><span class="num">3</span>完了</div>
+    </div>
+    <div class="card done-screen">
+      <div class="done-icon">🎉</div>
+      <h2>ご推薦ありがとうございます！</h2>
+      <p><strong>${submittedCount}名</strong>の候補者情報を受け付けました。<br>採用チームにて確認いたします。</p>
+      <button class="btn-another" onclick="resetForm()">＋ 別の候補者を推薦する</button>
+    </div>
+  `;
+}
+
+// ===== イベントハンドラ =====
+function handleParse() {
+  const text = document.getElementById('pasteInput').value;
+  const blocks = splitCandidates(text);
+  candidates = blocks.map(b => parseCandidate(b));
+  editingIndex = candidates.length === 1 ? 0 : -1; // 1人なら自動で開く
+  currentStep = 2;
+  render();
+  window.scrollTo(0, 0);
+}
+
+function toggleEdit(idx) {
+  editingIndex = editingIndex === idx ? -1 : idx;
+  render();
+}
+
+function updateField(el) {
+  const idx = parseInt(el.dataset.idx);
+  const field = el.dataset.field;
+  candidates[idx][field] = el.value.trim();
+  // カード部分だけ更新したいが、シンプルにre-render
+  // ただしフォーカスを維持するために、active elementを記録
+  const activeField = document.activeElement?.dataset?.field;
+  const activeIdx = document.activeElement?.dataset?.idx;
+  render();
+  // フォーカス復帰
+  if (activeField && activeIdx) {
+    const el2 = document.querySelector(`[data-idx="${activeIdx}"][data-field="${activeField}"]`);
+    if (el2) el2.focus();
+  }
+}
+
+function removeCandidate(idx) {
+  candidates.splice(idx, 1);
+  if (editingIndex >= candidates.length) editingIndex = candidates.length - 1;
+  if (editingIndex === idx) editingIndex = -1;
+  render();
+}
+
+function addEmptyCandidate() {
+  candidates.push({ lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', email: '', phone: '', university: '', faculty: '', department: '', gradYear: '', memo: '', _confidence: {} });
+  editingIndex = candidates.length - 1;
+  render();
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+function goBack() {
+  currentStep = 1;
+  render();
+}
+
+function handleSubmitAll() {
+  const msgArea = document.getElementById('msgArea');
+
+  // バリデーション
+  const errors = [];
+  candidates.forEach((c, i) => {
+    const e = validateCandidate(c);
+    if (e.length > 0) errors.push(`候補者${i+1}: ${e.join(', ')}`);
+  });
+
+  if (errors.length > 0) {
+    if (msgArea) msgArea.innerHTML = `<div class="msg error">⚠️ 入力不足があります：<br>${errors.join('<br>')}</div>`;
+    window.scrollTo(0, 0);
+    return;
+  }
+
+  // 送信
+  const submissions = JSON.parse(localStorage.getItem('ats_agent_submissions') || '[]');
+  const now = new Date().toISOString();
+  candidates.forEach(c => {
+    const data = {
+      lastName: c.lastName, firstName: c.firstName,
+      lastNameKana: c.lastNameKana, firstNameKana: c.firstNameKana,
+      email: c.email, phone: c.phone,
+      university: c.university, faculty: c.faculty, department: c.department,
+      gradYear: c.gradYear, memo: c.memo,
+      agentCompany: agentCompany,
+      agentId: agentId,
+      recruitType: '新卒', route: '紹介会社',
+      stage: 'エントリー', substatus: '受付済',
+      submittedAt: now,
+    };
+    submissions.push(data);
+    console.log('候補者データ送信:', data);
+  });
+  localStorage.setItem('ats_agent_submissions', JSON.stringify(submissions));
+
+  submittedCount = candidates.length;
+  currentStep = 3;
+  render();
+  window.scrollTo(0, 0);
+}
+
+function resetForm() {
+  candidates = [];
+  editingIndex = -1;
+  currentStep = 1;
+  render();
+}
+
+// ===== ユーティリティ =====
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// 初期表示
+render();
+</script>
+</body>
+</html>
