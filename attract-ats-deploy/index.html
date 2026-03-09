@@ -8343,6 +8343,41 @@ function TasksPage({ tasks, onUpdateTasks, candidates, onNavigate }) {
 // ============================================================
 // 紹介会社（エージェント）管理ページ
 // ============================================================
+// 紹介会社向け推薦フォームURL発行コンポーネント
+function AgentFormUrl({ agentName }) {
+  const [copied, setCopied] = useState(false);
+  const baseUrl = window.location.origin + '/agent-form.html';
+  const url = baseUrl + '?company=' + encodeURIComponent(agentName);
+
+  const copyUrl = async () => {
+    try { await navigator.clipboard.writeText(url); } catch(e) {
+      const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div style={{ padding: "16px 20px", borderBottom: "1px solid #f3f4f6" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 14 }}>🔗</span>
+        <h4 style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>推薦フォームURL</h4>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+        <div style={{ flex: 1, padding: "8px 12px", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12, color: "#374151", wordBreak: "break-all", lineHeight: 1.5, fontFamily: "monospace" }}>
+          {url}
+        </div>
+        <button onClick={copyUrl} style={{ padding: "8px 16px", background: copied ? "#10b981" : "#4338ca", color: "white", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.2s", minWidth: 90 }}>
+          {copied ? "✓ コピー済" : "📋 URLコピー"}
+        </button>
+      </div>
+      <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 8, lineHeight: 1.5 }}>
+        このURLを紹介会社に共有してください。候補者の推薦フォームが開きます。
+      </p>
+    </div>
+  );
+}
+
 function AgentsPage({ candidates = [] }) {
   const [agents, setAgents] = useState(() => {
     try { const saved = localStorage.getItem('ats_agents'); return saved ? JSON.parse(saved) : []; } catch(e) { return []; }
@@ -8557,6 +8592,9 @@ function AgentsPage({ candidates = [] }) {
                 </div>
                 {selectedAgent.notes && <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280", background: "#f9fafb", padding: "8px 12px", borderRadius: 8 }}>📝 {selectedAgent.notes}</div>}
               </div>
+
+              {/* 推薦フォームURL */}
+              <AgentFormUrl agentName={selectedAgent.name} />
 
               {/* 紹介候補者一覧 */}
               <div style={{ padding: "16px 20px" }}>
