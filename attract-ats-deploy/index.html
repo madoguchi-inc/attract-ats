@@ -7403,28 +7403,54 @@ function AnalyticsPage({ recruitFilter, candidates = [] }) {
 function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState("all"); // all, sent, received, email, line
+  const [filter, setFilter] = useState("pending"); // pending, all, archived, sent, line, email
   const [search, setSearch] = useState("");
   const [selectedMsg, setSelectedMsg] = useState(null);
   // 未読メッセージID管理
   const [readMsgIds, setReadMsgIds] = useState(() => {
     try { const saved = localStorage.getItem('ats_read_msg_ids'); return saved ? new Set(JSON.parse(saved)) : new Set(); } catch(e) { return new Set(); }
   });
+  // 対応済み（アーカイブ）メッセージID管理
+  const [archivedMsgIds, setArchivedMsgIds] = useState(() => {
+    try { const saved = localStorage.getItem('ats_archived_msg_ids'); return saved ? new Set(JSON.parse(saved)) : new Set(); } catch(e) { return new Set(); }
+  });
   const markMsgRead = useCallback((msgId) => {
     setReadMsgIds(prev => {
       const next = new Set(prev);
       next.add(msgId);
       localStorage.setItem('ats_read_msg_ids', JSON.stringify([...next]));
-      // App側の未読カウントを即座に更新するためカスタムイベント発火
+      window.dispatchEvent(new Event('ats_read_updated'));
+      return next;
+    });
+  }, []);
+  const archiveMsg = useCallback((msgId) => {
+    setArchivedMsgIds(prev => {
+      const next = new Set(prev);
+      next.add(msgId);
+      localStorage.setItem('ats_archived_msg_ids', JSON.stringify([...next]));
+      window.dispatchEvent(new Event('ats_read_updated'));
+      return next;
+    });
+    // アーカイブしたら既読にもする
+    markMsgRead(msgId);
+  }, [markMsgRead]);
+  const unarchiveMsg = useCallback((msgId) => {
+    setArchivedMsgIds(prev => {
+      const next = new Set(prev);
+      next.delete(msgId);
+      localStorage.setItem('ats_archived_msg_ids', JSON.stringify([...next]));
       window.dispatchEvent(new Event('ats_read_updated'));
       return next;
     });
   }, []);
   const isUnread = useCallback((msg) => {
     if (msg.direction !== "inbound") return false;
-    // UNREAD_MESSAGES_MOCKにあるか、またはSupabaseから来た受信メッセージで未読
     return !readMsgIds.has(msg.id);
   }, [readMsgIds]);
+  const isPending = useCallback((msg) => {
+    if (msg.direction !== "inbound") return false;
+    return !archivedMsgIds.has(msg.id);
+  }, [archivedMsgIds]);
 
   // レスポンシブ: 画面幅を監視
   const [winW, setWinW] = useState(window.innerWidth);
@@ -7494,11 +7520,11 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   // フィルタリング
   const filteredMessages = useMemo(() => {
     let list = messages;
-    if (filter === "sent") list = list.filter(m => m.direction === "outbound");
-    else if (filter === "received") list = list.filter(m => m.direction === "inbound");
+    if (filter === "pending") list = list.filter(m => m.direction === "inbound" && !archivedMsgIds.has(m.id));
+    else if (filter === "archived") list = list.filter(m => m.direction === "inbound" && archivedMsgIds.has(m.id));
+    else if (filter === "sent") list = list.filter(m => m.direction === "outbound");
     else if (filter === "email") list = list.filter(m => m.channel !== "line");
     else if (filter === "line") list = list.filter(m => m.channel === "line");
-    else if (filter === "unread") list = list.filter(m => m.direction === "inbound" && !readMsgIds.has(m.id));
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(m =>
@@ -7509,7 +7535,7 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       );
     }
     return list;
-  }, [messages, filter, search]);
+  }, [messages, filter, search, archivedMsgIds]);
 
   // 統計
   const stats = useMemo(() => {
@@ -7518,21 +7544,17 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
     const received = messages.filter(m => m.direction === "inbound").length;
     const lineCount = messages.filter(m => m.channel === "line").length;
     const emailCount = messages.filter(m => m.channel !== "line").length;
-    const today = messages.filter(m => {
-      if (!m.date) return false;
-      const d = new Date(m.date);
-      const now = new Date();
-      return d.toDateString() === now.toDateString();
-    }).length;
+    const pending = messages.filter(m => m.direction === "inbound" && !archivedMsgIds.has(m.id)).length;
+    const archived = messages.filter(m => m.direction === "inbound" && archivedMsgIds.has(m.id)).length;
     const unread = messages.filter(m => m.direction === "inbound" && !readMsgIds.has(m.id)).length;
-    return { total, sent, received, today, lineCount, emailCount, unread };
-  }, [messages, readMsgIds]);
+    return { total, sent, received, lineCount, emailCount, pending, archived, unread };
+  }, [messages, readMsgIds, archivedMsgIds]);
 
-  // 未読カウントをlocalStorageに同期（サイドバーバッジ用）
+  // 対応待ちカウントをlocalStorageに同期（サイドバーバッジ用）
   useEffect(() => {
-    localStorage.setItem('ats_unread_count', String(stats.unread));
+    localStorage.setItem('ats_unread_count', String(stats.pending));
     window.dispatchEvent(new Event('ats_read_updated'));
-  }, [stats.unread]);
+  }, [stats.pending]);
 
   // テンプレート選択
   const handleTemplateSelect = (templateId) => {
@@ -7777,9 +7799,9 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       {/* フィルター & 検索 */}
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 8 : 12, marginBottom: 16, alignItems: isMobile ? "stretch" : "center" }}>
         <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 10, padding: 4, overflowX: "auto", flexShrink: 0 }}>
-          {[["all", "すべて"], ["received", "受信"], ["sent", "送信済み"], ["unread", `🔔 未読${stats.unread > 0 ? ` (${stats.unread})` : ""}`], ["line", "💬 LINE"], ["email", "✉️ メール"]].map(([id, label]) => (
+          {[["pending", `📥 対応待ち${stats.pending > 0 ? ` (${stats.pending})` : ""}`], ["all", "すべて"], ["archived", "対応済み"], ["sent", "送信済み"], ["line", "💬 LINE"], ["email", "✉️ メール"]].map(([id, label]) => (
             <button key={id} onClick={() => setFilter(id)}
-              style={{ padding: isMobile ? "6px 10px" : "6px 14px", border: "none", borderRadius: 8, fontSize: isMobile ? 11 : 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? (id === "line" ? "#06c755" : "#4338ca") : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none", whiteSpace: "nowrap" }}>{label}</button>
+              style={{ padding: isMobile ? "6px 10px" : "6px 14px", border: "none", borderRadius: 8, fontSize: isMobile ? 11 : 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? (id === "pending" ? "#dc2626" : id === "line" ? "#06c755" : "#4338ca") : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none", whiteSpace: "nowrap" }}>{label}</button>
           ))}
         </div>
         <div style={{ display: "flex", gap: 8, flex: 1 }}>
@@ -7842,8 +7864,23 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
                       </div>
                       <span style={{ fontSize: 11, color: msgUnread ? "#92400e" : "#9ca3af", fontWeight: msgUnread ? 600 : 400 }}>{formatDate(msg.date)}</span>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: msgUnread ? 700 : 500, color: msgUnread ? "#111827" : "#374151", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{msg.subject || "(件名なし)"}</div>
-                    <div style={{ fontSize: 12, color: msgUnread ? "#6b7280" : "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(msg.body || "").slice(0, 80)}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: msgUnread ? 700 : 500, color: msgUnread ? "#111827" : "#374151", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{msg.subject || "(件名なし)"}</div>
+                        <div style={{ fontSize: 12, color: msgUnread ? "#6b7280" : "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(msg.body || "").slice(0, 80)}</div>
+                      </div>
+                      {isInbound && !archivedMsgIds.has(msg.id) && (
+                        <button onClick={(e) => { e.stopPropagation(); archiveMsg(msg.id); }} title="対応済みにする"
+                          style={{ flexShrink: 0, border: "none", background: "#f0fdf4", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 11, color: "#15803d", fontWeight: 500, opacity: 0.7, transition: "opacity 0.15s" }}
+                          onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+                          onMouseLeave={(e) => e.currentTarget.style.opacity = 0.7}>
+                          ✅
+                        </button>
+                      )}
+                      {isInbound && archivedMsgIds.has(msg.id) && (
+                        <span style={{ flexShrink: 0, fontSize: 10, color: "#9ca3af", padding: "2px 6px" }}>対応済み</span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -7918,6 +7955,19 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
                 style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: selectedMsg.channel === "line" ? "linear-gradient(135deg, #06c755, #00b900)" : "linear-gradient(135deg, #6366f1, #7c3aed)", color: "white", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
                 {selectedMsg.channel === "line" ? "💬 LINE返信" : "↩ 返信"}
               </button>
+              {selectedMsg.direction === "inbound" && (
+                archivedMsgIds.has(selectedMsg.id) ? (
+                  <button onClick={() => { unarchiveMsg(selectedMsg.id); }}
+                    style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280", marginLeft: "auto" }}>
+                    📥 対応待ちに戻す
+                  </button>
+                ) : (
+                  <button onClick={() => { archiveMsg(selectedMsg.id); setSelectedMsg(null); }}
+                    style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#10b981", fontSize: 12, cursor: "pointer", color: "white", fontWeight: 500, marginLeft: "auto" }}>
+                    ✅ 対応済みにする
+                  </button>
+                )
+              )}
             </div>
           </div>
         )}
