@@ -24,6 +24,7 @@ button { transition: all 0.15s ease; }
 @keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 @keyframes expandDown { from { max-height: 0; opacity: 0; } to { max-height: 600px; opacity: 1; } }
 </style>
 </head>
@@ -501,6 +502,14 @@ const CANDIDATE_DOCUMENTS = {
   22: [{ id: "d22-1", name: "履歴書_原蓮.pdf", type: "履歴書", size: "220 KB", uploadedAt: "2026/01/09", icon: "file-text" }, { id: "d22-2", name: "エントリーシート_原蓮.pdf", type: "ES", size: "175 KB", uploadedAt: "2026/01/09", icon: "file-text" }],
 };
 
+// ===== 未読メッセージ（LINE/メール）のモックデータ =====
+const UNREAD_MESSAGES_MOCK = [
+  { id: "um1", candidateId: 1, candidateName: "山田 花子", channel: "line", subject: "明日の面接について", body: "明日の二次面接の場所を確認させてください。ビルの何階でしょうか？", date: "2026-03-09T10:25:00", direction: "inbound" },
+  { id: "um2", candidateId: 9, candidateName: "松本 大介", channel: "line", subject: "書類送付のお礼", body: "先ほど職務経歴書を送付いたしました。ご確認よろしくお願いいたします。", date: "2026-03-09T09:48:00", direction: "inbound" },
+  { id: "um3", candidateId: 4, candidateName: "田中 健一", channel: "email", subject: "Re: 最終面接日程のご案内", body: "ご連絡ありがとうございます。3月12日の14時で問題ございません。当日はよろしくお願いいたします。", date: "2026-03-08T18:30:00", direction: "inbound" },
+  { id: "um4", candidateId: 10, candidateName: "小林 由美", channel: "line", subject: "質問", body: "選考結果はいつ頃ご連絡いただけますでしょうか？", date: "2026-03-08T15:12:00", direction: "inbound" },
+];
+
 const PIPELINE_STAGES = STAGE_DEFINITIONS.map(s => ({ name: s.name, count: 0, active: 0, color: s.color }));
 
 const FUNNEL_DATA = STAGE_DEFINITIONS.map(s => ({ stage: s.name, value: 0 }));
@@ -874,7 +883,7 @@ function RecruitTypeSelector({ value, onChange }) {
 // ============================================================
 // COMPONENTS
 // ============================================================
-function Sidebar({ currentPage, onNavigate, userRole = "admin", userProfile, onEditProfile, isMobile, isOpen, onClose }) {
+function Sidebar({ currentPage, onNavigate, userRole = "admin", userProfile, onEditProfile, isMobile, isOpen, onClose, unreadCount = 0 }) {
   const items = [
     { id: "dashboard", icon: "home", label: "ダッシュボード" },
     { id: "candidates", icon: "users", label: "候補者管理" },
@@ -920,7 +929,11 @@ function Sidebar({ currentPage, onNavigate, userRole = "admin", userProfile, onE
               onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
               <Icon name={item.icon} size={17} color={isActive ? "#a5b4fc" : "rgba(255,255,255,0.4)"} />
               <span style={{ fontWeight: isActive ? 600 : 400 }}>{item.label}</span>
-              {isActive && <div style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: "50%", background: "#818cf8", boxShadow: "0 0 8px rgba(129,140,248,0.6)" }} />}
+              {item.id === "messages" && unreadCount > 0 && (
+                <span style={{ marginLeft: "auto", minWidth: 20, height: 20, borderRadius: 10, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", fontWeight: 700, padding: "0 5px", boxShadow: "0 0 8px rgba(239,68,68,0.5)", animation: "pulse 2s infinite" }}>{unreadCount}</span>
+              )}
+              {isActive && item.id !== "messages" && <div style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: "50%", background: "#818cf8", boxShadow: "0 0 8px rgba(129,140,248,0.6)" }} />}
+              {isActive && item.id === "messages" && unreadCount === 0 && <div style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: "50%", background: "#818cf8", boxShadow: "0 0 8px rgba(129,140,248,0.6)" }} />}
             </button>
           );
         })}
@@ -7393,6 +7406,23 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const [filter, setFilter] = useState("all"); // all, sent, received, email, line
   const [search, setSearch] = useState("");
   const [selectedMsg, setSelectedMsg] = useState(null);
+  // 未読メッセージID管理
+  const [readMsgIds, setReadMsgIds] = useState(() => {
+    try { const saved = localStorage.getItem('ats_read_msg_ids'); return saved ? new Set(JSON.parse(saved)) : new Set(); } catch(e) { return new Set(); }
+  });
+  const markMsgRead = useCallback((msgId) => {
+    setReadMsgIds(prev => {
+      const next = new Set(prev);
+      next.add(msgId);
+      localStorage.setItem('ats_read_msg_ids', JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+  const isUnread = useCallback((msg) => {
+    if (msg.direction !== "inbound") return false;
+    // UNREAD_MESSAGES_MOCKにあるか、またはSupabaseから来た受信メッセージで未読
+    return !readMsgIds.has(msg.id);
+  }, [readMsgIds]);
 
   // レスポンシブ: 画面幅を監視
   const [winW, setWinW] = useState(window.innerWidth);
@@ -7442,7 +7472,10 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       })) : [];
 
       // 統合して時系列ソート
-      const allMessages = [...emails, ...lineMessages].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+      // UNREAD_MESSAGES_MOCK をデモ用に混ぜる（既に同IDがなければ）
+      const existingIds = new Set([...emails, ...lineMessages].map(m => m.id));
+      const mockUnread = UNREAD_MESSAGES_MOCK.filter(m => !existingIds.has(m.id));
+      const allMessages = [...emails, ...lineMessages, ...mockUnread].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
       setMessages(allMessages);
     } catch (err) {
       console.error("メッセージ取得エラー:", err);
@@ -7459,6 +7492,7 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
     else if (filter === "received") list = list.filter(m => m.direction === "inbound");
     else if (filter === "email") list = list.filter(m => m.channel !== "line");
     else if (filter === "line") list = list.filter(m => m.channel === "line");
+    else if (filter === "unread") list = list.filter(m => m.direction === "inbound" && !readMsgIds.has(m.id));
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(m =>
@@ -7484,8 +7518,9 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       const now = new Date();
       return d.toDateString() === now.toDateString();
     }).length;
-    return { total, sent, received, today, lineCount, emailCount };
-  }, [messages]);
+    const unread = messages.filter(m => m.direction === "inbound" && !readMsgIds.has(m.id)).length;
+    return { total, sent, received, today, lineCount, emailCount, unread };
+  }, [messages, readMsgIds]);
 
   // テンプレート選択
   const handleTemplateSelect = (templateId) => {
@@ -7662,7 +7697,7 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
       {/* フィルター & 検索 */}
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 8 : 12, marginBottom: 16, alignItems: isMobile ? "stretch" : "center" }}>
         <div style={{ display: "flex", gap: 4, background: "#f3f4f6", borderRadius: 10, padding: 4, overflowX: "auto", flexShrink: 0 }}>
-          {[["all", "すべて"], ["email", "✉️ メール"], ["line", "💬 LINE"], ["sent", "送信済み"], ["received", "受信"]].map(([id, label]) => (
+          {[["all", "すべて"], ["unread", `🔔 未読${stats.unread > 0 ? ` (${stats.unread})` : ""}`], ["email", "✉️ メール"], ["line", "💬 LINE"], ["sent", "送信済み"], ["received", "受信"]].map(([id, label]) => (
             <button key={id} onClick={() => setFilter(id)}
               style={{ padding: isMobile ? "6px 10px" : "6px 14px", border: "none", borderRadius: 8, fontSize: isMobile ? 11 : 12, cursor: "pointer", background: filter === id ? "white" : "transparent", color: filter === id ? (id === "line" ? "#06c755" : "#4338ca") : "#6b7280", fontWeight: filter === id ? 600 : 400, boxShadow: filter === id ? "0 1px 2px rgba(0,0,0,0.1)" : "none", whiteSpace: "nowrap" }}>{label}</button>
           ))}
@@ -7694,18 +7729,21 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
               {filteredMessages.map((msg, i) => {
                 const isInbound = msg.direction === "inbound";
                 const isSelected = selectedMsg && selectedMsg.id === msg.id;
+                const msgUnread = isUnread(msg);
                 return (
-                  <div key={msg.id || i} onClick={() => setSelectedMsg(msg)}
+                  <div key={msg.id || i} onClick={() => { setSelectedMsg(msg); if (msgUnread) markMsgRead(msg.id); }}
                     style={{
                       padding: isMobile ? "10px 12px" : "14px 18px", cursor: "pointer", borderBottom: "1px solid #f3f4f6",
-                      background: isSelected ? "#eef2ff" : "white",
+                      background: isSelected ? "#eef2ff" : msgUnread ? "#fffbeb" : "white",
+                      borderLeft: msgUnread ? "3px solid #f59e0b" : "3px solid transparent",
                       transition: "background 0.15s",
                     }}
-                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "#fafbfc"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "white"; }}
+                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = msgUnread ? "#fef3c7" : "#fafbfc"; }}
+                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = isSelected ? "#eef2ff" : msgUnread ? "#fffbeb" : "white"; }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {msgUnread && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", display: "inline-block", flexShrink: 0, boxShadow: "0 0 6px rgba(245,158,11,0.4)" }} />}
                         <span style={{
                           fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
                           background: msg.channel === "line" ? "#dcfce7" : "#e0e7ff",
@@ -7720,12 +7758,12 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
                         }}>
                           {isInbound ? "受信" : "送信"}
                         </span>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{msg.candidateName}</span>
+                        <span style={{ fontSize: 13, fontWeight: msgUnread ? 700 : 600, color: msgUnread ? "#111827" : "#111827" }}>{msg.candidateName}</span>
                       </div>
-                      <span style={{ fontSize: 11, color: "#9ca3af" }}>{formatDate(msg.date)}</span>
+                      <span style={{ fontSize: 11, color: msgUnread ? "#92400e" : "#9ca3af", fontWeight: msgUnread ? 600 : 400 }}>{formatDate(msg.date)}</span>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{msg.subject || "(件名なし)"}</div>
-                    <div style={{ fontSize: 12, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(msg.body || "").slice(0, 80)}</div>
+                    <div style={{ fontSize: 13, fontWeight: msgUnread ? 700 : 500, color: msgUnread ? "#111827" : "#374151", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{msg.subject || "(件名なし)"}</div>
+                    <div style={{ fontSize: 12, color: msgUnread ? "#6b7280" : "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(msg.body || "").slice(0, 80)}</div>
                   </div>
                 );
               })}
@@ -9658,7 +9696,31 @@ function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAllNotifications, setShowAllNotifications] = useState(false);
   const [notifications, setNotifications] = useState(() => {
-    try { const saved = localStorage.getItem('ats_notifications'); return saved ? JSON.parse(saved) : []; } catch(e) { return []; }
+    try {
+      const saved = localStorage.getItem('ats_notifications');
+      const existing = saved ? JSON.parse(saved) : [];
+      // UNREAD_MESSAGES_MOCKから通知を生成（既にある場合は追加しない）
+      const existingMsgNotifIds = new Set(existing.filter(n => n.unreadMsgId).map(n => n.unreadMsgId));
+      const msgNotifs = UNREAD_MESSAGES_MOCK
+        .filter(m => !existingMsgNotifIds.has(m.id))
+        .map(m => ({
+          id: Date.now() + Math.random(),
+          unreadMsgId: m.id,
+          type: "message",
+          title: m.channel === "line" ? "💬 LINEメッセージ" : "✉️ メール受信",
+          message: `${m.candidateName}さんからメッセージが届いています`,
+          icon: m.channel === "line" ? "💬" : "✉️",
+          time: m.date,
+          read: false,
+          candidateId: m.candidateId,
+        }));
+      if (msgNotifs.length > 0) {
+        const merged = [...msgNotifs, ...existing].slice(0, 50);
+        localStorage.setItem('ats_notifications', JSON.stringify(merged));
+        return merged;
+      }
+      return existing;
+    } catch(e) { return []; }
   });
   const notifRef = useRef(null);
 
@@ -9964,7 +10026,7 @@ function App() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#f0f0f5", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif" }}>
-      <Sidebar currentPage={currentPage} onNavigate={navigate} userRole={userRole} userProfile={userProfile} onEditProfile={openProfileEdit} isMobile={appIsMobile} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar currentPage={currentPage} onNavigate={navigate} userRole={userRole} userProfile={userProfile} onEditProfile={openProfileEdit} isMobile={appIsMobile} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} unreadCount={UNREAD_MESSAGES_MOCK.length} />
       <div style={{ flex: 1, overflowY: "auto", maxHeight: "100vh", width: appIsMobile ? "100vw" : undefined }}>
         <div style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(16px) saturate(1.2)", borderBottom: "1px solid rgba(0,0,0,0.06)", padding: appIsMobile ? "8px 12px" : "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: appIsMobile ? 8 : 16 }}>
