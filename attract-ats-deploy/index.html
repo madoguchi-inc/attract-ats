@@ -487,6 +487,20 @@ const CANDIDATES = [
   { id: 23, recruitType: "中途", lastName: "西村", firstName: "健", lastNameKana: "ニシムラ", firstNameKana: "ケン", university: null, faculty: null, gradYear: null, majorType: null, company: "マッキンゼー", position: "アソシエイト", experience: 4, stage: "説明会", substatus: "案内済", status: "案内済", format: null, email: "ken@example.com", phone: "090-9900-1122", route: "ビズリーチ", aspiration: 3, agent: null, gender: "男性", score: null, createdAt: "2026/02/21" },
 ];
 
+// ===== 候補者書類モックデータ =====
+const CANDIDATE_DOCUMENTS = {
+  1:  [{ id: "d1-1", name: "履歴書_山田花子.pdf", type: "履歴書", size: "245 KB", uploadedAt: "2026/01/16", icon: "file-text" }, { id: "d1-2", name: "エントリーシート_山田花子.pdf", type: "ES", size: "180 KB", uploadedAt: "2026/01/16", icon: "file-text" }],
+  2:  [{ id: "d2-1", name: "履歴書_佐藤太郎.pdf", type: "履歴書", size: "210 KB", uploadedAt: "2026/01/19", icon: "file-text" }, { id: "d2-2", name: "エントリーシート_佐藤太郎.pdf", type: "ES", size: "195 KB", uploadedAt: "2026/01/19", icon: "file-text" }, { id: "d2-3", name: "成績証明書_佐藤太郎.pdf", type: "成績証明書", size: "85 KB", uploadedAt: "2026/01/20", icon: "file-text" }],
+  4:  [{ id: "d4-1", name: "履歴書_田中健一.pdf", type: "履歴書", size: "230 KB", uploadedAt: "2026/01/11", icon: "file-text" }, { id: "d4-2", name: "研究概要_田中健一.pdf", type: "研究概要", size: "520 KB", uploadedAt: "2026/01/12", icon: "file-text" }],
+  5:  [{ id: "d5-1", name: "履歴書_高橋さくら.pdf", type: "履歴書", size: "198 KB", uploadedAt: "2025/12/21", icon: "file-text" }, { id: "d5-2", name: "エントリーシート_高橋さくら.pdf", type: "ES", size: "210 KB", uploadedAt: "2025/12/21", icon: "file-text" }],
+  8:  [{ id: "d8-1", name: "履歴書_中村翔.pdf", type: "履歴書", size: "215 KB", uploadedAt: "2026/01/13", icon: "file-text" }],
+  9:  [{ id: "d9-1", name: "履歴書_松本大介.pdf", type: "履歴書", size: "280 KB", uploadedAt: "2026/02/11", icon: "file-text" }, { id: "d9-2", name: "職務経歴書_松本大介.pdf", type: "職務経歴書", size: "420 KB", uploadedAt: "2026/02/11", icon: "file-text" }, { id: "d9-3", name: "推薦状_◎◎エージェント.pdf", type: "推薦状", size: "150 KB", uploadedAt: "2026/02/12", icon: "file-text" }],
+  10: [{ id: "d10-1", name: "履歴書_小林由美.pdf", type: "履歴書", size: "260 KB", uploadedAt: "2026/02/06", icon: "file-text" }, { id: "d10-2", name: "職務経歴書_小林由美.pdf", type: "職務経歴書", size: "380 KB", uploadedAt: "2026/02/06", icon: "file-text" }],
+  12: [{ id: "d12-1", name: "履歴書_木村麻衣.pdf", type: "履歴書", size: "275 KB", uploadedAt: "2026/01/29", icon: "file-text" }, { id: "d12-2", name: "職務経歴書_木村麻衣.pdf", type: "職務経歴書", size: "510 KB", uploadedAt: "2026/01/29", icon: "file-text" }, { id: "d12-3", name: "ポートフォリオ_木村麻衣.pdf", type: "ポートフォリオ", size: "2.1 MB", uploadedAt: "2026/01/30", icon: "file-text" }],
+  14: [{ id: "d14-1", name: "履歴書_斉藤あかり.pdf", type: "履歴書", size: "240 KB", uploadedAt: "2026/01/06", icon: "file-text" }, { id: "d14-2", name: "職務経歴書_斉藤あかり.pdf", type: "職務経歴書", size: "350 KB", uploadedAt: "2026/01/06", icon: "file-text" }],
+  22: [{ id: "d22-1", name: "履歴書_原蓮.pdf", type: "履歴書", size: "220 KB", uploadedAt: "2026/01/09", icon: "file-text" }, { id: "d22-2", name: "エントリーシート_原蓮.pdf", type: "ES", size: "175 KB", uploadedAt: "2026/01/09", icon: "file-text" }],
+};
+
 const PIPELINE_STAGES = STAGE_DEFINITIONS.map(s => ({ name: s.name, count: 0, active: 0, color: s.color }));
 
 const FUNNEL_DATA = STAGE_DEFINITIONS.map(s => ({ stage: s.name, value: 0 }));
@@ -3264,6 +3278,47 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
             </div>
           )}
 
+          {/* ===== 提出書類セクション ===== */}
+          {(() => {
+            const docs = CANDIDATE_DOCUMENTS[c.id] || [];
+            return docs.length > 0 ? (
+              <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 20 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 8, background: "#dbeafe", color: "#2563eb" }}>
+                    <Icon name="file-text" size={15} />
+                  </span>
+                  提出書類
+                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", marginLeft: 4 }}>({docs.length}件)</span>
+                </h3>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+                  {docs.map(doc => (
+                    <div key={doc.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fafbfc", cursor: "pointer", transition: "all 0.15s" }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#6366f1"; e.currentTarget.style.background = "#eef2ff"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.background = "#fafbfc"; }}
+                      onClick={() => alert("プレビュー機能は Supabase Storage 連携後に利用可能になります")}>
+                      <div style={{ width: 40, height: 40, borderRadius: 8, background: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#dc2626" }}>PDF</span>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
+                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                          <span style={{ background: "#f3f4f6", padding: "1px 6px", borderRadius: 4, marginRight: 6 }}>{doc.type}</span>
+                          {doc.size} · {doc.uploadedAt}
+                        </div>
+                      </div>
+                      <Icon name="eye" size={16} color="#9ca3af" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 20, textAlign: "center" }}>
+                <Icon name="file-text" size={24} color="#d1d5db" />
+                <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 8 }}>提出書類はまだアップロードされていません</div>
+              </div>
+            );
+          })()}
+
           {/* フィードバック入力フォーム */}
           {fbFormOpen ? (
           <div style={{ background: "white", borderRadius: 16, padding: 28, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", border: "2px solid #6366f1", marginBottom: 20 }}>
@@ -4911,16 +4966,56 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       )}
 
       {/* ===== 書類タブ ===== */}
-      {activeTab === "docs" && (
+      {activeTab === "docs" && (() => {
+        const docs = CANDIDATE_DOCUMENTS[c.id] || [];
+        return (
         <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-          <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", marginBottom: 20 }}>書類</h3>
-          <div style={{ padding: 20, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
-            <Icon name="file-text" size={24} color="#d1d5db" />
-            <div style={{ marginTop: 8 }}>提出書類はまだアップロードされていません</div>
-            <button style={{ marginTop: 12, padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151" }}>書類アップロード</button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: 0 }}>書類 {docs.length > 0 && <span style={{ fontSize: 12, fontWeight: 400, color: "#6b7280" }}>({docs.length}件)</span>}</h3>
+            <button style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151", display: "flex", alignItems: "center", gap: 4 }}
+              onClick={() => alert("書類アップロード機能は Supabase Storage 連携後に利用可能になります")}>
+              <Icon name="upload" size={14} color="#6b7280" /> アップロード
+            </button>
           </div>
+          {docs.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {docs.map(doc => (
+                <div key={doc.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", border: "1px solid #e5e7eb", borderRadius: 10, cursor: "pointer", transition: "all 0.15s" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = "#6366f1"; e.currentTarget.style.background = "#fafbfe"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.background = "transparent"; }}
+                  onClick={() => alert("プレビュー機能は Supabase Storage 連携後に利用可能になります")}>
+                  <div style={{ width: 40, height: 40, borderRadius: 8, background: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#dc2626" }}>PDF</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                      <span style={{ background: "#f3f4f6", padding: "1px 6px", borderRadius: 4, marginRight: 6 }}>{doc.type}</span>
+                      {doc.size} · {doc.uploadedAt}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button style={{ padding: "4px 8px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}
+                      onClick={e => { e.stopPropagation(); alert("ダウンロード機能は Supabase Storage 連携後に利用可能になります"); }}>
+                      <Icon name="download" size={12} color="#6b7280" />
+                    </button>
+                    <button style={{ padding: "4px 8px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}
+                      onClick={e => { e.stopPropagation(); alert("プレビュー機能は Supabase Storage 連携後に利用可能になります"); }}>
+                      <Icon name="eye" size={12} color="#6b7280" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: 20, background: "#f9fafb", borderRadius: 10, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+              <Icon name="file-text" size={24} color="#d1d5db" />
+              <div style={{ marginTop: 8 }}>提出書類はまだアップロードされていません</div>
+            </div>
+          )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ===== 日程調整タブ ===== */}
       {activeTab === "schedule" && (
