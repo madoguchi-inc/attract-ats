@@ -3107,8 +3107,11 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
               <div>
                 <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>面接官</label>
-                <input value={fbFormData.interviewer} onChange={e => setFbFormData({...fbFormData, interviewer: e.target.value})}
-                  placeholder="面接官名" style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                <select value={fbFormData.interviewer} onChange={e => setFbFormData({...fbFormData, interviewer: e.target.value})}
+                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13 }}>
+                  <option value="">選択してください</option>
+                  {schedInterviewers.map(iv => <option key={iv.id} value={iv.name}>{iv.name}{iv.role ? ` (${iv.role})` : ""}</option>)}
+                </select>
               </div>
               <div>
                 <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>実施日</label>
@@ -4007,8 +4010,11 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>面接官</label>
-                  <input value={fbFormData.interviewer} onChange={e => setFbFormData({...fbFormData, interviewer: e.target.value})}
-                    placeholder="面接官名" style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                  <select value={fbFormData.interviewer} onChange={e => setFbFormData({...fbFormData, interviewer: e.target.value})}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13 }}>
+                    <option value="">選択してください</option>
+                    {schedInterviewers.map(iv => <option key={iv.id} value={iv.name}>{iv.name}{iv.role ? ` (${iv.role})` : ""}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>実施日</label>
