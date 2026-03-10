@@ -4016,6 +4016,13 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 </div>
               </div>
             )}
+            {can("editCandidates") && !profileEditing && (
+              <button onClick={startProfileEdit}
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", border: "1px solid #c7d2fe", borderRadius: 8, background: "white", fontSize: 11, cursor: "pointer", color: "#6366f1", opacity: 0.8, transition: "opacity 0.2s" }}
+                onMouseEnter={e => e.target.style.opacity = 1} onMouseLeave={e => e.target.style.opacity = 0.8}>
+                <Icon name="edit-2" size={12} /> 編集
+              </button>
+            )}
             <button onClick={() => setShowDeleteConfirm(true)}
               style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", border: "1px solid #fecaca", borderRadius: 8, background: "white", fontSize: 11, cursor: "pointer", color: "#ef4444", opacity: 0.7, transition: "opacity 0.2s" }}
               onMouseEnter={e => e.target.style.opacity = 1} onMouseLeave={e => e.target.style.opacity = 0.7}>
