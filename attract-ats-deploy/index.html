@@ -439,8 +439,12 @@ const isExitStatus = (sub) => EXIT_STATUSES.includes(sub);
 // 候補者のstageからパイプラインステージIDへのマッピング
 function candidateToStageId(stage) {
   if (!stage) return "entry";
+  // 完全一致を優先（"内定承諾" が "内定" の startsWith に誤マッチするのを防ぐ）
   for (const def of STAGE_DEFINITIONS) {
     if (stage === def.name) return def.id;
+  }
+  // 前方一致（完全一致がなかった場合のみ）
+  for (const def of STAGE_DEFINITIONS) {
     if (stage.startsWith(def.name)) return def.id;
   }
   // レガシーマッピング
