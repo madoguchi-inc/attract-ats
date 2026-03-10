@@ -911,6 +911,20 @@ function useSupabaseCandidates(recruitFilter) {
     if (updates.format !== undefined) dbUpdates.format = updates.format;
     if (updates.score !== undefined) dbUpdates.score = updates.score;
     if (updates.aspiration !== undefined) dbUpdates.aspiration = updates.aspiration;
+    // プロフィール編集フィールド
+    if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
+    if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.email !== undefined) dbUpdates.email = updates.email;
+    if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+    if (updates.university !== undefined) dbUpdates.university = updates.university;
+    if (updates.faculty !== undefined) dbUpdates.faculty = updates.faculty;
+    if (updates.department !== undefined) dbUpdates.department = updates.department;
+    if (updates.graduationYear !== undefined) dbUpdates.graduation_year = updates.graduationYear;
+    if (updates.company !== undefined) dbUpdates.company = updates.company;
+    if (updates.position !== undefined) dbUpdates.position = updates.position;
+    if (updates.experience !== undefined) dbUpdates.experience = updates.experience;
+    if (updates.recruitType !== undefined) dbUpdates.recruit_type = updates.recruitType;
     await sbApi.update('candidates', 'id=eq.' + id, dbUpdates);
     await fetchCandidates();
   };
@@ -2174,6 +2188,28 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [activeTab, setActiveTab] = useState("timeline");
   const [memoText, setMemoText] = useState(c.notes || "");
 
+  // ===== プロフィール編集 state =====
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileForm, setProfileForm] = useState({});
+  const startProfileEdit = () => {
+    setProfileForm({
+      lastName: c.lastName || "", firstName: c.firstName || "",
+      email: c.email || "", phone: c.phone || "",
+      university: c.university || "", faculty: c.faculty || "", department: c.department || "",
+      graduationYear: c.graduationYear || "",
+      company: c.company || "", position: c.position || "", experience: c.experience || "",
+      recruitType: c.recruitType || "新卒",
+    });
+    setProfileEditing(true);
+  };
+  const saveProfile = () => {
+    const updates = { ...profileForm };
+    updates.name = ((updates.lastName || '') + ' ' + (updates.firstName || '')).trim();
+    if (onUpdateCandidate) onUpdateCandidate(c.id, updates);
+    setProfileEditing(false);
+  };
+  const cancelProfileEdit = () => setProfileEditing(false);
+
   // ===== 日程調整 state =====
   const [schedInterviewers, setSchedInterviewers] = useState(() => {
     try { const s = localStorage.getItem('ats_interviewers'); return s ? JSON.parse(s) : DEFAULT_INTERVIEWERS; } catch(e) { return DEFAULT_INTERVIEWERS; }
@@ -3235,56 +3271,156 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
           {/* 候補者プロフィール要約 */}
           <div style={{ background: "white", borderRadius: 14, padding: 22, marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, color: "#374151", margin: "0 0 14px 0", display: "flex", alignItems: "center", gap: 6 }}>
-              👤 候補者プロフィール
-            </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-              {isNewGrad ? (
-                <>
-                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>大学</div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.university || "未登録"}</div>
-                  </div>
-                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>学部・学科</div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.faculty || "未登録"}</div>
-                  </div>
-                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>卒業予定</div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.graduationYear || "未登録"}</div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>現職</div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.company || "未登録"}</div>
-                  </div>
-                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>ポジション</div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.position || "未登録"}</div>
-                  </div>
-                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>経験年数</div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.experience || "未登録"}</div>
-                  </div>
-                </>
-              )}
-              <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
-                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>採用区分</div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.recruitType || "未設定"}</div>
-              </div>
-              <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
-                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>メール</div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.email || "未登録"}</div>
-              </div>
-              {avgOverall && (
-                <div style={{ padding: "10px 14px", background: "#eef2ff", borderRadius: 10, border: "1px solid #c7d2fe" }}>
-                  <div style={{ fontSize: 10, color: "#6366f1", marginBottom: 2 }}>これまでの総合評価</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: "#4338ca" }}>★ {avgOverall}<span style={{ fontSize: 11, fontWeight: 400 }}> / 5.0</span></div>
-                </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, color: "#374151", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                👤 候補者プロフィール
+              </h3>
+              {can("editCandidates") && !profileEditing && (
+                <button onClick={startProfileEdit} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 12px", border: "1px solid #e5e7eb", borderRadius: 8, background: "white", fontSize: 12, color: "#6366f1", cursor: "pointer", fontWeight: 500 }}>
+                  <Icon name="edit-2" size={13} color="#6366f1" /> 編集
+                </button>
               )}
             </div>
+
+            {profileEditing ? (
+              /* ===== 編集モード ===== */
+              <div>
+                {/* 氏名 */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>姓</label>
+                    <input value={profileForm.lastName} onChange={e => setProfileForm({...profileForm, lastName: e.target.value})}
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>名</label>
+                    <input value={profileForm.firstName} onChange={e => setProfileForm({...profileForm, firstName: e.target.value})}
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                  </div>
+                </div>
+                {/* メール・電話 */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>メールアドレス</label>
+                    <input value={profileForm.email} onChange={e => setProfileForm({...profileForm, email: e.target.value})}
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>電話番号</label>
+                    <input value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} placeholder="090-xxxx-xxxx"
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                  </div>
+                </div>
+                {/* 採用区分 */}
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>採用区分</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {["新卒", "中途"].map(t => (
+                      <button key={t} onClick={() => setProfileForm({...profileForm, recruitType: t})}
+                        style={{ padding: "6px 18px", border: profileForm.recruitType === t ? "2px solid #6366f1" : "1px solid #d1d5db", borderRadius: 8, background: profileForm.recruitType === t ? "#eef2ff" : "white", color: profileForm.recruitType === t ? "#4338ca" : "#6b7280", fontSize: 12, fontWeight: profileForm.recruitType === t ? 600 : 400, cursor: "pointer" }}>{t}</button>
+                    ))}
+                  </div>
+                </div>
+                {/* 新卒: 大学・学部・卒年 / 中途: 現職・ポジション・経験 */}
+                {profileForm.recruitType === "新卒" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>大学</label>
+                      <input value={profileForm.university} onChange={e => setProfileForm({...profileForm, university: e.target.value})}
+                        style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>学部・学科</label>
+                      <input value={profileForm.faculty} onChange={e => setProfileForm({...profileForm, faculty: e.target.value})}
+                        style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>卒業予定</label>
+                      <input value={profileForm.graduationYear} onChange={e => setProfileForm({...profileForm, graduationYear: e.target.value})} placeholder="2027年3月"
+                        style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>現職</label>
+                      <input value={profileForm.company} onChange={e => setProfileForm({...profileForm, company: e.target.value})}
+                        style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>ポジション</label>
+                      <input value={profileForm.position} onChange={e => setProfileForm({...profileForm, position: e.target.value})}
+                        style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: "#9ca3af", display: "block", marginBottom: 4 }}>経験年数</label>
+                      <input value={profileForm.experience} onChange={e => setProfileForm({...profileForm, experience: e.target.value})} placeholder="3年"
+                        style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                    </div>
+                  </div>
+                )}
+                {/* 保存・キャンセルボタン */}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+                  <button onClick={cancelProfileEdit} style={{ padding: "7px 18px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, color: "#6b7280", cursor: "pointer" }}>キャンセル</button>
+                  <button onClick={saveProfile} style={{ padding: "7px 18px", border: "none", borderRadius: 8, background: "#6366f1", fontSize: 12, color: "white", cursor: "pointer", fontWeight: 600 }}>✓ 保存</button>
+                </div>
+              </div>
+            ) : (
+              /* ===== 表示モード ===== */
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                {isNewGrad ? (
+                  <>
+                    <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>大学</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.university || "未登録"}</div>
+                    </div>
+                    <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>学部・学科</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.faculty || "未登録"}</div>
+                    </div>
+                    <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>卒業予定</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.graduationYear || "未登録"}</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>現職</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.company || "未登録"}</div>
+                    </div>
+                    <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>ポジション</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.position || "未登録"}</div>
+                    </div>
+                    <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>経験年数</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.experience || "未登録"}</div>
+                    </div>
+                  </>
+                )}
+                <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>採用区分</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.recruitType || "未設定"}</div>
+                </div>
+                <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>メール</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.email || "未登録"}</div>
+                </div>
+                {c.phone && (
+                  <div style={{ padding: "10px 14px", background: "#f9fafb", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>電話番号</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{c.phone}</div>
+                  </div>
+                )}
+                {avgOverall && (
+                  <div style={{ padding: "10px 14px", background: "#eef2ff", borderRadius: 10, border: "1px solid #c7d2fe" }}>
+                    <div style={{ fontSize: 10, color: "#6366f1", marginBottom: 2 }}>これまでの総合評価</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#4338ca" }}>★ {avgOverall}<span style={{ fontSize: 11, fontWeight: 400 }}> / 5.0</span></div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 今回の面接重点ポイント */}
