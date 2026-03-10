@@ -9655,24 +9655,43 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
     if (SUPABASE_READY) {
       const { data } = await sbApi.select('profiles', 'order=created_at.asc');
       let list = data || [];
+      // pendingInvites からメールアドレスを補完するマップ
+      const emailMap = {};
+      try {
+        const pi = JSON.parse(localStorage.getItem('ats_pending_invitations') || '[]');
+        pi.forEach(inv => { if (inv.email && inv.display_name) emailMap[inv.display_name] = inv.email; if (inv.email) emailMap[inv.email] = inv.email; });
+      } catch(e) {}
+      // 現在のユーザーのemail
+      if (currentUser?.email) emailMap[currentUser.id] = currentUser.email;
+      // DB カラム → フロント用に正規化
+      list = list.map(p => ({
+        ...p,
+        display_name: p.display_name || p.full_name || "",
+        full_name: p.full_name || p.display_name || "",
+        is_active: p.is_active !== undefined ? p.is_active : true,
+        email: p.email || emailMap[p.id] || emailMap[p.full_name] || emailMap[p.display_name] || "",
+      }));
       // ログインユーザーがprofilesに存在しなければ自動追加を試みる
       if (currentUser?.id && !list.find(a => a.id === currentUser.id)) {
         const fallbackProfile = {
           id: currentUser.id,
-          email: currentUser.email || "",
-          display_name: currentProfile?.display_name || currentUser.email?.split("@")[0] || "管理者",
+          full_name: currentProfile?.display_name || currentProfile?.full_name || currentUser.email?.split("@")[0] || "管理者",
           role: currentProfile?.role || "admin",
-          is_active: true,
-          created_at: new Date().toISOString(),
         };
         // DB にも作成を試みる
         await sbApi.insert('profiles', fallbackProfile).catch(() => {});
         // 再取得
         const { data: data2 } = await sbApi.select('profiles', 'order=created_at.asc');
-        list = data2 || [];
+        list = (data2 || []).map(p => ({
+          ...p,
+          display_name: p.display_name || p.full_name || p.email || "",
+          full_name: p.full_name || p.display_name || "",
+          is_active: p.is_active !== undefined ? p.is_active : true,
+          email: p.email || "",
+        }));
         // それでもなければローカルで追加
         if (!list.find(a => a.id === currentUser.id)) {
-          list = [fallbackProfile, ...list];
+          list = [{ ...fallbackProfile, display_name: fallbackProfile.full_name, is_active: true, email: currentUser.email || "" }, ...list];
         }
       }
       setAccounts(list);
@@ -9710,7 +9729,7 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
         // rate limit → アカウント作成は成功している場合が多い。続行する。
       }
       const uid = newUser?.id || newUser?.user?.id;
-      if (uid) await sbApi.insert('profiles', { id: uid, role: inviteData.role, display_name: inviteData.display_name, is_active: true, email: inviteData.email }).catch(() => {});
+      if (uid) await sbApi.insert('profiles', { id: uid, role: inviteData.role, full_name: inviteData.display_name }).catch(() => {});
     }
     savePending([{ id: Date.now(), email: inviteData.email, display_name: inviteData.display_name, role: inviteData.role, password: inviteData.password, invited_at: new Date().toISOString(), invited_by: currentUser?.email || "管理者", status: "pending" }, ...pendingInvites]);
     setInviteSuccess(`${inviteData.display_name} さんのアカウントを作成しました。`);
@@ -10372,14 +10391,15 @@ function App() {
     }
     const { data } = await sbApi.select('profiles', 'id=eq.' + userId);
     if (data && data.length > 0) {
-      setUserProfile(data[0]);
-      setUserRole(data[0].role || "admin");
+      const p = data[0];
+      setUserProfile({ ...p, display_name: p.display_name || p.full_name || email || "" });
+      setUserRole(p.role || "admin");
     } else {
       // profileがない場合は最初のユーザー→admin として自動作成
       const displayName = email ? email.split("@")[0] : "管理者";
-      const profile = { id: userId, role: "admin", display_name: displayName, email: email || "", is_active: true };
+      const profile = { id: userId, role: "admin", full_name: displayName };
       await sbApi.insert('profiles', profile).catch(() => {});
-      setUserProfile(profile);
+      setUserProfile({ ...profile, display_name: displayName, is_active: true, email: email || "" });
       setUserRole("admin");
     }
   }, []);
@@ -10396,7 +10416,7 @@ function App() {
       await fetch(SUPABASE_URL + '/rest/v1/profiles?id=eq.' + user.id, {
         method: 'PATCH',
         headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tokenStore.accessToken, 'Prefer': 'return=representation' },
-        body: JSON.stringify({ display_name: profileEditName.trim() })
+        body: JSON.stringify({ full_name: profileEditName.trim() })
       });
       await loadProfile(user.id, user.email);
     } else {
