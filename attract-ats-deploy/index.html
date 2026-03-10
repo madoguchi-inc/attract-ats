@@ -3269,97 +3269,6 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
             </div>
           </div>
 
-          {/* プロフィール編集モーダル */}
-          {profileEditing && (
-            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={cancelProfileEdit}>
-              <div style={{ background: "white", borderRadius: 16, padding: 28, width: "100%", maxWidth: 520, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                  <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: 0 }}>✏️ プロフィール編集</h3>
-                  <button onClick={cancelProfileEdit} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><Icon name="x" size={18} color="#9ca3af" /></button>
-                </div>
-                {/* 氏名 */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>姓</label>
-                    <input value={profileForm.lastName} onChange={e => setProfileForm({...profileForm, lastName: e.target.value})}
-                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>名</label>
-                    <input value={profileForm.firstName} onChange={e => setProfileForm({...profileForm, firstName: e.target.value})}
-                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                  </div>
-                </div>
-                {/* メール・電話 */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>メールアドレス</label>
-                    <input value={profileForm.email} onChange={e => setProfileForm({...profileForm, email: e.target.value})}
-                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>電話番号</label>
-                    <input value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} placeholder="090-xxxx-xxxx"
-                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                  </div>
-                </div>
-                {/* 採用区分 */}
-                <div style={{ marginBottom: 14 }}>
-                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>採用区分</label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    {["新卒", "中途"].map(t => (
-                      <button key={t} onClick={() => setProfileForm({...profileForm, recruitType: t})}
-                        style={{ padding: "7px 20px", border: profileForm.recruitType === t ? "2px solid #6366f1" : "1px solid #d1d5db", borderRadius: 8, background: profileForm.recruitType === t ? "#eef2ff" : "white", color: profileForm.recruitType === t ? "#4338ca" : "#6b7280", fontSize: 12, fontWeight: profileForm.recruitType === t ? 600 : 400, cursor: "pointer" }}>{t}</button>
-                    ))}
-                  </div>
-                </div>
-                {/* 新卒 / 中途 */}
-                {profileForm.recruitType === "新卒" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                    <div>
-                      <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>大学</label>
-                      <input value={profileForm.university} onChange={e => setProfileForm({...profileForm, university: e.target.value})}
-                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>学部・学科</label>
-                      <input value={profileForm.faculty} onChange={e => setProfileForm({...profileForm, faculty: e.target.value})}
-                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>卒業予定</label>
-                      <input value={profileForm.graduationYear} onChange={e => setProfileForm({...profileForm, graduationYear: e.target.value})} placeholder="2027年3月"
-                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                    <div>
-                      <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>現職</label>
-                      <input value={profileForm.company} onChange={e => setProfileForm({...profileForm, company: e.target.value})}
-                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>ポジション</label>
-                      <input value={profileForm.position} onChange={e => setProfileForm({...profileForm, position: e.target.value})}
-                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>経験年数</label>
-                      <input value={profileForm.experience} onChange={e => setProfileForm({...profileForm, experience: e.target.value})} placeholder="3年"
-                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
-                    </div>
-                  </div>
-                )}
-                {/* 保存・キャンセルボタン */}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, paddingTop: 16, borderTop: "1px solid #f3f4f6" }}>
-                  <button onClick={cancelProfileEdit} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 13, color: "#6b7280", cursor: "pointer" }}>キャンセル</button>
-                  <button onClick={saveProfile} style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", fontSize: 13, color: "white", cursor: "pointer", fontWeight: 600 }}>✓ 保存</button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* 候補者プロフィール要約 */}
           <div style={{ background: "white", borderRadius: 14, padding: 22, marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -3914,6 +3823,91 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 style={{ padding: "10px 20px", border: "none", borderRadius: 10, background: "#ef4444", color: "white", fontSize: 13, cursor: deletingCandidate ? "default" : "pointer", fontWeight: 600, opacity: deletingCandidate ? 0.6 : 1 }}>
                 {deletingCandidate ? "削除中..." : "削除する"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* プロフィール編集モーダル */}
+      {profileEditing && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={cancelProfileEdit}>
+          <div style={{ background: "white", borderRadius: 16, padding: 28, width: "100%", maxWidth: 520, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: 0 }}>✏️ プロフィール編集</h3>
+              <button onClick={cancelProfileEdit} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><Icon name="x" size={18} color="#9ca3af" /></button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>姓</label>
+                <input value={profileForm.lastName} onChange={e => setProfileForm({...profileForm, lastName: e.target.value})}
+                  style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>名</label>
+                <input value={profileForm.firstName} onChange={e => setProfileForm({...profileForm, firstName: e.target.value})}
+                  style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>メールアドレス</label>
+                <input value={profileForm.email} onChange={e => setProfileForm({...profileForm, email: e.target.value})}
+                  style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>電話番号</label>
+                <input value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} placeholder="090-xxxx-xxxx"
+                  style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>採用区分</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["新卒", "中途"].map(t => (
+                  <button key={t} onClick={() => setProfileForm({...profileForm, recruitType: t})}
+                    style={{ padding: "7px 20px", border: profileForm.recruitType === t ? "2px solid #6366f1" : "1px solid #d1d5db", borderRadius: 8, background: profileForm.recruitType === t ? "#eef2ff" : "white", color: profileForm.recruitType === t ? "#4338ca" : "#6b7280", fontSize: 12, fontWeight: profileForm.recruitType === t ? 600 : 400, cursor: "pointer" }}>{t}</button>
+                ))}
+              </div>
+            </div>
+            {profileForm.recruitType === "新卒" ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>大学</label>
+                  <input value={profileForm.university} onChange={e => setProfileForm({...profileForm, university: e.target.value})}
+                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>学部・学科</label>
+                  <input value={profileForm.faculty} onChange={e => setProfileForm({...profileForm, faculty: e.target.value})}
+                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>卒業予定</label>
+                  <input value={profileForm.graduationYear} onChange={e => setProfileForm({...profileForm, graduationYear: e.target.value})} placeholder="2027年3月"
+                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>現職</label>
+                  <input value={profileForm.company} onChange={e => setProfileForm({...profileForm, company: e.target.value})}
+                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>ポジション</label>
+                  <input value={profileForm.position} onChange={e => setProfileForm({...profileForm, position: e.target.value})}
+                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4, fontWeight: 500 }}>経験年数</label>
+                  <input value={profileForm.experience} onChange={e => setProfileForm({...profileForm, experience: e.target.value})} placeholder="3年"
+                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, paddingTop: 16, borderTop: "1px solid #f3f4f6" }}>
+              <button onClick={cancelProfileEdit} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 13, color: "#6b7280", cursor: "pointer" }}>キャンセル</button>
+              <button onClick={saveProfile} style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", fontSize: 13, color: "white", cursor: "pointer", fontWeight: 600 }}>✓ 保存</button>
             </div>
           </div>
         </div>
