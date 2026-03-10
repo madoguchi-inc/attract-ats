@@ -292,16 +292,16 @@ const STAGE_DEFINITIONS = [
     substatuses: ["受付済", "書類確認中", "書類通過"],
     exitStatuses: ["辞退", "不合格", "保留"] },
   { id: "briefing",    order: 2, name: "説明会",     color: "#8b5cf6", icon: "volume",
-    substatuses: ["案内済", "予約済", "参加済", "欠席"],
+    substatuses: ["案内済", "予約済", "参加済", "欠席", "キャンセル・再調整中"],
     exitStatuses: ["辞退", "不合格", "保留"] },
   { id: "interview1",  order: 3, name: "一次面接",   color: "#a855f7", icon: "user",
-    substatuses: ["日程調整中", "予約済", "実施済", "合格"],
+    substatuses: ["日程調整中", "予約済", "実施済", "合格", "キャンセル・再調整中"],
     exitStatuses: ["辞退", "不合格", "保留"] },
   { id: "interview2",  order: 4, name: "二次面接",   color: "#d946ef", icon: "user",
-    substatuses: ["日程調整中", "予約済", "実施済", "合格"],
+    substatuses: ["日程調整中", "予約済", "実施済", "合格", "キャンセル・再調整中"],
     exitStatuses: ["辞退", "不合格", "保留"] },
   { id: "final",       order: 5, name: "最終面接",   color: "#ec4899", icon: "star",
-    substatuses: ["日程調整中", "予約済", "実施済", "合格"],
+    substatuses: ["日程調整中", "予約済", "実施済", "合格", "キャンセル・再調整中"],
     exitStatuses: ["辞退", "不合格", "保留"] },
   { id: "offer",       order: 6, name: "内定",       color: "#f59e0b", icon: "check-circle",
     substatuses: ["内定通知", "面談調整中", "面談実施済"],
@@ -5607,13 +5607,23 @@ function buildPipelineFromCandidates(candidates) {
   });
 
   return STAGE_DEFINITIONS.map((def, i) => {
-    const progSubs = def.substatuses.map(sub => ({
+    const CANCEL_STATUS = "キャンセル・再調整中";
+    const progSubs = def.substatuses.filter(s => s !== CANCEL_STATUS).map(sub => ({
       status: sub,
       color: def.color,
       staying: (counts[def.id] && counts[def.id][sub]) || 0,
       total: (counts[def.id] && counts[def.id][sub]) || 0,
       isAlert: false,
     })).filter(s => s.staying > 0);
+
+    // キャンセル・再調整中は注意表示（オレンジ、予約数に含まず）
+    const cancelSubs = def.substatuses.includes(CANCEL_STATUS) ? [{
+      status: CANCEL_STATUS,
+      color: "#f59e0b",
+      staying: (counts[def.id] && counts[def.id][CANCEL_STATUS]) || 0,
+      total: (counts[def.id] && counts[def.id][CANCEL_STATUS]) || 0,
+      isAlert: false, isCancel: true,
+    }].filter(s => s.staying > 0) : [];
 
     const exitSubs = (def.exitStatuses || []).map(sub => ({
       status: sub,
@@ -5623,7 +5633,7 @@ function buildPipelineFromCandidates(candidates) {
       isAlert: true,
     })).filter(s => s.staying > 0);
 
-    const allSubs = [...progSubs, ...exitSubs];
+    const allSubs = [...progSubs, ...cancelSubs, ...exitSubs];
 
     // 歩留まり（前ステージからの通過率）
     let conversionRate = 100;
@@ -5642,7 +5652,7 @@ function buildPipelineFromCandidates(candidates) {
       substages: allSubs.length > 0 ? allSubs : [{ status: "—", staying: 0, total: 0, color: def.color }],
       cumulativePassed: thisCumulative,
       exitCount: Object.values(exitCounts[def.id] || {}).reduce((a, b) => a + b, 0),
-      activeCount: Object.values(counts[def.id] || {}).reduce((a, b) => a + b, 0),
+      activeCount: Object.entries(counts[def.id] || {}).filter(([k]) => k !== CANCEL_STATUS).reduce((a, [, b]) => a + b, 0),
       conversionRate: conversionRate,
     };
   });
@@ -5654,7 +5664,7 @@ function SubstageRow({ sub, maxTotal, onClickStaying }) {
   const isClickable = sub.staying > 0 && onClickStaying;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-      <div style={{ width: 56, fontSize: 11, color: sub.isAlert ? "#ef4444" : "#6b7280", fontWeight: 500, flexShrink: 0 }}>
+      <div style={{ width: 56, fontSize: 11, color: sub.isAlert ? "#ef4444" : sub.isCancel ? "#d97706" : "#6b7280", fontWeight: 500, flexShrink: 0 }}>
         {sub.status}
       </div>
       <div style={{ flex: 1, position: "relative", height: 22, background: "#f9fafb", borderRadius: 6, overflow: "hidden",
@@ -5664,13 +5674,15 @@ function SubstageRow({ sub, maxTotal, onClickStaying }) {
           height: "100%", borderRadius: 6,
           background: sub.isAlert
             ? "linear-gradient(90deg, #fecaca, #fca5a5)"
+            : sub.isCancel
+            ? "linear-gradient(90deg, #fef3c7, #fde68a)"
             : `linear-gradient(90deg, ${sub.color}30, ${sub.color}60)`,
           width: `${barWidth}%`, transition: "width 0.5s",
         }} />
         {sub.staying > 0 && (
           <div style={{
             position: "absolute", left: 0, top: 0, height: "100%", borderRadius: 6,
-            background: sub.isAlert ? "#ef4444" : sub.color,
+            background: sub.isAlert ? "#ef4444" : sub.isCancel ? "#f59e0b" : sub.color,
             width: `${maxTotal > 0 ? (sub.staying / maxTotal) * 100 : 0}%`,
             opacity: 0.85, transition: "width 0.5s",
           }} />
@@ -5700,7 +5712,7 @@ function SubstageRow({ sub, maxTotal, onClickStaying }) {
 // ステージカード（8段階対応・歩留まり表示付き）
 function StageCard({ stage, onSubstageClick }) {
   const maxTotal = Math.max(...stage.substages.map(s => s.total), 1);
-  const totalStaying = stage.activeCount || stage.substages.reduce((a, s) => a + (s.isAlert ? 0 : s.staying), 0);
+  const totalStaying = stage.activeCount || stage.substages.reduce((a, s) => a + (s.isAlert || s.isCancel ? 0 : s.staying), 0);
   const alertCount = stage.exitCount || stage.substages.filter(s => s.isAlert).reduce((a, s) => a + s.staying, 0);
 
   return (
