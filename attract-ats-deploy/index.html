@@ -127,6 +127,17 @@ const sbApi = {
     });
     if (!res.ok) return { error: await res.json() };
     return { error: null };
+  },
+  // DB: UPSERT (on conflict merge)
+  async upsert(table, rows, onConflict = 'id') {
+    const body = Array.isArray(rows) ? rows : [rows];
+    const res = await fetch(SUPABASE_URL + '/rest/v1/' + table, {
+      method: 'POST',
+      headers: { ...this._headers(), 'Prefer': 'return=representation,resolution=merge-duplicates' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) return { data: null, error: await res.json() };
+    return { data: await res.json(), error: null };
   }
 };
 
@@ -1945,10 +1956,10 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                     <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280" }}>メッセージ *</label>
-                    <select onChange={e => { if (!e.target.value) return; try { const t = JSON.parse(localStorage.getItem('ats_line_templates') || '[]'); const tpl = (t.length ? t : DEFAULT_LINE_TEMPLATES).find(x => x.id === e.target.value); if (tpl) setBulkLineData({...bulkLineData, message: tpl.body}); } catch(err) {} e.target.value = ""; }}
+                    <select onChange={e => { if (!e.target.value) return; const tpl = DEFAULT_LINE_TEMPLATES.find(x => x.id === e.target.value); if (tpl) setBulkLineData({...bulkLineData, message: tpl.body}); e.target.value = ""; }}
                       style={{ padding: "3px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 11, color: "#6b7280", background: "white", cursor: "pointer" }}>
                       <option value="">📝 テンプレート選択</option>
-                      {(() => { try { const t = JSON.parse(localStorage.getItem('ats_line_templates') || '[]'); return t.length ? t : DEFAULT_LINE_TEMPLATES; } catch(e) { return DEFAULT_LINE_TEMPLATES; } })().map(t => (
+                      {DEFAULT_LINE_TEMPLATES.map(t => (
                         <option key={t.id} value={t.id}>[{t.category}] {t.label}</option>
                       ))}
                     </select>
@@ -2201,9 +2212,16 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const cancelProfileEdit = () => setProfileEditing(false);
 
   // ===== 日程調整 state =====
-  const [schedInterviewers, setSchedInterviewers] = useState(() => {
-    try { const s = localStorage.getItem('ats_interviewers'); return s ? JSON.parse(s) : DEFAULT_INTERVIEWERS; } catch(e) { return DEFAULT_INTERVIEWERS; }
-  });
+  const [schedInterviewers, setSchedInterviewers] = useState(DEFAULT_INTERVIEWERS);
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      const { data } = await sbApi.select('interviewers', 'order=name.asc');
+      if (data && data.length > 0) {
+        setSchedInterviewers(data.map(d => ({ id: d.id || d.email, name: d.name, email: d.email, role: d.role || '', department: d.department || '', photoUrl: d.photo_url || d.photoUrl || '', bio: d.bio || '' })));
+      }
+    })();
+  }, []);
   const [schedSelectedInterviewers, setSchedSelectedInterviewers] = useState([]);
   const [schedDateRange, setSchedDateRange] = useState({ start: new Date().toISOString().slice(0,10), end: new Date(Date.now() + 7*86400000).toISOString().slice(0,10) });
   const [schedSlots, setSchedSlots] = useState([]);
@@ -5145,7 +5163,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                       onChange={e => {
                         if (!e.target.value) return;
                         try {
-                          const tpls = JSON.parse(localStorage.getItem('ats_line_templates') || '[]');
+                          const tpls = DEFAULT_LINE_TEMPLATES;
                           const tpl = (tpls.length ? tpls : DEFAULT_LINE_TEMPLATES).find(t => t.id === e.target.value);
                           if (tpl) {
                             const name = `${c.lastName || ''} ${c.firstName || ''}`.trim();
@@ -5156,7 +5174,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                       }}
                       style={{ padding: "5px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 11, color: "#6b7280", background: "white", cursor: "pointer" }}>
                       <option value="">📝 テンプレート</option>
-                      {(() => { try { const t = JSON.parse(localStorage.getItem('ats_line_templates') || '[]'); return (t.length ? t : DEFAULT_LINE_TEMPLATES); } catch(e) { return DEFAULT_LINE_TEMPLATES; } })().map(t => (
+                      {DEFAULT_LINE_TEMPLATES.map(t => (
                         <option key={t.id} value={t.id}>[{t.category}] {t.label}</option>
                       ))}
                     </select>
@@ -6355,11 +6373,11 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
   const STORAGE_KEY = 'ats_schedule_events';
   // 旧データ（Googleカレンダー同期・サンプルデータ）をクリア
   useEffect(() => {
-    try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+    // カレンダーイベントのリセット（Supabaseは別途）
   }, []);
   const [events, setEvents] = useState([]);
 
-  const save = (list) => { setEvents(list); localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); };
+  const save = (list) => { setEvents(list); };
 
   // ビュー: calendar / week / list
   const [view, setView] = useState("calendar");
@@ -6447,7 +6465,8 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
         const endDateTime = `${newEvent.date}T${newEvent.endTime || newEvent.startTime}:00+09:00`;
         const attendees = [];
         if (newEvent.interviewer) {
-          const ivs = JSON.parse(localStorage.getItem('ats_interviewers') || '[]');
+          let ivs = [];
+          if (SUPABASE_READY) { const { data } = await sbApi.select('interviewers'); ivs = data || []; }
           const iv = ivs.find(x => x.name === newEvent.interviewer || x.name.includes(newEvent.interviewer));
           if (iv) attendees.push({ email: iv.email, name: iv.name });
         }
@@ -6984,10 +7003,29 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
 
 // Automation
 function AutomationPage({ emailTemplates = [] }) {
-  const [triggers, setTriggers] = useState(() => {
-    try { const s = localStorage.getItem('ats_automations'); return s ? JSON.parse(s) : AUTOMATION_TRIGGERS; } catch(e) { return AUTOMATION_TRIGGERS; }
-  });
-  const save = (list) => { setTriggers(list); localStorage.setItem('ats_automations', JSON.stringify(list)); };
+  const [triggers, setTriggers] = useState(AUTOMATION_TRIGGERS);
+  const [autoLoading, setAutoLoading] = useState(false);
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      setAutoLoading(true);
+      const { data } = await sbApi.select('automations', 'order=created_at.desc');
+      if (data && data.length > 0) {
+        setTriggers(data.map(d => ({ id: d.id, name: d.name, trigger: d.trigger_type, triggerType: d.trigger_type, triggerValue: d.trigger_value || '', actionType: d.action_type, actionConfig: d.action_config || {}, active: d.enabled !== false, ...d.action_config })));
+      } else {
+        // 初回: デフォルトを投入
+        const rows = AUTOMATION_TRIGGERS.map(t => ({ id: t.id, name: t.name, trigger_type: t.triggerType || t.trigger || '', trigger_value: t.triggerValue || t.triggerStage || '', action_type: t.actionType || 'email', action_config: JSON.stringify({ channels: t.channels, templateId: t.templateId, target: t.target, delay: t.delay }), enabled: t.active !== false }));
+        await sbApi.upsert('automations', rows);
+      }
+      setAutoLoading(false);
+    })();
+  }, []);
+  const save = async (list) => {
+    setTriggers(list);
+    if (SUPABASE_READY) {
+      await sbApi.upsert('automations', list.map(t => ({ id: t.id, name: t.name, trigger_type: t.triggerType || t.trigger || '', trigger_value: t.triggerValue || t.triggerStage || '', action_type: t.actionType || 'email', action_config: JSON.stringify({ channels: t.channels, templateId: t.templateId, target: t.target, delay: t.delay }), enabled: t.active !== false })));
+    }
+  };
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({ name: "", trigger: "", triggerType: "stage_change", triggerStage: "エントリー", target: "候補者", delay: "即時", channels: ["メール"], templateId: "", active: true });
@@ -7613,42 +7651,46 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const [filter, setFilter] = useState("pending"); // pending, all, archived, sent, line, email
   const [search, setSearch] = useState("");
   const [selectedMsg, setSelectedMsg] = useState(null);
-  // 未読メッセージID管理
-  const [readMsgIds, setReadMsgIds] = useState(() => {
-    try { const saved = localStorage.getItem('ats_read_msg_ids'); return saved ? new Set(JSON.parse(saved)) : new Set(); } catch(e) { return new Set(); }
-  });
-  // 対応済み（アーカイブ）メッセージID管理
-  const [archivedMsgIds, setArchivedMsgIds] = useState(() => {
-    try { const saved = localStorage.getItem('ats_archived_msg_ids'); return saved ? new Set(JSON.parse(saved)) : new Set(); } catch(e) { return new Set(); }
-  });
+  // 未読メッセージID管理 (Supabase連携)
+  const [readMsgIds, setReadMsgIds] = useState(new Set());
+  const [archivedMsgIds, setArchivedMsgIds] = useState(new Set());
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      const { data } = await sbApi.select('message_status');
+      if (data) {
+        setReadMsgIds(new Set(data.filter(d => d.is_read).map(d => d.message_id)));
+        setArchivedMsgIds(new Set(data.filter(d => d.is_archived).map(d => d.message_id)));
+      }
+    })();
+  }, []);
   const markMsgRead = useCallback((msgId) => {
     setReadMsgIds(prev => {
       const next = new Set(prev);
       next.add(msgId);
-      localStorage.setItem('ats_read_msg_ids', JSON.stringify([...next]));
       window.dispatchEvent(new Event('ats_read_updated'));
       return next;
     });
+    if (SUPABASE_READY) { sbApi.upsert('message_status', { message_id: msgId, is_read: true, is_archived: false }, 'message_id'); }
   }, []);
   const archiveMsg = useCallback((msgId) => {
     setArchivedMsgIds(prev => {
       const next = new Set(prev);
       next.add(msgId);
-      localStorage.setItem('ats_archived_msg_ids', JSON.stringify([...next]));
       window.dispatchEvent(new Event('ats_read_updated'));
       return next;
     });
-    // アーカイブしたら既読にもする
     markMsgRead(msgId);
+    if (SUPABASE_READY) { sbApi.upsert('message_status', { message_id: msgId, is_read: true, is_archived: true }, 'message_id'); }
   }, [markMsgRead]);
   const unarchiveMsg = useCallback((msgId) => {
     setArchivedMsgIds(prev => {
       const next = new Set(prev);
       next.delete(msgId);
-      localStorage.setItem('ats_archived_msg_ids', JSON.stringify([...next]));
       window.dispatchEvent(new Event('ats_read_updated'));
       return next;
     });
+    if (SUPABASE_READY) { sbApi.upsert('message_status', { message_id: msgId, is_read: true, is_archived: false }, 'message_id'); }
   }, []);
   const isUnread = useCallback((msg) => {
     if (msg.direction !== "inbound") return false;
@@ -7757,9 +7799,9 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
     return { total, sent, received, lineCount, emailCount, pending, archived, unread };
   }, [messages, readMsgIds, archivedMsgIds]);
 
-  // 対応待ちカウントをlocalStorageに同期（サイドバーバッジ用）
+  // 対応待ちカウントをカスタムイベントで同期（サイドバーバッジ用）
   useEffect(() => {
-    localStorage.setItem('ats_unread_count', String(stats.pending));
+    window.dispatchEvent(new Event('ats_read_updated'));
     window.dispatchEvent(new Event('ats_read_updated'));
   }, [stats.pending]);
 
@@ -8508,10 +8550,21 @@ function AgentFormUrl({ agentName }) {
 }
 
 function AgentsPage({ candidates = [] }) {
-  const [agents, setAgents] = useState(() => {
-    try { const saved = localStorage.getItem('ats_agents'); return saved ? JSON.parse(saved) : []; } catch(e) { return []; }
-  });
-  const save = (list) => { setAgents(list); localStorage.setItem('ats_agents', JSON.stringify(list)); };
+  const [agents, setAgents] = useState([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      setAgentsLoading(true);
+      const { data } = await sbApi.select('agents', 'order=name.asc');
+      if (data) setAgents(data.map(d => ({ id: d.id, name: d.name || d.company_name || '', company_name: d.company_name || '', contact_name: d.contact_name || '', contact_email: d.contact_email || '', contact_phone: d.contact_phone || '', fee_type: d.fee_type || '', fee_amount: d.fee_amount || '', contract_start: d.contract_start || '', contract_end: d.contract_end || '', notes: d.notes || '', status: d.status || 'active', candidateCount: 0 })));
+      setAgentsLoading(false);
+    })();
+  }, []);
+  const save = async (list) => {
+    setAgents(list);
+    // 個別のupsert/deleteは各操作で行う
+  };
 
   // 候補者データから紹介会社名を自動検出し、未登録なら追加
   useEffect(() => {
@@ -8604,7 +8657,7 @@ function AgentsPage({ candidates = [] }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>🏢 紹介会社管理</h1>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => { if (window.confirm("紹介会社データをリセットし、候補者データから再検出しますか？")) { localStorage.removeItem('ats_agents'); setAgents([]); setSelectedAgent(null); } }} style={{ padding: "8px 12px", border: "1px solid #e5e7eb", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>🔄 再検出</button>
+          <button onClick={() => { if (window.confirm("紹介会社データをリセットし、候補者データから再検出しますか？")) { setAgents([]); setSelectedAgent(null); } }} style={{ padding: "8px 12px", border: "1px solid #e5e7eb", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>🔄 再検出</button>
           <button onClick={openNew} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", background: "linear-gradient(135deg, #6366f1, #7c3aed)", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             <Icon name="plus" size={14} color="white" /> 新規登録
           </button>
@@ -8833,17 +8886,41 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
   const [lineLoading, setLineLoading] = useState(false);
   const [lineSaving, setLineSaving] = useState(null);
 
-  // LINEテンプレート state
-  const [lineTemplates, setLineTemplates] = useState(() => {
-    try { const s = localStorage.getItem('ats_line_templates'); return s ? JSON.parse(s) : DEFAULT_LINE_TEMPLATES; } catch(e) { return DEFAULT_LINE_TEMPLATES; }
-  });
-  const saveLineTemplates = (tpls) => { setLineTemplates(tpls); localStorage.setItem('ats_line_templates', JSON.stringify(tpls)); };
+  // LINEテンプレート state (Supabase連携)
+  const [lineTemplates, setLineTemplates] = useState(DEFAULT_LINE_TEMPLATES);
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      const { data } = await sbApi.select('line_templates', 'order=id.asc');
+      if (data && data.length > 0) {
+        setLineTemplates(data);
+      } else {
+        await sbApi.upsert('line_templates', DEFAULT_LINE_TEMPLATES.map(t => ({ id: t.id, category: t.category, label: t.label, body: t.body || '' })));
+      }
+    })();
+  }, []);
+  const saveLineTemplates = async (tpls) => {
+    setLineTemplates(tpls);
+    if (SUPABASE_READY) {
+      await sbApi.upsert('line_templates', tpls.map(t => ({ id: t.id, category: t.category, label: t.label, body: t.body || '' })));
+    }
+  };
   const [editingLineTpl, setEditingLineTpl] = useState(null);
   const [lineTplFilter, setLineTplFilter] = useState("all");
-  // 面接官マスタ state
-  const [interviewers, setInterviewers] = useState(() => {
-    try { const s = localStorage.getItem('ats_interviewers'); return s ? JSON.parse(s) : DEFAULT_INTERVIEWERS; } catch(e) { return DEFAULT_INTERVIEWERS; }
-  });
+  // 面接官マスタ state (Supabase連携)
+  const [interviewers, setInterviewers] = useState(DEFAULT_INTERVIEWERS);
+  const [ivLoading, setIvLoading] = useState(false);
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      setIvLoading(true);
+      const { data } = await sbApi.select('interviewers', 'order=name.asc');
+      if (data && data.length > 0) {
+        setInterviewers(data.map(d => ({ id: d.id || d.email, name: d.name, email: d.email, role: d.role || '', department: d.department || '', photoUrl: d.photo_url || d.photoUrl || '', bio: d.bio || '' })));
+      }
+      setIvLoading(false);
+    })();
+  }, []);
   const [editingIv, setEditingIv] = useState(null);
   const [ivSyncing, setIvSyncing] = useState(false);
   const [ivPhotoUploading, setIvPhotoUploading] = useState(false);
@@ -8874,7 +8951,10 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
     } catch(e) { console.error(e); showToast("アップロードエラー", "error"); }
     setIvPhotoUploading(false);
   };
-  const saveInterviewers = (list) => { setInterviewers(list); localStorage.setItem('ats_interviewers', JSON.stringify(list)); };
+  const saveInterviewers = async (list) => {
+    setInterviewers(list);
+    // Supabase に保存（localStorage不要）
+  };
   // Supabase に面接官プロフィールを同期
   const syncInterviewerToSupabase = async (iv) => {
     if (!NETLIFY_DOMAIN) return;
@@ -10030,17 +10110,48 @@ function App() {
   const [pipelineFilter, setPipelineFilter] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  // メールテンプレート管理
-  const [emailTemplates, setEmailTemplates] = useState(() => {
-    try { const saved = localStorage.getItem('ats_email_templates'); return saved ? JSON.parse(saved) : DEFAULT_EMAIL_TEMPLATES; } catch(e) { return DEFAULT_EMAIL_TEMPLATES; }
-  });
-  const saveEmailTemplates = (tpls) => { setEmailTemplates(tpls); localStorage.setItem('ats_email_templates', JSON.stringify(tpls)); };
+  // メールテンプレート管理 (Supabase連携)
+  const [emailTemplates, setEmailTemplates] = useState(DEFAULT_EMAIL_TEMPLATES);
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      const { data } = await sbApi.select('email_templates', 'order=id.asc');
+      if (data && data.length > 0) {
+        setEmailTemplates(data);
+      } else {
+        // 初回: デフォルトテンプレートを投入
+        await sbApi.upsert('email_templates', DEFAULT_EMAIL_TEMPLATES.map(t => ({ id: t.id, category: t.category, label: t.label, subject: t.subject || '', body: t.body || '' })));
+      }
+    })();
+  }, []);
+  const saveEmailTemplates = async (tpls) => {
+    setEmailTemplates(tpls);
+    if (SUPABASE_READY) {
+      await sbApi.upsert('email_templates', tpls.map(t => ({ id: t.id, category: t.category, label: t.label, subject: t.subject || '', body: t.body || '' })));
+    }
+  };
 
-  // タスク管理
-  const [tasks, setTasks] = useState(() => {
-    try { const saved = localStorage.getItem('ats_tasks'); return saved ? JSON.parse(saved) : []; } catch(e) { return []; }
-  });
-  const saveTasks = useCallback((newTasks) => { setTasks(newTasks); localStorage.setItem('ats_tasks', JSON.stringify(newTasks)); }, []);
+  // タスク管理 (Supabase連携)
+  const [tasks, setTasks] = useState([]);
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      const { data } = await sbApi.select('tasks', 'order=created_at.desc');
+      if (data) setTasks(data.map(t => ({ ...t, completed: !!t.completed })));
+    })();
+  }, []);
+  const saveTasks = useCallback(async (newTasks) => {
+    setTasks(newTasks);
+    if (SUPABASE_READY) {
+      await sbApi.upsert('tasks', newTasks.map(t => ({
+        id: t.id, candidate_id: t.candidate_id || t.candidateId || null,
+        candidate_name: t.candidate_name || t.candidateName || '',
+        title: t.title, due_date: t.due_date || t.dueDate || null,
+        priority: t.priority || 'medium', completed: !!t.completed,
+        note: t.note || '', created_by: t.created_by || t.createdBy || ''
+      })));
+    }
+  }, []);
 
   // ステージ変更時にタスクを自動生成
   const autoGenerateTasks = useCallback((candidate, newStage) => {
@@ -10048,7 +10159,15 @@ function App() {
     if (newTasks.length > 0) {
       setTasks(prev => {
         const updated = [...prev, ...newTasks];
-        localStorage.setItem('ats_tasks', JSON.stringify(updated));
+        if (SUPABASE_READY) {
+          sbApi.upsert('tasks', newTasks.map(t => ({
+            id: t.id, candidate_id: t.candidateId || null,
+            candidate_name: t.candidateName || '',
+            title: t.title, due_date: t.dueDate || null,
+            priority: t.priority || 'medium', completed: false,
+            note: t.note || '', created_by: t.createdBy || ''
+          })));
+        }
         return updated;
       });
     }
@@ -10058,38 +10177,26 @@ function App() {
   const [migrationMsg, setMigrationMsg] = useState('');
 
   // ========== 未読メッセージカウント ==========
-  const [globalReadMsgIds, setGlobalReadMsgIds] = useState(() => {
-    try { const saved = localStorage.getItem('ats_read_msg_ids'); return saved ? new Set(JSON.parse(saved)) : new Set(); } catch(e) { return new Set(); }
-  });
-  // localStorageの変更を監視して未読カウントを更新
+  const [globalReadMsgIds, setGlobalReadMsgIds] = useState(new Set());
+  // Supabaseからメッセージ既読状態を読み込み & カスタムイベント監視
   useEffect(() => {
-    const onStorage = () => {
-      try { const saved = localStorage.getItem('ats_read_msg_ids'); setGlobalReadMsgIds(saved ? new Set(JSON.parse(saved)) : new Set()); } catch(e) {}
+    const loadReadIds = async () => {
+      if (SUPABASE_READY) {
+        const { data } = await sbApi.select('message_status', 'is_read=eq.true');
+        if (data) setGlobalReadMsgIds(new Set(data.map(d => d.message_id)));
+      }
     };
-    window.addEventListener('storage', onStorage);
-    // カスタムイベントも監視（同一タブ内の変更検知用）
-    const onCustom = () => onStorage();
+    loadReadIds();
+    const onCustom = () => loadReadIds();
     window.addEventListener('ats_read_updated', onCustom);
-    // 定期チェック（フォールバック）
-    const interval = setInterval(onStorage, 2000);
-    return () => { window.removeEventListener('storage', onStorage); window.removeEventListener('ats_read_updated', onCustom); clearInterval(interval); };
+    const interval = setInterval(loadReadIds, 5000);
+    return () => { window.removeEventListener('ats_read_updated', onCustom); clearInterval(interval); };
   }, []);
-  // localStorageからMessagesPageが書き込んだ実際の未読数を取得（モック+Supabase両方含む）
-  const [globalUnreadCount, setGlobalUnreadCount] = useState(() => {
-    const saved = localStorage.getItem('ats_unread_count');
-    if (saved !== null) return parseInt(saved, 10) || 0;
-    // フォールバック：MessagesPageがまだ未読数を書き込んでない場合はモックデータで計算
-    return UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length;
-  });
+  // 未読メッセージカウント（globalReadMsgIdsから計算）
+  const [globalUnreadCount, setGlobalUnreadCount] = useState(0);
   useEffect(() => {
-    const syncCount = () => {
-      const saved = localStorage.getItem('ats_unread_count');
-      if (saved !== null) { setGlobalUnreadCount(parseInt(saved, 10) || 0); }
-      else { setGlobalUnreadCount(UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length); }
-    };
-    window.addEventListener('ats_read_updated', syncCount);
-    const iv = setInterval(syncCount, 2000);
-    return () => { window.removeEventListener('ats_read_updated', syncCount); clearInterval(iv); };
+    const count = UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length;
+    setGlobalUnreadCount(count);
   }, [globalReadMsgIds]);
 
   // ========== レスポンシブ対応 ==========
@@ -10105,33 +10212,31 @@ function App() {
   // ========== 通知機能 ==========
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAllNotifications, setShowAllNotifications] = useState(false);
-  const [notifications, setNotifications] = useState(() => {
-    try {
-      const saved = localStorage.getItem('ats_notifications');
-      const existing = saved ? JSON.parse(saved) : [];
-      // UNREAD_MESSAGES_MOCKから通知を生成（既にある場合は追加しない）
-      const existingMsgNotifIds = new Set(existing.filter(n => n.unreadMsgId).map(n => n.unreadMsgId));
-      const msgNotifs = UNREAD_MESSAGES_MOCK
-        .filter(m => !existingMsgNotifIds.has(m.id))
-        .map(m => ({
+  const [notifications, setNotifications] = useState([]);
+  // Supabase から通知を読み込み
+  useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      const { data } = await sbApi.select('notifications', 'order=created_at.desc&limit=50');
+      if (data && data.length > 0) {
+        setNotifications(data.map(n => ({ id: n.id, type: n.type, title: n.title, message: n.message, icon: n.icon || '', time: n.created_at, read: !!n.read })));
+      } else {
+        // フォールバック: モックから通知生成
+        const msgNotifs = UNREAD_MESSAGES_MOCK.map(m => ({
           id: Date.now() + Math.random(),
           unreadMsgId: m.id,
           type: "message",
           title: m.channel === "line" ? "💬 LINEメッセージ" : "✉️ メール受信",
-          message: `${m.candidateName}さんからメッセージが届いています`,
+          message: m.candidateName + 'さんからメッセージが届いています',
           icon: m.channel === "line" ? "💬" : "✉️",
           time: m.date,
           read: false,
           candidateId: m.candidateId,
         }));
-      if (msgNotifs.length > 0) {
-        const merged = [...msgNotifs, ...existing].slice(0, 50);
-        localStorage.setItem('ats_notifications', JSON.stringify(merged));
-        return merged;
+        setNotifications(msgNotifs);
       }
-      return existing;
-    } catch(e) { return []; }
-  });
+    })();
+  }, []);
   const notifRef = useRef(null);
 
   // 外側クリックで閉じる
@@ -10145,30 +10250,36 @@ function App() {
 
   // 通知を追加するヘルパー
   const addNotification = useCallback((notif) => {
+    const newNotif = { id: Date.now(), time: new Date().toISOString(), read: false, ...notif };
     setNotifications(prev => {
-      const updated = [{ id: Date.now(), time: new Date().toISOString(), read: false, ...notif }, ...prev].slice(0, 50);
-      localStorage.setItem('ats_notifications', JSON.stringify(updated));
+      const updated = [newNotif, ...prev].slice(0, 50);
       return updated;
     });
+    if (SUPABASE_READY) {
+      sbApi.insert('notifications', { type: newNotif.type || '', title: newNotif.title || '', message: newNotif.message || '', icon: newNotif.icon || '', read: false });
+    }
   }, []);
 
   // 既読にする
   const markNotifRead = useCallback((id) => {
     setNotifications(prev => {
       const updated = prev.map(n => n.id === id ? { ...n, read: true } : n);
-      localStorage.setItem('ats_notifications', JSON.stringify(updated));
       return updated;
     });
+    if (SUPABASE_READY) { sbApi.update('notifications', 'id=eq.' + id, { read: true }); }
   }, []);
 
   // 全て既読
   const markAllRead = useCallback(() => {
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, read: true }));
-      localStorage.setItem('ats_notifications', JSON.stringify(updated));
       return updated;
     });
-  }, []);
+    if (SUPABASE_READY) {
+      // 全通知を既読に
+      notifications.filter(n => !n.read).forEach(n => sbApi.update('notifications', 'id=eq.' + n.id, { read: true }));
+    }
+  }, [notifications]);
 
   // ========== 面接予約確定のポーリング検知 ==========
   const NETLIFY_BASE_APP = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('ats.')) ? window.location.origin : ''; } catch(e) { return ''; } })();
@@ -10225,7 +10336,9 @@ function App() {
         { id: 8, type: "new_entry", title: "新規エントリー", message: "リクナビ経由で 3名 の新規エントリーがありました", icon: "🆕", time: new Date(now - 1000 * 60 * 60 * 24).toISOString(), read: true },
       ];
       setNotifications(demoNotifs);
-      localStorage.setItem('ats_notifications', JSON.stringify(demoNotifs));
+      if (SUPABASE_READY) {
+        demoNotifs.forEach(n => sbApi.insert('notifications', { type: n.type, title: n.title, message: n.message, icon: n.icon || '', read: n.read }));
+      }
     }
   }, []);
 
