@@ -8568,47 +8568,46 @@ function AgentFormUrl({ agentName }) {
 function AgentsPage({ candidates = [] }) {
   const [agents, setAgents] = useState([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
+  // DB取得 → 候補者データからの自動検出を順番に実行
   useEffect(() => {
-    if (!SUPABASE_READY) return;
     (async () => {
       setAgentsLoading(true);
-      const { data } = await sbApi.select('agents', 'order=name.asc');
-      if (data) setAgents(data.map(d => ({ id: d.id, name: d.name || d.company_name || '', company_name: d.company_name || '', contact_name: d.contact_name || '', contact_email: d.contact_email || '', contact_phone: d.contact_phone || '', fee_type: d.fee_type || '', fee_amount: d.fee_amount || '', contract_start: d.contract_start || '', contract_end: d.contract_end || '', notes: d.notes || '', status: d.status || 'active', candidateCount: 0 })));
+      let dbAgents = [];
+      if (SUPABASE_READY) {
+        const { data } = await sbApi.select('agents', 'order=name.asc');
+        if (data && data.length > 0) {
+          dbAgents = data.map(d => ({ id: d.id, name: d.name || d.company_name || '', company_name: d.company_name || '', contact_name: d.contact_name || '', contact_email: d.contact_email || '', contact_phone: d.contact_phone || '', fee_type: d.fee_type || '', fee_amount: d.fee_amount || '', contract_start: d.contract_start || '', contract_end: d.contract_end || '', notes: d.notes || '', status: d.status || 'active', candidateCount: 0 }));
+        }
+      }
+      // 候補者データから紹介会社名を自動検出し、未登録なら追加
+      const agentNames = new Set(dbAgents.map(a => a.name));
+      const autoAgents = [];
+      (candidates || []).forEach(c => {
+        if (c.agent && c.agent.trim() && !agentNames.has(c.agent.trim())) {
+          agentNames.add(c.agent.trim());
+          autoAgents.push({
+            id: "ag_auto_" + Date.now() + "_" + autoAgents.length,
+            name: c.agent.trim(),
+            contactPerson: "",
+            email: "",
+            phone: "",
+            contractType: "成功報酬型",
+            feePercent: 35,
+            contractStart: "",
+            contractEnd: "",
+            notes: "候補者データから自動検出",
+            active: true,
+          });
+        }
+      });
+      setAgents([...dbAgents, ...autoAgents]);
       setAgentsLoading(false);
     })();
-  }, []);
+  }, [candidates]);
   const save = async (list) => {
     setAgents(list);
     // 個別のupsert/deleteは各操作で行う
   };
-
-  // 候補者データから紹介会社名を自動検出し、未登録なら追加
-  useEffect(() => {
-    const agentNames = new Set(agents.map(a => a.name));
-    const newAgents = [];
-    candidates.forEach(c => {
-      if (c.agent && c.agent.trim() && !agentNames.has(c.agent.trim())) {
-        agentNames.add(c.agent.trim());
-        newAgents.push({
-          id: "ag_auto_" + Date.now() + "_" + newAgents.length,
-          name: c.agent.trim(),
-          contactPerson: "",
-          email: "",
-          phone: "",
-          contractType: "成功報酬型",
-          feePercent: 35,
-          contractStart: "",
-          contractEnd: "",
-          notes: "候補者データから自動検出",
-          active: true,
-        });
-      }
-    });
-    if (newAgents.length > 0) {
-      const updated = [...agents, ...newAgents];
-      save(updated);
-    }
-  }, [candidates]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [showEditor, setShowEditor] = useState(false);
   const [editing, setEditing] = useState(null); // null = new
@@ -8658,7 +8657,7 @@ function AgentsPage({ candidates = [] }) {
   const filteredAgents = agents.filter(a => {
     if (filterActive === "active" && !a.active) return false;
     if (filterActive === "inactive" && a.active) return false;
-    if (searchQ && !a.name.includes(searchQ) && !a.contactPerson.includes(searchQ)) return false;
+    if (searchQ && !a.name.includes(searchQ) && !(a.contactPerson || a.contact_name || '').includes(searchQ)) return false;
     return true;
   });
 
