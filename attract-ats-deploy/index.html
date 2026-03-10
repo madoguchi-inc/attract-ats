@@ -292,7 +292,8 @@ const STAGE_DEFINITIONS = [
     exitStatuses: ["辞退", "不合格", "保留"] },
   { id: "aptitude",    order: 4, name: "適性テスト", color: "#c084fc", icon: "check-square",
     substatuses: ["案内済", "受験済", "合格"],
-    exitStatuses: ["辞退", "不合格", "保留"] },
+    exitStatuses: ["辞退", "不合格", "保留"],
+    excludeFromFunnel: true },
   { id: "interview2",  order: 5, name: "二次面接",   color: "#d946ef", icon: "user",
     substatuses: ["日程調整中", "予約済", "実施済", "合格"],
     exitStatuses: ["辞退", "不合格", "保留"] },
@@ -554,7 +555,7 @@ const UNREAD_MESSAGES_MOCK = [
 
 const PIPELINE_STAGES = STAGE_DEFINITIONS.map(s => ({ name: s.name, count: 0, active: 0, color: s.color }));
 
-const FUNNEL_DATA = STAGE_DEFINITIONS.map(s => ({ stage: s.name, value: 0 }));
+const FUNNEL_DATA = STAGE_DEFINITIONS.filter(s => !s.excludeFromFunnel).map(s => ({ stage: s.name, value: 0 }));
 
 const MONTHLY_TREND = [
   { month: "10月", entries: 45, passes: 30, offers: 0 },
@@ -5588,16 +5589,22 @@ function buildPipelineFromCandidates(candidates) {
   });
 
   // 累積通過数（そのステージ以降に進んだ人数）を計算
+  // excludeFromFunnel のステージ（適性テスト等）は歩留まり計算から除外
   const cumulativePassed = {};
   let runningTotal = (candidates || []).length;
   STAGE_DEFINITIONS.forEach((def, i) => {
-    cumulativePassed[def.id] = runningTotal;
-    // 離脱者を差し引いて次のステージへ
-    const exitCount = Object.values(exitCounts[def.id] || {}).reduce((a, b) => a + b, 0);
-    const stayingInStage = Object.values(counts[def.id] || {}).reduce((a, b) => a + b, 0);
-    // 次のステージに進んだ = 累積 - 離脱 - 滞留中
-    runningTotal = runningTotal - exitCount - stayingInStage;
-    if (runningTotal < 0) runningTotal = 0;
+    if (def.excludeFromFunnel) {
+      // 歩留まり対象外ステージ: 累積数は記録するが、runningTotalからは差し引かない
+      cumulativePassed[def.id] = stageTotal[def.id] || 0; // このステージの実人数のみ
+    } else {
+      cumulativePassed[def.id] = runningTotal;
+      // 離脱者を差し引いて次のステージへ
+      const exitCount = Object.values(exitCounts[def.id] || {}).reduce((a, b) => a + b, 0);
+      const stayingInStage = Object.values(counts[def.id] || {}).reduce((a, b) => a + b, 0);
+      // 次のステージに進んだ = 累積 - 離脱 - 滞留中
+      runningTotal = runningTotal - exitCount - stayingInStage;
+      if (runningTotal < 0) runningTotal = 0;
+    }
   });
 
   return STAGE_DEFINITIONS.map((def, i) => {
@@ -5620,9 +5627,18 @@ function buildPipelineFromCandidates(candidates) {
     const allSubs = [...progSubs, ...exitSubs];
 
     // 歩留まり（前ステージからの通過率）
-    const prevCumulative = i === 0 ? (candidates || []).length : cumulativePassed[STAGE_DEFINITIONS[i - 1].id];
+    // excludeFromFunnel のステージは歩留まり対象外
+    let conversionRate = 100;
     const thisCumulative = cumulativePassed[def.id];
-    const conversionRate = prevCumulative > 0 ? Math.round((thisCumulative / prevCumulative) * 100) : 0;
+    if (def.excludeFromFunnel) {
+      conversionRate = null; // 歩留まり対象外
+    } else if (i > 0) {
+      // 直前の「歩留まり対象」ステージを探す
+      let prevIdx = i - 1;
+      while (prevIdx >= 0 && STAGE_DEFINITIONS[prevIdx].excludeFromFunnel) prevIdx--;
+      const prevCumulative = prevIdx >= 0 ? cumulativePassed[STAGE_DEFINITIONS[prevIdx].id] : (candidates || []).length;
+      conversionRate = prevCumulative > 0 ? Math.round((thisCumulative / prevCumulative) * 100) : 0;
+    }
 
     return {
       id: def.id,
@@ -5630,11 +5646,12 @@ function buildPipelineFromCandidates(candidates) {
       color: def.color,
       icon: def.icon,
       order: def.order,
+      excludeFromFunnel: !!def.excludeFromFunnel,
       substages: allSubs.length > 0 ? allSubs : [{ status: "—", staying: 0, total: 0, color: def.color }],
       cumulativePassed: thisCumulative,
       exitCount: Object.values(exitCounts[def.id] || {}).reduce((a, b) => a + b, 0),
       activeCount: Object.values(counts[def.id] || {}).reduce((a, b) => a + b, 0),
-      conversionRate: i === 0 ? 100 : conversionRate,
+      conversionRate: conversionRate,
     };
   });
 }
@@ -5695,7 +5712,7 @@ function StageCard({ stage, onSubstageClick }) {
   const alertCount = stage.exitCount || stage.substages.filter(s => s.isAlert).reduce((a, s) => a + s.staying, 0);
 
   return (
-    <div style={{ background: "white", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "hidden", minWidth: 150, maxWidth: 180, flex: 1 }}>
+    <div style={{ background: "white", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "hidden", minWidth: 150, maxWidth: 180, flex: 1, border: stage.excludeFromFunnel ? "1px dashed #c4b5fd" : "none", opacity: stage.excludeFromFunnel ? 0.85 : 1 }}>
       <div style={{ height: 4, background: `linear-gradient(90deg, ${stage.color}, ${stage.color}99)` }} />
       <div style={{ padding: "12px 14px 4px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -5705,6 +5722,9 @@ function StageCard({ stage, onSubstageClick }) {
           </div>
           <span style={{ fontSize: 18, fontWeight: 800, color: stage.color }}>{totalStaying}</span>
         </div>
+        {stage.excludeFromFunnel && (
+          <div style={{ fontSize: 9, color: "#8b5cf6", background: "#f5f3ff", borderRadius: 4, padding: "2px 6px", marginBottom: 6, textAlign: "center", fontWeight: 500 }}>二次面接と並行・歩留まり対象外</div>
+        )}
       </div>
       <div style={{ padding: "0 14px 12px" }}>
         {stage.substages.map((sub, i) => (
@@ -5728,8 +5748,8 @@ function PipelinePage({ recruitFilter, onNavigateFromPipeline, candidates }) {
   const totalActive = DETAILED_PIPELINE.reduce((a, s) => a + s.activeCount, 0);
   const totalExit = DETAILED_PIPELINE.reduce((a, s) => a + s.exitCount, 0);
 
-  // ファネルデータ
-  const funnelData = DETAILED_PIPELINE.map(s => ({ stage: s.name, value: s.cumulativePassed, color: s.color }));
+  // ファネルデータ（歩留まり対象外ステージを除外）
+  const funnelData = DETAILED_PIPELINE.filter(s => !s.excludeFromFunnel).map(s => ({ stage: s.name, value: s.cumulativePassed, color: s.color }));
 
   return (
     <div style={{ padding: 24, maxWidth: 1400 }}>
@@ -5786,12 +5806,16 @@ function PipelinePage({ recruitFilter, onNavigateFromPipeline, candidates }) {
                 <StageCard stage={stage} onSubstageClick={onNavigateFromPipeline} />
                 {i < DETAILED_PIPELINE.length - 1 && (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 24, flexShrink: 0, gap: 2 }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={DETAILED_PIPELINE[i + 1].excludeFromFunnel || stage.excludeFromFunnel ? "#c4b5fd" : "#d1d5db"} strokeWidth="2" strokeDasharray={DETAILED_PIPELINE[i + 1].excludeFromFunnel || stage.excludeFromFunnel ? "4 3" : "none"}>
                       <path d="M5 12h14M12 5l7 7-7 7" />
                     </svg>
-                    <span style={{ fontSize: 9, color: DETAILED_PIPELINE[i + 1].conversionRate >= 80 ? "#10b981" : DETAILED_PIPELINE[i + 1].conversionRate >= 50 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>
-                      {DETAILED_PIPELINE[i + 1].conversionRate}%
-                    </span>
+                    {DETAILED_PIPELINE[i + 1].excludeFromFunnel || stage.excludeFromFunnel ? (
+                      <span style={{ fontSize: 8, color: "#a78bfa", fontWeight: 500 }}>並行</span>
+                    ) : (
+                      <span style={{ fontSize: 9, color: DETAILED_PIPELINE[i + 1].conversionRate >= 80 ? "#10b981" : DETAILED_PIPELINE[i + 1].conversionRate >= 50 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>
+                        {DETAILED_PIPELINE[i + 1].conversionRate}%
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -5804,14 +5828,14 @@ function PipelinePage({ recruitFilter, onNavigateFromPipeline, candidates }) {
             DETAILED_PIPELINE.forEach(stage => {
               if (stage.exitCount >= 5) {
                 const exitDetails = stage.substages.filter(s => s.isAlert).map(s => `${s.status}${s.staying}名`).join("、");
-                alerts.push({ title: `${stage.name}の離脱が多い`, desc: `${exitDetails}。歩留まり ${stage.conversionRate}%`, severity: stage.exitCount >= 20 ? "high" : "medium", count: stage.exitCount });
+                alerts.push({ title: `${stage.name}の離脱が多い`, desc: `${exitDetails}${stage.excludeFromFunnel ? "" : `。歩留まり ${stage.conversionRate}%`}`, severity: stage.exitCount >= 20 ? "high" : "medium", count: stage.exitCount });
               }
               stage.substages.forEach(sub => {
                 if (!sub.isAlert && (sub.status === "日程調整中" || sub.status === "案内済") && sub.staying >= 10) {
                   alerts.push({ title: `${stage.name} → ${sub.status}の滞留`, desc: `${sub.staying}名が滞留中。アクション推奨`, severity: sub.staying >= 30 ? "high" : "medium", count: sub.staying });
                 }
               });
-              if (stage.order > 1 && stage.conversionRate < 50 && stage.cumulativePassed > 0) {
+              if (stage.order > 1 && !stage.excludeFromFunnel && stage.conversionRate !== null && stage.conversionRate < 50 && stage.cumulativePassed > 0) {
                 alerts.push({ title: `${stage.name}の歩留まりが低い`, desc: `歩留まり ${stage.conversionRate}%。選考プロセス改善を検討`, severity: stage.conversionRate < 30 ? "high" : "medium", count: `${stage.conversionRate}%` });
               }
             });
@@ -7276,17 +7300,22 @@ function AutomationPage({ emailTemplates = [] }) {
 function AnalyticsPage({ recruitFilter, candidates = [] }) {
   const [tab, setTab] = useState("funnel");
 
-  // ===== ファネルデータ =====
+  // ===== ファネルデータ（歩留まり対象外ステージを除外） =====
   const funnelData = useMemo(() => {
     const stageCounts = {};
     STAGE_DEFINITIONS.forEach(s => { stageCounts[s.name] = 0; });
     candidates.forEach(c => { const sb = (c.stage || "").includes("/") ? c.stage.split("/")[0].trim() : (c.stage || ""); if (stageCounts[sb] !== undefined) stageCounts[sb]++; });
-    // 累積: 各ステージに「到達した」人数 = そのステージ以降にいる全員
-    const stageNames = STAGE_DEFINITIONS.map(s => s.name);
-    const cumulative = stageNames.map((name, i) => {
+    // 歩留まり対象のステージのみ
+    const funnelStages = STAGE_DEFINITIONS.filter(s => !s.excludeFromFunnel);
+    const allStageNames = STAGE_DEFINITIONS.map(s => s.name);
+    // 累積: 各ステージに「到達した」人数 = そのステージ以降にいる全員（対象外ステージの人数も含む）
+    const cumulative = funnelStages.map((def, i) => {
+      const defIdx = STAGE_DEFINITIONS.indexOf(def);
       let count = 0;
-      for (let j = i; j < stageNames.length; j++) count += stageCounts[stageNames[j]];
-      return { stage: name, current: stageCounts[name], reached: count, color: STAGE_DEFINITIONS[i].color };
+      for (let j = defIdx; j < STAGE_DEFINITIONS.length; j++) {
+        if (!STAGE_DEFINITIONS[j].excludeFromFunnel) count += stageCounts[allStageNames[j]];
+      }
+      return { stage: def.name, current: stageCounts[def.name], reached: count, color: def.color };
     });
     return cumulative;
   }, [candidates]);
