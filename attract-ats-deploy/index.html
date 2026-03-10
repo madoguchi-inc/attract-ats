@@ -10416,11 +10416,8 @@ function App() {
   const deleteCandidate = async (id) => {
     try {
       if (SUPABASE_READY) {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/candidates?id=eq.${id}`, {
-          method: 'DELETE',
-          headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${tokenStore.accessToken || SUPABASE_ANON_KEY}` },
-        });
-        if (!res.ok) throw new Error('DB削除に失敗しました');
+        const { error } = await sbApi.remove('candidates', `id=eq.${id}`);
+        if (error) throw new Error('DB削除に失敗しました: ' + (error.message || JSON.stringify(error)));
       }
       // setCandidatesが利用可能か確認してからフィルタリング
       if (typeof setCandidates === 'function') {
