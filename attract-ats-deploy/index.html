@@ -930,6 +930,12 @@ function useSupabaseCandidates(recruitFilter) {
     if (updates.position !== undefined) dbUpdates.position = updates.position;
     if (updates.experience !== undefined) dbUpdates.experience = updates.experience;
     if (updates.recruitType !== undefined) dbUpdates.recruit_type = updates.recruitType;
+    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+    if (updates.route !== undefined) dbUpdates.route = updates.route;
+    if (updates.agent !== undefined) dbUpdates.agent = updates.agent;
+    if (updates.gender !== undefined) dbUpdates.gender = updates.gender;
+    if (updates.birthDate !== undefined) dbUpdates.birth_date = updates.birthDate;
+    if (updates.graduationPeriod !== undefined) dbUpdates.graduation_period = updates.graduationPeriod;
     await sbApi.update('candidates', 'id=eq.' + id, dbUpdates);
     await fetchCandidates();
   };
