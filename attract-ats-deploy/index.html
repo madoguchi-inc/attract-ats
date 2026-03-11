@@ -6510,7 +6510,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
   const [expandedEvent, setExpandedEvent] = useState(null);
 
   // モーダル用フォーム
-  const emptyForm = { title: "", date: new Date().toISOString().slice(0,10), startTime: "10:00", endTime: "10:45", candidateName: "", candidateId: null, stage: "一次面接", format: "WEB", interviewer: "", type: "新卒", location: "", memo: "" };
+  const emptyForm = { title: "", date: new Date().toISOString().slice(0,10), startTime: "10:00", endTime: "10:45", candidateName: "", candidateId: null, stage: "一次面接", format: "WEB", interviewer: "", type: "新卒", location: "", memo: "", eventType: "面接", capacity: 0, isPublic: false, meetingUrl: "", description: "" };
   const [form, setForm] = useState(emptyForm);
 
   const openCreate = (date) => {
@@ -6580,6 +6580,48 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
       save([...events, newEvent]);
     }
     setShowModal(false);
+
+    // 説明会の場合、info_sessions テーブルにも保存
+    if (newEvent.eventType === "説明会" && SUPABASE_READY) {
+      try {
+        const formatMap = { "WEB": "online", "対面": "offline", "ハイブリッド": "hybrid" };
+        const recruitMap = { "新卒": "newgrad", "中途": "midcareer", "両方": "both" };
+        const payload = {
+          title: newEvent.title || "説明会",
+          description: newEvent.description || "",
+          session_date: newEvent.date,
+          start_time: newEvent.startTime + ":00",
+          end_time: newEvent.endTime + ":00",
+          location: newEvent.location || "",
+          format: formatMap[newEvent.format] || "online",
+          capacity: newEvent.capacity || 0,
+          current_count: 0,
+          status: "active",
+          meeting_url: newEvent.meetingUrl || "",
+          recruit_type: recruitMap[newEvent.type] || "newgrad",
+        };
+        if (editEvent && editEvent.infoSessionId) {
+          await fetch(SUPABASE_URL + '/rest/v1/info_sessions?id=eq.' + editEvent.infoSessionId, {
+            method: 'PATCH',
+            headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } else {
+          const res = await fetch(SUPABASE_URL + '/rest/v1/info_sessions', {
+            method: 'POST',
+            headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+            body: JSON.stringify(payload)
+          });
+          if (res.ok) {
+            const [created] = await res.json();
+            if (created) {
+              const updated = { ...newEvent, infoSessionId: created.id };
+              save(events.map(e => e.id === newEvent.id ? updated : e));
+            }
+          }
+        }
+      } catch (e) { console.warn('[Schedule] info_sessions 保存エラー:', e); }
+    }
 
     // Google カレンダーに同期 (バックグラウンド)
     if (SCHED_NETLIFY && newEvent.date && newEvent.startTime) {
@@ -6744,7 +6786,8 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
 
   // イベントカード
   const EventCard = ({ ev, compact }) => {
-    const col = stageColor(ev.stage);
+    const isSession = ev.eventType === "説明会";
+    const col = isSession ? "#8b5cf6" : stageColor(ev.stage);
     const isExpanded = expandedEvent === ev.id;
     return (
       <div onClick={() => setExpandedEvent(isExpanded ? null : ev.id)}
@@ -6758,20 +6801,28 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: compact ? 11 : 13, fontWeight: 700, color: "#111827" }}>{ev.startTime}</span>
                 {!compact && <span style={{ fontSize: 11, color: "#9ca3af" }}>〜 {ev.endTime}</span>}
+                {isSession && (
+                  <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#f3e8ff", color: "#7c3aed", fontWeight: 600 }}>🎤 説明会</span>
+                )}
                 <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: ev.format === "WEB" ? "#ecfdf5" : "#fdf2f8", color: ev.format === "WEB" ? "#059669" : "#db2777", fontWeight: 500 }}>
-                  {ev.format === "WEB" ? "💻 WEB" : "🏢 対面"}
+                  {ev.format === "WEB" ? "💻 WEB" : ev.format === "ハイブリッド" ? "🔄 ハイブリッド" : "🏢 対面"}
                 </span>
               </div>
               {!compact && (
-                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: ev.type === "新卒" ? "#eef2ff" : "#fef3c7", color: ev.type === "新卒" ? "#4338ca" : "#92400e" }}>{ev.type}</span>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  {isSession && ev.capacity > 0 && (
+                    <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>定員 {ev.capacity}</span>
+                  )}
+                  <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: ev.type === "新卒" ? "#eef2ff" : "#fef3c7", color: ev.type === "新卒" ? "#4338ca" : "#92400e" }}>{ev.type}</span>
+                </div>
               )}
             </div>
             <div style={{ fontSize: compact ? 12 : 14, fontWeight: 600, color: "#111827", marginTop: compact ? 2 : 4 }}>
-              {ev.candidateName || ev.title}
+              {isSession ? (ev.title || "説明会") : (ev.candidateName || ev.title)}
             </div>
             {!compact && (
               <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-                {ev.stage}{ev.interviewer ? ` ・ 面接官: ${ev.interviewer}` : ""}
+                {isSession ? (ev.interviewer ? `担当: ${ev.interviewer}` : "") : `${ev.stage}${ev.interviewer ? ` ・ 面接官: ${ev.interviewer}` : ""}`}
                 {ev.location ? ` ・ ${ev.location}` : ""}
               </div>
             )}
@@ -7006,33 +7057,60 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
               <button onClick={() => setShowModal(false)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: "#9ca3af" }}>✕</button>
             </div>
 
-            {/* 候補者選択 */}
+            {/* 予定種別 */}
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>候補者（任意）</label>
-              <select value={form.candidateId || ""} onChange={(e) => handleCandidateSelect(e.target.value)}
-                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
-                <option value="">候補者を選択...</option>
-                {candidates.map(c => (
-                  <option key={c.id} value={c.id}>{c.lastName} {c.firstName} — {c.stage}</option>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>予定種別</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[{ id: "面接", icon: "👤", label: "面接" }, { id: "説明会", icon: "🎤", label: "説明会" }].map(et => (
+                  <button key={et.id} onClick={() => setForm(prev => ({ ...prev, eventType: et.id, ...(et.id === "説明会" ? { stage: "説明会", candidateId: null, candidateName: "" } : {}) }))}
+                    style={{ flex: 1, padding: "10px 16px", border: form.eventType === et.id ? "2px solid #6366f1" : "2px solid #e5e7eb", borderRadius: 10, background: form.eventType === et.id ? "#eef2ff" : "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 13, fontWeight: form.eventType === et.id ? 600 : 400, color: form.eventType === et.id ? "#4338ca" : "#6b7280", transition: "all 0.15s" }}>
+                    <span>{et.icon}</span> {et.label}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
+
+            {/* 候補者選択 (面接時のみ) */}
+            {form.eventType !== "説明会" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>候補者（任意）</label>
+                <select value={form.candidateId || ""} onChange={(e) => handleCandidateSelect(e.target.value)}
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
+                  <option value="">候補者を選択...</option>
+                  {candidates.map(c => (
+                    <option key={c.id} value={c.id}>{c.lastName} {c.firstName} — {c.stage}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* タイトル */}
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>タイトル</label>
               <input value={form.title} onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
-                placeholder="例: 一次面接"
+                placeholder={form.eventType === "説明会" ? "例: 2026卒 会社説明会" : "例: 一次面接"}
                 style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             </div>
 
-            {/* 候補者名（手入力） */}
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>候補者名</label>
-              <input value={form.candidateName} onChange={(e) => setForm(prev => ({ ...prev, candidateName: e.target.value }))}
-                placeholder="候補者名を入力..."
-                style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-            </div>
+            {/* 候補者名 (面接時のみ) */}
+            {form.eventType !== "説明会" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>候補者名</label>
+                <input value={form.candidateName} onChange={(e) => setForm(prev => ({ ...prev, candidateName: e.target.value }))}
+                  placeholder="候補者名を入力..."
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            )}
+
+            {/* 説明会の場合: 説明文 */}
+            {form.eventType === "説明会" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>説明文</label>
+                <textarea value={form.description || ""} onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
+                  rows={2} placeholder="説明会の概要..."
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+              </div>
+            )}
 
             {/* 日付 & 時間 */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
@@ -7054,25 +7132,28 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
             </div>
 
             {/* ステージ & 形式 */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: form.eventType === "説明会" ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              {form.eventType !== "説明会" && (
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>ステージ</label>
+                  <select value={form.stage} onChange={(e) => setForm(prev => ({ ...prev, stage: e.target.value }))}
+                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
+                    {STAGE_DEFINITIONS.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>ステージ</label>
-                <select value={form.stage} onChange={(e) => setForm(prev => ({ ...prev, stage: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
-                  {STAGE_DEFINITIONS.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>面接形式</label>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>{form.eventType === "説明会" ? "開催形式" : "面接形式"}</label>
                 <select value={form.format} onChange={(e) => setForm(prev => ({ ...prev, format: e.target.value }))}
                   style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
-                  <option value="WEB">💻 WEB（オンライン）</option>
-                  <option value="対面">🏢 対面</option>
+                  <option value="WEB">💻 オンライン</option>
+                  <option value="対面">🏢 対面（オフライン）</option>
+                  {form.eventType === "説明会" && <option value="ハイブリッド">🔄 ハイブリッド</option>}
                 </select>
               </div>
             </div>
 
-            {/* 採用区分 & 面接官 */}
+            {/* 採用区分 & 面接官/担当者 */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
               <div>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>採用区分</label>
@@ -7080,18 +7161,46 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
                   style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", background: "white" }}>
                   <option value="新卒">新卒</option>
                   <option value="中途">中途</option>
+                  {form.eventType === "説明会" && <option value="両方">両方</option>}
                 </select>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>面接官</label>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>{form.eventType === "説明会" ? "担当者" : "面接官"}</label>
                 <input value={form.interviewer} onChange={(e) => setForm(prev => ({ ...prev, interviewer: e.target.value }))}
-                  placeholder="面接官名"
+                  placeholder={form.eventType === "説明会" ? "担当者名" : "面接官名"}
                   style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               </div>
             </div>
 
+            {/* 説明会専用フィールド: 定員 & 公開設定 */}
+            {form.eventType === "説明会" && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>定員（0=無制限）</label>
+                  <input type="number" min="0" value={form.capacity || 0} onChange={(e) => setForm(prev => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))}
+                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", paddingTop: 20 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: "#374151" }}>
+                    <input type="checkbox" checked={form.isPublic || false} onChange={(e) => setForm(prev => ({ ...prev, isPublic: e.target.checked }))} />
+                    <span>🌐 エントリーフォームに公開</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* 説明会専用: 会議URL */}
+            {form.eventType === "説明会" && form.format !== "対面" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>会議URL</label>
+                <input value={form.meetingUrl || ""} onChange={(e) => setForm(prev => ({ ...prev, meetingUrl: e.target.value }))}
+                  placeholder="https://meet.google.com/... or Zoom URL"
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            )}
+
             {/* 場所 */}
-            {form.format === "対面" && (
+            {(form.format === "対面" || form.format === "ハイブリッド") && (
               <div style={{ marginBottom: 14 }}>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#6b7280", marginBottom: 4 }}>場所</label>
                 <input value={form.location} onChange={(e) => setForm(prev => ({ ...prev, location: e.target.value }))}
@@ -8634,6 +8743,213 @@ function TasksPage({ tasks, onUpdateTasks, candidates, onNavigate }) {
 }
 
 // ============================================================
+// エントリーフォーム管理（SettingsPage 内タブ用）
+// ============================================================
+function EntryFormsTab() {
+  const [forms, setForms] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingForm, setEditingForm] = useState(null);
+
+  const loadForms = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(SUPABASE_URL + '/rest/v1/entry_forms?select=*&order=created_at.desc', {
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+      });
+      if (res.ok) setForms(await res.json());
+    } catch (e) { console.error('entry_forms load error:', e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadForms(); }, []);
+
+  const saveForm = async (formData) => {
+    const slug = formData.slug || formData.title.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+    const payload = {
+      title: formData.title, slug,
+      description: formData.description || '',
+      recruit_type: formData.recruit_type || 'newgrad',
+      is_active: formData.is_active !== false,
+      show_info_sessions: formData.show_info_sessions !== false,
+      require_line: formData.require_line || false,
+      thank_you_message: formData.thank_you_message || 'エントリーありがとうございます。',
+    };
+    const url = editingForm
+      ? SUPABASE_URL + '/rest/v1/entry_forms?id=eq.' + editingForm.id
+      : SUPABASE_URL + '/rest/v1/entry_forms';
+    const res = await fetch(url, {
+      method: editingForm ? 'PATCH' : 'POST',
+      headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) { setShowForm(false); setEditingForm(null); loadForms(); }
+    else { const err = await res.json(); alert('保存エラー: ' + (err.message || JSON.stringify(err))); }
+  };
+
+  const deleteForm = async (id) => {
+    if (!confirm('このフォームを削除しますか？')) return;
+    await fetch(SUPABASE_URL + '/rest/v1/entry_forms?id=eq.' + id, {
+      method: 'DELETE', headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+    });
+    loadForms();
+  };
+
+  const toggleActive = async (form) => {
+    await fetch(SUPABASE_URL + '/rest/v1/entry_forms?id=eq.' + form.id, {
+      method: 'PATCH',
+      headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !form.is_active })
+    });
+    loadForms();
+  };
+
+  const copyFormUrl = (slug) => {
+    const url = window.location.origin + window.location.pathname + '?form=' + slug;
+    navigator.clipboard.writeText(url).then(() => alert('フォームURLをコピーしました'));
+  };
+
+  const EntryFormEditor = ({ initial, onSave, onCancel }) => {
+    const [f, setF] = useState(initial || {
+      title: '', slug: '', description: '', recruit_type: 'newgrad',
+      is_active: true, show_info_sessions: true, require_line: false,
+      thank_you_message: 'エントリーありがとうございます。ご連絡をお待ちください。'
+    });
+    return (
+      <div style={{ background: 'white', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 16 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#111827' }}>
+          {initial ? 'フォームを編集' : '新規エントリーフォーム'}
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>フォーム名 *</label>
+            <input value={f.title} onChange={e => setF({...f, title: e.target.value})} placeholder="例: 2026卒エントリー"
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>スラッグ（URL識別子）</label>
+            <input value={f.slug} onChange={e => setF({...f, slug: e.target.value})} placeholder="auto-generated-from-title"
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>採用区分</label>
+            <select value={f.recruit_type} onChange={e => setF({...f, recruit_type: e.target.value})}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}>
+              <option value="newgrad">新卒</option>
+              <option value="midcareer">中途</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center' }}>
+            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={f.show_info_sessions} onChange={e => setF({...f, show_info_sessions: e.target.checked})} />
+              <span style={{ color: '#374151' }}>説明会日程を表示</span>
+            </label>
+            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={f.require_line} onChange={e => setF({...f, require_line: e.target.checked})} />
+              <span style={{ color: '#374151' }}>LINE連携を必須にする</span>
+            </label>
+          </div>
+          <div style={{ gridColumn: '1/3' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>説明文</label>
+            <textarea value={f.description} onChange={e => setF({...f, description: e.target.value})} rows={2}
+              placeholder="フォーム上部に表示される説明文"
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ gridColumn: '1/3' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>完了メッセージ</label>
+            <textarea value={f.thank_you_message} onChange={e => setF({...f, thank_you_message: e.target.value})} rows={2}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button onClick={onCancel} style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: 8, background: 'white', fontSize: 13, cursor: 'pointer' }}>キャンセル</button>
+          <button onClick={() => onSave(f)} disabled={!f.title}
+            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !f.title ? '#d1d5db' : '#6366f1', color: 'white', fontSize: 13, fontWeight: 600, cursor: !f.title ? 'default' : 'pointer' }}>
+            {initial ? '更新' : '作成'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <p style={{ fontSize: 13, color: '#6b7280' }}>候補者向けエントリーフォームの作成・公開URL管理</p>
+        {!showForm && (
+          <button onClick={() => { setShowForm(true); setEditingForm(null); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <Icon name="plus" size={16} color="white" /> 新規フォーム
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <EntryFormEditor initial={editingForm} onSave={saveForm} onCancel={() => { setShowForm(false); setEditingForm(null); }} />
+      )}
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>読み込み中...</div>
+      ) : forms.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, background: 'white', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📝</div>
+          <p style={{ fontSize: 15, color: '#6b7280', marginBottom: 4 }}>エントリーフォームがまだありません</p>
+          <p style={{ fontSize: 12, color: '#9ca3af' }}>「新規フォーム」ボタンから作成してください</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {forms.map(form => (
+            <div key={form.id} style={{ background: 'white', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', borderLeft: `4px solid ${form.is_active ? '#10b981' : '#d1d5db'}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <h3 style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{form.title}</h3>
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: form.is_active ? '#dcfce7' : '#f3f4f6', color: form.is_active ? '#15803d' : '#6b7280', fontWeight: 600 }}>
+                      {form.is_active ? '公開中' : '非公開'}
+                    </span>
+                    <RecruitTypeBadge type={form.recruit_type === 'newgrad' ? '新卒' : '中途'} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#6b7280', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'monospace', background: '#f3f4f6', padding: '2px 8px', borderRadius: 4 }}>/{form.slug}</span>
+                    {form.show_info_sessions && <span>📅 説明会日程表示</span>}
+                    {form.require_line && <span>💬 LINE必須</span>}
+                  </div>
+                  {form.description && <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>{form.description}</p>}
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={() => copyFormUrl(form.slug)} title="URLコピー"
+                    style={{ padding: '6px 10px', background: '#eff6ff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+                    <Icon name="link" size={14} color="#3b82f6" />
+                  </button>
+                  <button onClick={() => window.open(window.location.pathname + '?form=' + form.slug, '_blank')} title="プレビュー"
+                    style={{ padding: '6px 10px', background: '#f0fdf4', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+                    <Icon name="external-link" size={14} color="#10b981" />
+                  </button>
+                  <button onClick={() => toggleActive(form)} title={form.is_active ? '非公開にする' : '公開する'}
+                    style={{ padding: '6px 10px', background: form.is_active ? '#fef3c7' : '#dcfce7', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+                    <Icon name={form.is_active ? 'eye-off' : 'eye'} size={14} color={form.is_active ? '#f59e0b' : '#10b981'} />
+                  </button>
+                  <button onClick={() => { setEditingForm({...form}); setShowForm(true); }}
+                    style={{ padding: '6px 10px', background: '#f3f4f6', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+                    <Icon name="edit" size={14} color="#6b7280" />
+                  </button>
+                  <button onClick={() => deleteForm(form.id)}
+                    style={{ padding: '6px 10px', background: '#fef2f2', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+                    <Icon name="trash-2" size={14} color="#ef4444" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// EntryFormsPage は EntryFormsTab に移行済み（SettingsPage 内タブ）
+
+// ============================================================
 // 紹介会社（エージェント）管理ページ
 // ============================================================
 // 紹介会社向け推薦フォームURL発行コンポーネント
@@ -9231,7 +9547,7 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
 
       {/* タブ */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid #e5e7eb", paddingBottom: 0 }}>
-        {[{ id: "templates", label: "📧 メールテンプレート" }, { id: "line", label: "💬 LINE連携" }, { id: "interviewers", label: "👤 面接官" }, { id: "company", label: "🏢 会社情報" }].map(t => (
+        {[{ id: "templates", label: "📧 メールテンプレート" }, { id: "line", label: "💬 LINE連携" }, { id: "interviewers", label: "👤 面接官" }, { id: "entry-forms", label: "📝 エントリーフォーム" }, { id: "company", label: "🏢 会社情報" }].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{ padding: "8px 16px", border: "none", borderBottom: tab === t.id ? "2px solid #6366f1" : "2px solid transparent", background: "none", fontSize: 13, fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? "#6366f1" : "#6b7280", cursor: "pointer" }}>
             {t.label}
@@ -9713,6 +10029,8 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
           <div style={{ fontSize: 13, color: "#9ca3af" }}>この機能は次のフェーズで実装予定です。</div>
         </div>
       )}
+
+      {tab === "entry-forms" && <EntryFormsTab />}
 
       {/* トースト */}
       {toast && (
@@ -10249,9 +10567,381 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
 }
 
 // ============================================================
+// 公開エントリーフォーム（候補者向け）
+// ============================================================
+function PublicEntryForm({ slug }) {
+  const [formConfig, setFormConfig] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [selectedSession, setSelectedSession] = useState(null);
+
+  const [form, setForm] = useState({
+    last_name: '', first_name: '', last_name_kana: '', first_name_kana: '',
+    email: '', phone: '', university: '', faculty: '', department: '',
+    grad_year: new Date().getFullYear() + 1, graduation_period: '',
+    major_type: '文系', gender: '', aspiration: '', notes: ''
+  });
+
+  useEffect(() => {
+    const loadForm = async () => {
+      try {
+        // フォーム設定を取得（ANON KEYで）
+        const fRes = await fetch(SUPABASE_URL + '/rest/v1/entry_forms?slug=eq.' + slug + '&is_active=eq.true&select=*', {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }
+        });
+        if (!fRes.ok || (await fRes.clone().json()).length === 0) {
+          setError('このフォームは存在しないか、現在非公開です。');
+          setLoading(false);
+          return;
+        }
+        const fData = await fRes.json();
+        setFormConfig(fData[0]);
+
+        // 説明会一覧を取得（公開中のもの）
+        if (fData[0].show_info_sessions) {
+          const sRes = await fetch(SUPABASE_URL + '/rest/v1/info_sessions?status=eq.active&session_date=gte.' + new Date().toISOString().split('T')[0] + '&order=session_date.asc', {
+            headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }
+          });
+          if (sRes.ok) {
+            const sData = await sRes.json();
+            // 採用区分でフィルタ
+            const filtered = sData.filter(s => s.recruit_type === 'both' || s.recruit_type === fData[0].recruit_type);
+            setSessions(filtered);
+          }
+        }
+      } catch (e) {
+        console.error('Public form load error:', e);
+        setError('フォームの読み込みに失敗しました。');
+      }
+      setLoading(false);
+    };
+    loadForm();
+  }, [slug]);
+
+  const handleSubmit = async () => {
+    if (!form.last_name || !form.first_name || !form.email) {
+      alert('氏名とメールアドレスは必須です。');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // 1. 候補者をDBに登録
+      const candidatePayload = {
+        last_name: form.last_name,
+        first_name: form.first_name,
+        last_name_kana: form.last_name_kana || null,
+        first_name_kana: form.first_name_kana || null,
+        email: form.email,
+        phone: form.phone || null,
+        university: form.university || null,
+        faculty: form.faculty || null,
+        department: form.department || null,
+        grad_year: form.grad_year ? parseInt(form.grad_year) : null,
+        graduation_period: form.graduation_period || null,
+        major_type: form.major_type || null,
+        gender: form.gender || null,
+        aspiration: form.aspiration || null,
+        notes: form.notes || null,
+        recruit_type: formConfig.recruit_type === 'newgrad' ? '新卒' : '中途',
+        route: 'エントリーフォーム',
+        stage: 'エントリー',
+        substatus: '受付済',
+        status: 'active',
+        entry_date: new Date().toISOString().split('T')[0],
+      };
+
+      const cRes = await fetch(SUPABASE_URL + '/rest/v1/candidates', {
+        method: 'POST',
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+        body: JSON.stringify(candidatePayload)
+      });
+
+      if (!cRes.ok) {
+        const err = await cRes.json();
+        throw new Error(err.message || 'candidateの登録に失敗しました');
+      }
+      const cData = await cRes.json();
+      const candidateId = Array.isArray(cData) ? cData[0].id : cData.id;
+
+      // 2. 説明会が選択されている場合、予約を作成 + ステージ更新
+      if (selectedSession) {
+        // 予約を登録
+        await fetch(SUPABASE_URL + '/rest/v1/info_session_bookings', {
+          method: 'POST',
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            info_session_id: selectedSession,
+            candidate_id: candidateId,
+            status: 'booked'
+          })
+        });
+
+        // 説明会の current_count を+1
+        const sess = sessions.find(s => s.id === selectedSession);
+        if (sess) {
+          await fetch(SUPABASE_URL + '/rest/v1/info_sessions?id=eq.' + selectedSession, {
+            method: 'PATCH',
+            headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ current_count: (sess.current_count || 0) + 1 })
+          });
+        }
+
+        // 候補者のステージを説明会/予約済に更新
+        await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId, {
+          method: 'PATCH',
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stage: '説明会', substatus: '予約済' })
+        });
+      }
+
+      setSubmitted(true);
+    } catch (e) {
+      console.error('Submit error:', e);
+      alert('エントリーの送信に失敗しました: ' + e.message);
+    }
+    setSubmitting(false);
+  };
+
+  const formatMap = { online: 'オンライン', offline: 'オフライン', hybrid: 'ハイブリッド' };
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: 'white', fontSize: 16 }}>読み込み中...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: 'white', borderRadius: 16, padding: 40, maxWidth: 480, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+          <p style={{ fontSize: 16, color: '#374151' }}>{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (submitted) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: 'white', borderRadius: 16, padding: 40, maxWidth: 520, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111827', marginBottom: 12 }}>エントリー完了</h2>
+          <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.7 }}>{formConfig?.thank_you_message}</p>
+          {selectedSession && (
+            <div style={{ marginTop: 16, padding: 12, background: '#eff6ff', borderRadius: 8 }}>
+              <p style={{ fontSize: 13, color: '#1d4ed8', fontWeight: 600 }}>
+                📅 説明会の予約が完了しました
+              </p>
+              <p style={{ fontSize: 12, color: '#3b82f6', marginTop: 4 }}>
+                {sessions.find(s => s.id === selectedSession)?.title} - {sessions.find(s => s.id === selectedSession)?.session_date}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const inputStyle = { width: '100%', padding: '10px 14px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.2s' };
+  const labelStyle = { fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 };
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '40px 16px' }}>
+      <div style={{ maxWidth: 640, margin: '0 auto' }}>
+        {/* ヘッダー */}
+        <div style={{ textAlign: 'center', marginBottom: 24, color: 'white' }}>
+          <img src="logo.svg" alt="Attract" style={{ width: 180, filter: 'brightness(0) invert(1)', marginBottom: 12, opacity: 0.9 }} />
+          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{formConfig.title}</h1>
+          {formConfig.description && <p style={{ fontSize: 14, opacity: 0.85, lineHeight: 1.6 }}>{formConfig.description}</p>}
+        </div>
+
+        {/* フォーム本体 */}
+        <div style={{ background: 'white', borderRadius: 16, padding: 32, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+          {/* 基本情報 */}
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 16, paddingBottom: 8, borderBottom: '2px solid #6366f1' }}>
+            基本情報
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>姓 <span style={{ color: '#ef4444' }}>*</span></label>
+              <input value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} placeholder="山田" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>名 <span style={{ color: '#ef4444' }}>*</span></label>
+              <input value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} placeholder="太郎" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>姓（カナ）</label>
+              <input value={form.last_name_kana} onChange={e => setForm({...form, last_name_kana: e.target.value})} placeholder="ヤマダ" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>名（カナ）</label>
+              <input value={form.first_name_kana} onChange={e => setForm({...form, first_name_kana: e.target.value})} placeholder="タロウ" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>メールアドレス <span style={{ color: '#ef4444' }}>*</span></label>
+              <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="taro@example.com" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>電話番号</label>
+              <input type="tel" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="090-1234-5678" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>性別</label>
+              <select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})} style={inputStyle}>
+                <option value="">選択してください</option>
+                <option value="男性">男性</option>
+                <option value="女性">女性</option>
+                <option value="その他">その他</option>
+                <option value="回答しない">回答しない</option>
+              </select>
+            </div>
+          </div>
+
+          {/* 学歴情報（新卒の場合） */}
+          {formConfig.recruit_type === 'newgrad' && (
+            <>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginTop: 24, marginBottom: 16, paddingBottom: 8, borderBottom: '2px solid #8b5cf6' }}>
+                学歴情報
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>大学名</label>
+                  <input value={form.university} onChange={e => setForm({...form, university: e.target.value})} placeholder="○○大学" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>学部</label>
+                  <input value={form.faculty} onChange={e => setForm({...form, faculty: e.target.value})} placeholder="○○学部" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>学科</label>
+                  <input value={form.department} onChange={e => setForm({...form, department: e.target.value})} placeholder="○○学科" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>卒業予定年</label>
+                  <select value={form.grad_year} onChange={e => setForm({...form, grad_year: e.target.value})} style={inputStyle}>
+                    {[...Array(5)].map((_, i) => {
+                      const y = new Date().getFullYear() + i;
+                      return <option key={y} value={y}>{y}年</option>;
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>卒業時期</label>
+                  <select value={form.graduation_period} onChange={e => setForm({...form, graduation_period: e.target.value})} style={inputStyle}>
+                    <option value="">選択してください</option>
+                    <option value="3月">3月卒業</option>
+                    <option value="9月">9月卒業</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>文理区分</label>
+                  <select value={form.major_type} onChange={e => setForm({...form, major_type: e.target.value})} style={inputStyle}>
+                    <option value="文系">文系</option>
+                    <option value="理系">理系</option>
+                  </select>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 説明会選択 */}
+          {formConfig.show_info_sessions && sessions.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginTop: 24, marginBottom: 16, paddingBottom: 8, borderBottom: '2px solid #10b981' }}>
+                説明会に参加する
+              </h3>
+              <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>参加希望の説明会を選択してください（任意）</p>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {sessions.map(s => {
+                  const isSelected = selectedSession === s.id;
+                  const isFull = s.capacity > 0 && s.current_count >= s.capacity;
+                  return (
+                    <div key={s.id}
+                      onClick={() => !isFull && setSelectedSession(isSelected ? null : s.id)}
+                      style={{
+                        padding: 16, borderRadius: 12, cursor: isFull ? 'not-allowed' : 'pointer',
+                        border: `2px solid ${isSelected ? '#6366f1' : '#e5e7eb'}`,
+                        background: isSelected ? '#eef2ff' : isFull ? '#f9fafb' : 'white',
+                        opacity: isFull ? 0.6 : 1,
+                        transition: 'all 0.2s'
+                      }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 14, color: '#111827', marginBottom: 4 }}>{s.title}</div>
+                          <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#6b7280' }}>
+                            <span>📅 {s.session_date}</span>
+                            <span>🕐 {s.start_time?.slice(0,5)} - {s.end_time?.slice(0,5)}</span>
+                            <span>📍 {formatMap[s.format] || s.format}</span>
+                          </div>
+                          {s.capacity > 0 && (
+                            <div style={{ fontSize: 11, color: isFull ? '#ef4444' : '#6b7280', marginTop: 4 }}>
+                              残り {Math.max(0, s.capacity - (s.current_count || 0))} 席 {isFull && '（満席）'}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${isSelected ? '#6366f1' : '#d1d5db'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          {isSelected && <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#6366f1' }} />}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* 志望動機 */}
+          <div style={{ marginTop: 20 }}>
+            <label style={labelStyle}>志望動機・自由記入欄</label>
+            <textarea value={form.aspiration} onChange={e => setForm({...form, aspiration: e.target.value})} rows={3}
+              placeholder="志望動機やアピールポイントなどを自由にご記入ください"
+              style={{ ...inputStyle, resize: 'vertical' }} />
+          </div>
+
+          {/* 送信ボタン */}
+          <button onClick={handleSubmit} disabled={submitting || !form.last_name || !form.first_name || !form.email}
+            style={{
+              width: '100%', marginTop: 24, padding: '14px 24px', border: 'none', borderRadius: 12,
+              background: (submitting || !form.last_name || !form.first_name || !form.email) ? '#d1d5db' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              color: 'white', fontSize: 16, fontWeight: 700, cursor: (submitting || !form.last_name || !form.first_name || !form.email) ? 'default' : 'pointer',
+              boxShadow: '0 4px 12px rgba(99,102,241,0.3)', transition: 'all 0.2s'
+            }}>
+            {submitting ? '送信中...' : 'エントリーする'}
+          </button>
+        </div>
+
+        {/* フッター */}
+        <div style={{ textAlign: 'center', marginTop: 20, color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>
+          Powered by Attract ATS
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // APP
 // ============================================================
 function App() {
+  // 公開エントリーフォームモード検出
+  const entryFormMode = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const slug = params.get('form');
+    return { slug, active: !!slug };
+  }, []);
+
+  // 公開エントリーフォームモードの場合は専用UIを表示
+  if (entryFormMode.active) {
+    return <PublicEntryForm slug={entryFormMode.slug} />;
+  }
+
   // フィードバック専用モード検出
   const feedbackMode = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
