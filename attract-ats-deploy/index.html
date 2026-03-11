@@ -9810,20 +9810,8 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
       }
 
       setEditingId(null);
-      // DB再取得 — 成功していれば反映される。失敗時はローカル状態をマージ
-      if (SUPABASE_READY) {
-        const { data } = await sbApi.select('profiles', 'order=created_at.asc');
-        if (data) {
-          // DB更新が反映されたかチェック
-          const dbAcc = data.find(a => a.id === profileId);
-          if (dbAcc && dbAcc.display_name === updates.display_name) {
-            setAccounts(data);
-          } else {
-            // DB未反映 → ローカルのみ変更を維持
-            setAccounts(data.map(a => a.id === profileId ? { ...a, ...updates } : a));
-          }
-        }
-      }
+      // loadAccounts で再取得（display_name / email / is_active の正規化ロジックを統一）
+      await loadAccounts();
       if (profileId === currentUser?.id && onRefreshProfile) onRefreshProfile();
     } catch(e) {
       console.error('[AccountsPage] saveProfile error:', e);
