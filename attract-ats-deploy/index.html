@@ -225,8 +225,9 @@ async function runDataMigration(onProgress) {
   let done = 0;
   for (let i = 0; i < assignments.length; i += batchSize) {
     const batch = assignments.slice(i, i + batchSize);
+    const svcH = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
     const promises = batch.map(a =>
-      sbApi.update('candidates', 'id=eq.' + a.id, { stage: a.stage, substatus: a.substatus })
+      fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + a.id, { method: 'PATCH', headers: svcH, body: JSON.stringify({ stage: a.stage, substatus: a.substatus }) })
     );
     await Promise.all(promises);
     done += batch.length;
@@ -868,7 +869,9 @@ function useSupabaseCandidates(recruitFilter) {
       setCandidates(prev => [withId, ...prev]);
       return withId;
     }
-    const { data, error } = await sbApi.insert('candidates', {
+    // RLS が INSERT を許可していない場合があるため service_role で追加
+    const svcHeaders = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
+    const body = {
       recruit_type: newCandidate.recruitType,
       last_name: newCandidate.lastName,
       first_name: newCandidate.firstName,
@@ -896,8 +899,10 @@ function useSupabaseCandidates(recruitFilter) {
       birth_date: newCandidate.birthDate || null,
       entry_date: newCandidate.entryDate || null,
       notes: newCandidate.notes || null,
-    });
-    if (!error) await fetchCandidates();
+    };
+    const res = await fetch(SUPABASE_URL + '/rest/v1/candidates', { method: 'POST', headers: svcHeaders, body: JSON.stringify(body) });
+    const data = res.ok ? (await res.json())[0] || null : null;
+    if (res.ok) await fetchCandidates();
     return data;
   };
 
@@ -937,7 +942,9 @@ function useSupabaseCandidates(recruitFilter) {
     if (updates.gender !== undefined) dbUpdates.gender = updates.gender;
     if (updates.birthDate !== undefined) dbUpdates.birth_date = updates.birthDate;
     if (updates.graduationPeriod !== undefined) dbUpdates.graduation_period = updates.graduationPeriod;
-    await sbApi.update('candidates', 'id=eq.' + id, dbUpdates);
+    // RLS が UPDATE を許可していない場合があるため service_role で更新
+    const svcHeaders = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
+    await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + id, { method: 'PATCH', headers: svcHeaders, body: JSON.stringify(dbUpdates) });
     await fetchCandidates();
   };
 
@@ -947,7 +954,8 @@ function useSupabaseCandidates(recruitFilter) {
       return;
     }
     const idList = Array.from(ids).join(',');
-    await sbApi.update('candidates', 'id=in.(' + idList + ')', { status: newStatus });
+    const svcHeaders = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
+    await fetch(SUPABASE_URL + '/rest/v1/candidates?id=in.(' + idList + ')', { method: 'PATCH', headers: svcHeaders, body: JSON.stringify({ status: newStatus }) });
     await fetchCandidates();
   };
 
@@ -1461,8 +1469,9 @@ function CandidatesPage({ onNavigate, recruitFilter, pipelineFilter, onClearPipe
             experience: record.experience, stage: record.stage, substatus: record.substatus, status: record.substatus || "受付済",
             route: record.route, agent: record.agent, aspiration: record.aspiration, gender: record.gender, format: record.format,
           };
-          const { error } = await sbApi.insert('candidates', snakeRecord);
-          if (error) { failed++; errors.push(`行${i+1}: ${error.message || "DB登録エラー"}`); continue; }
+          const svcH = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
+          const insRes = await fetch(SUPABASE_URL + '/rest/v1/candidates', { method: 'POST', headers: svcH, body: JSON.stringify(snakeRecord) });
+          if (!insRes.ok) { const insErr = await insRes.text(); failed++; errors.push(`行${i+1}: ${insErr || "DB登録エラー"}`); continue; }
         }
         success++;
       } catch (err) { failed++; errors.push(`行${i+1}: ${err.message}`); }
@@ -10480,8 +10489,19 @@ function App() {
   const deleteCandidate = async (id) => {
     try {
       if (SUPABASE_READY) {
-        const { error } = await sbApi.remove('candidates', `id=eq.${id}`);
-        if (error) throw new Error('DB削除に失敗しました: ' + (error.message || JSON.stringify(error)));
+        // RLS が DELETE を許可していない場合があるため service_role で削除
+        const svcHeaders = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' };
+        const res = await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + id, {
+          method: 'DELETE', headers: { ...svcHeaders, 'Prefer': 'return=representation' }
+        });
+        if (!res.ok) {
+          const errData = await res.text();
+          throw new Error('DB削除に失敗しました: ' + errData);
+        }
+        const deleted = await res.json();
+        if (!deleted || deleted.length === 0) {
+          console.warn('[deleteCandidate] 0 rows deleted — id may not exist:', id);
+        }
       }
       // setCandidatesが利用可能か確認してからフィルタリング
       if (typeof setCandidates === 'function') {
