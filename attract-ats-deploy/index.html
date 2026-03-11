@@ -2659,54 +2659,50 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   ];
   const INTERVIEW_STAGES = ["一次面接", "二次面接", "最終面接"];
 
-  // FB用ダミーデータ（Supabase連携時に置き換え）
-  const [feedbacks, setFeedbacks] = useState(() => {
-    const stageOrder = STAGE_DEFINITIONS.map(s => s.name);
-    const currentIdx = stageOrder.indexOf(c.stage);
-    const passedInterviews = INTERVIEW_STAGES.filter(s => {
-      const idx = stageOrder.indexOf(s);
-      return idx < currentIdx || (idx === currentIdx && ["実施済", "合格"].includes(c.substatus));
-    });
-    // 通過済みの面接にはダミーFBを生成
-    const interviewers = { "一次面接": "渡邊りさ", "二次面接": "小原匡人", "最終面接": "安岡" };
-    const dummySummary = {
-      "一次面接": "大学時代にサッカーチームを立ち上げ、運営や仲間との協働を重視してきた経験が語られた。志望理由は抽象的で、企業や業界への具体的な言及は少なかった。",
-      "二次面接": "サッカー経験から努力・継続力・主体性を深く確認。教職から民間転換の理由、成果への向き合い方、会社選びの軸など本質的な価値観を掘り下げた。",
-      "最終面接": "経営ビジョンへの共感度が高く、長期的なキャリアプランが明確。入社後の活躍が期待できる人材。",
+  // FB: Supabase連携（feedbacksテーブルから読み込み）
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [fbLoading, setFbLoading] = useState(true);
+  useEffect(() => {
+    if (!c?.id) return;
+    const loadFeedbacks = async () => {
+      setFbLoading(true);
+      try {
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/feedbacks?candidate_id=eq.${c.id}&order=created_at.asc`,
+          { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } }
+        );
+        if (res.ok) {
+          const rows = await res.json();
+          setFeedbacks(rows.map(r => ({
+            id: r.id,
+            stage: r.stage,
+            interviewer: r.interviewer || "未定",
+            date: r.created_at ? new Date(r.created_at).toLocaleDateString('ja-JP') : "",
+            format: r.format || "WEB",
+            scores: {
+              charm: r.charm ?? 3, honesty: r.honesty ?? 3, flexibility: r.flexibility ?? 3,
+              tenacity: r.tenacity ?? 3, achievement: r.achievement ?? 3, stress: r.stress ?? 3,
+            },
+            overall: r.overall ?? 3.0,
+            result: r.result || "合格",
+            recommendation: r.recommendation || "neutral",
+            summary: r.summary || "",
+            comment: r.comment || "",
+            careerPlan: r.career_plan || "",
+            reason: r.reason || "",
+            competitors: r.competitors || "",
+            reverseQ: r.reverse_q || "",
+            concerns: r.concerns || "",
+            freeNote: r.free_note || "",
+            hasRecording: r.has_recording || false,
+            recordingDuration: r.recording_duration || null,
+          })));
+        }
+      } catch (e) { console.error("feedbacks load error:", e); }
+      setFbLoading(false);
     };
-    const dummyComments = {
-      "一次面接": "受け身そうだが、はまれば頑張るみたいなタイプぽい。悪いやつではなさそう。",
-      "二次面接": "ここ最近の男性志願者で一番良かった。変に取り繕っておらず、素直に成果を追っていけそう。",
-      "最終面接": "入社後の活躍が期待できる人材。",
-    };
-    return passedInterviews.map(stage => ({
-      stage,
-      interviewer: interviewers[stage] || "未定",
-      date: "2026/02/" + (10 + passedInterviews.indexOf(stage) * 7).toString().padStart(2, "0"),
-      format: Math.random() > 0.5 ? "WEB" : "対面",
-      scores: {
-        charm: Math.floor(Math.random() * 2) + 2,
-        honesty: Math.floor(Math.random() * 2) + 2,
-        flexibility: Math.floor(Math.random() * 2) + 2,
-        tenacity: Math.floor(Math.random() * 2) + 2,
-        achievement: Math.floor(Math.random() * 2) + 2,
-        stress: Math.floor(Math.random() * 2) + 2,
-      },
-      overall: +(2.5 + Math.random() * 1.5).toFixed(1),
-      result: "合格",
-      recommendation: "yes",
-      summary: dummySummary[stage] || "",
-      comment: dummyComments[stage] || "",
-      careerPlan: stage === "一次面接" ? "仲間と切磋琢磨しながらがむしゃらに働き、数年後には市場を作る側になりたい" : "",
-      reason: stage === "一次面接" ? "仲間と一緒にチャレンジできる環境、自分を評価してくれる会社を重視" : "",
-      competitors: stage === "二次面接" ? "バベルグループ（人材）、ゲノバ（福祉）、どちらも営業職" : "",
-      reverseQ: stage === "一次面接" ? "成長を感じたことは？前職と違う点は？" : "",
-      concerns: stage === "一次面接" ? "逆境時の対応力、他者との衝突時の対応を次回確認" : stage === "二次面接" ? "業務への理解や当社での貢献について具体的な発言が少ない" : "特になし",
-      freeNote: stage === "一次面接" ? "全体的に若干弱い。社会人なってもガッツリサッカー続けそう" : "",
-      hasRecording: false,
-      recordingDuration: null,
-    }));
-  });
+    loadFeedbacks();
+  }, [c?.id]);
 
   const [fbFormOpen, setFbFormOpen] = useState(false);
   const [fbFormStage, setFbFormStage] = useState("");
@@ -2744,20 +2740,35 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     } catch(e) { console.error('FB context read error:', e); }
   }, [isFeedbackMode]);
 
-  // 親タブ: 別タブからのFB保存を検知
+  // 親タブ: 別タブからのFB保存を検知 → DBから再読み込み
   useEffect(() => {
     if (isFeedbackMode) return; // 子タブでは不要
+    const reloadFromDb = async () => {
+      try {
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/feedbacks?candidate_id=eq.${c.id}&order=created_at.asc`,
+          { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } }
+        );
+        if (res.ok) {
+          const rows = await res.json();
+          setFeedbacks(rows.map(r => ({
+            id: r.id, stage: r.stage, interviewer: r.interviewer || "未定",
+            date: r.created_at ? new Date(r.created_at).toLocaleDateString('ja-JP') : "",
+            format: r.format || "WEB",
+            scores: { charm: r.charm ?? 3, honesty: r.honesty ?? 3, flexibility: r.flexibility ?? 3, tenacity: r.tenacity ?? 3, achievement: r.achievement ?? 3, stress: r.stress ?? 3 },
+            overall: r.overall ?? 3.0, result: r.result || "合格", recommendation: r.recommendation || "neutral",
+            summary: r.summary || "", comment: r.comment || "", careerPlan: r.career_plan || "", reason: r.reason || "",
+            competitors: r.competitors || "", reverseQ: r.reverse_q || "", concerns: r.concerns || "", freeNote: r.free_note || "",
+            hasRecording: r.has_recording || false, recordingDuration: r.recording_duration || null,
+          })));
+        }
+      } catch(e) { console.error("FB reload error:", e); }
+    };
     const handleStorage = (e) => {
       if (e.key === 'fb_save_result' && e.newValue) {
         try {
           const result = JSON.parse(e.newValue);
-          if (String(result.candidateId) === String(c.id) && result.feedback) {
-            setFeedbacks(prev => {
-              const existing = prev.findIndex(f => f.stage === result.feedback.stage);
-              if (existing >= 0) { const updated = [...prev]; updated[existing] = result.feedback; return updated; }
-              return [...prev, result.feedback].sort((a, b) => INTERVIEW_STAGES.indexOf(a.stage) - INTERVIEW_STAGES.indexOf(b.stage));
-            });
-          }
+          if (String(result.candidateId) === String(c.id)) reloadFromDb();
         } catch(err) { console.error('FB save result parse error:', err); }
       }
     };
@@ -3020,26 +3031,99 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setFbFormOpen(true);
   };
 
-  const saveFb = () => {
+  const saveFb = async () => {
     const newFb = { ...fbFormData, stage: fbFormStage };
-    if (isFeedbackMode) {
-      // 別タブモード: localStorageに保存して閉じる
-      localStorage.setItem('fb_save_result', JSON.stringify({
-        candidateId: c.id,
-        feedback: newFb,
-        timestamp: Date.now(),
-      }));
+    // DB保存用ペイロード
+    const dbPayload = {
+      candidate_id: c.id,
+      stage: newFb.stage,
+      interviewer: newFb.interviewer,
+      format: newFb.format,
+      charm: newFb.scores?.charm ?? 3,
+      honesty: newFb.scores?.honesty ?? 3,
+      flexibility: newFb.scores?.flexibility ?? 3,
+      tenacity: newFb.scores?.tenacity ?? 3,
+      achievement: newFb.scores?.achievement ?? 3,
+      stress: newFb.scores?.stress ?? 3,
+      overall: newFb.overall ?? 3.0,
+      result: newFb.result || "合格",
+      recommendation: newFb.recommendation || "neutral",
+      summary: newFb.summary || "",
+      comment: newFb.comment || "",
+      career_plan: newFb.careerPlan || "",
+      reason: newFb.reason || "",
+      competitors: newFb.competitors || "",
+      reverse_q: newFb.reverseQ || "",
+      concerns: newFb.concerns || "",
+      free_note: newFb.freeNote || "",
+      has_recording: newFb.hasRecording || false,
+      recording_duration: newFb.recordingDuration || null,
+    };
+    try {
+      // 既存のフィードバックがあればUPDATE、なければINSERT
+      const existingFb = feedbacks.find(f => f.stage === fbFormStage);
+      let res;
+      if (existingFb?.id) {
+        res = await fetch(
+          `${SUPABASE_URL}/rest/v1/feedbacks?id=eq.${existingFb.id}`,
+          { method: 'PATCH', headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify(dbPayload) }
+        );
+      } else {
+        res = await fetch(
+          `${SUPABASE_URL}/rest/v1/feedbacks`,
+          { method: 'POST', headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify(dbPayload) }
+        );
+      }
+      if (!res.ok) throw new Error(`DB save failed: ${res.status}`);
+      const saved = await res.json();
+      const savedRow = Array.isArray(saved) ? saved[0] : saved;
+      const mappedFb = {
+        id: savedRow.id,
+        stage: savedRow.stage,
+        interviewer: savedRow.interviewer || "未定",
+        date: savedRow.created_at ? new Date(savedRow.created_at).toLocaleDateString('ja-JP') : "",
+        format: savedRow.format || "WEB",
+        scores: {
+          charm: savedRow.charm ?? 3, honesty: savedRow.honesty ?? 3, flexibility: savedRow.flexibility ?? 3,
+          tenacity: savedRow.tenacity ?? 3, achievement: savedRow.achievement ?? 3, stress: savedRow.stress ?? 3,
+        },
+        overall: savedRow.overall ?? 3.0,
+        result: savedRow.result || "合格",
+        recommendation: savedRow.recommendation || "neutral",
+        summary: savedRow.summary || "",
+        comment: savedRow.comment || "",
+        careerPlan: savedRow.career_plan || "",
+        reason: savedRow.reason || "",
+        competitors: savedRow.competitors || "",
+        reverseQ: savedRow.reverse_q || "",
+        concerns: savedRow.concerns || "",
+        freeNote: savedRow.free_note || "",
+        hasRecording: savedRow.has_recording || false,
+        recordingDuration: savedRow.recording_duration || null,
+      };
+
+      if (isFeedbackMode) {
+        // 別タブモード: localStorageに保存して閉じる
+        localStorage.setItem('fb_save_result', JSON.stringify({
+          candidateId: c.id,
+          feedback: mappedFb,
+          timestamp: Date.now(),
+        }));
+        setFbFormOpen(false);
+        alert("フィードバックを保存しました。このタブを閉じて元の画面に戻ってください。");
+        try { window.close(); } catch(e) {}
+        return;
+      }
+      setFeedbacks(prev => {
+        const existing = prev.findIndex(f => f.stage === fbFormStage);
+        if (existing >= 0) { const updated = [...prev]; updated[existing] = mappedFb; return updated; }
+        return [...prev, mappedFb].sort((a, b) => INTERVIEW_STAGES.indexOf(a.stage) - INTERVIEW_STAGES.indexOf(b.stage));
+      });
       setFbFormOpen(false);
-      alert("フィードバックを保存しました。このタブを閉じて元の画面に戻ってください。");
-      try { window.close(); } catch(e) {}
-      return;
+    } catch (err) {
+      console.error("FB save error:", err);
+      alert("フィードバックの保存に失敗しました: " + err.message);
     }
-    setFeedbacks(prev => {
-      const existing = prev.findIndex(f => f.stage === fbFormStage);
-      if (existing >= 0) { const updated = [...prev]; updated[existing] = newFb; return updated; }
-      return [...prev, newFb].sort((a, b) => INTERVIEW_STAGES.indexOf(a.stage) - INTERVIEW_STAGES.indexOf(b.stage));
-    });
-    setFbFormOpen(false);
   };
 
   // メール送信関連
@@ -4350,6 +4434,13 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                 return stageIdx <= currentIdx || feedbacks.some(f => f.stage === stageName);
               });
 
+              if (fbLoading) {
+                return (
+                  <div style={{ textAlign: "center", padding: "30px 0", color: "#9ca3af" }}>
+                    <div style={{ fontSize: 14 }}>フィードバックを読み込み中...</div>
+                  </div>
+                );
+              }
               if (interviewStages.length === 0 && feedbacks.length === 0) {
                 return (
                   <div style={{ textAlign: "center", padding: "30px 0", color: "#9ca3af" }}>
