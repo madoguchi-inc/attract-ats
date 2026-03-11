@@ -9632,7 +9632,7 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteData, setInviteData] = useState({ email: "", password: "", display_name: "", role: "member" });
+  const [inviteData, setInviteData] = useState({ email: "", password: "", display_name: "", role: "recruiter" });
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState("");
@@ -9757,7 +9757,7 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
     }
     savePending([{ id: Date.now(), email: inviteData.email, display_name: inviteData.display_name, role: inviteData.role, password: inviteData.password, invited_at: new Date().toISOString(), invited_by: currentUser?.email || "管理者", status: "pending" }, ...pendingInvites]);
     setInviteSuccess(`${inviteData.display_name} さんのアカウントを作成しました。`);
-    setInviteData({ email: "", password: "", display_name: "", role: "member" });
+    setInviteData({ email: "", password: "", display_name: "", role: "recruiter" });
     setInviteLoading(false);
     await loadAccounts();
   };
