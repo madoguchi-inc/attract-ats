@@ -40,6 +40,7 @@ const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie
 const SUPABASE_URL = 'https://enzgjnelimfrosilsokn.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVuemdqbmVsaW1mcm9zaWxzb2tuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNjU0MzQsImV4cCI6MjA4Nzc0MTQzNH0.lGp7juqG5IPjSiXa7E8dWtyl7q1CH34ntodzCetFN3U';
 const SUPABASE_READY = SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+const SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVuemdqbmVsaW1mcm9zaWxzb2tuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjE2NTQzNCwiZXhwIjoyMDg3NzQxNDM0fQ.fM2Q4wITKciLOjaD5Ju5sUxWU4udf11obeyqyXs2Uao';
 
 // トークン管理
 const tokenStore = {
@@ -919,13 +920,13 @@ function useSupabaseCandidates(recruitFilter) {
     // プロフィール編集フィールド
     if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
     if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
-    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    // name は candidates テーブルに存在しないためスキップ（last_name / first_name を使う）
     if (updates.email !== undefined) dbUpdates.email = updates.email;
     if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
     if (updates.university !== undefined) dbUpdates.university = updates.university;
     if (updates.faculty !== undefined) dbUpdates.faculty = updates.faculty;
     if (updates.department !== undefined) dbUpdates.department = updates.department;
-    if (updates.graduationYear !== undefined) dbUpdates.graduation_year = updates.graduationYear;
+    if (updates.graduationYear !== undefined) dbUpdates.grad_year = updates.graduationYear;
     if (updates.company !== undefined) dbUpdates.company = updates.company;
     if (updates.position !== undefined) dbUpdates.position = updates.position;
     if (updates.experience !== undefined) dbUpdates.experience = updates.experience;
@@ -9631,7 +9632,7 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteData, setInviteData] = useState({ email: "", password: "", display_name: "", role: "recruiter" });
+  const [inviteData, setInviteData] = useState({ email: "", password: "", display_name: "", role: "member" });
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState("");
@@ -9719,9 +9720,32 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
         const isRateLimit = msg.includes("rate limit") || msg.includes("Rate limit");
         const isAlreadyReg = msg.includes("already registered") || msg.includes("already been registered");
         if (isAlreadyReg) {
-          setInviteError("このメールアドレスは既に登録されています");
-          setInviteLoading(false); return;
-        }
+          // Auth にはユーザーが存在するが profiles が無い場合 → profiles を作成して続行
+          try {
+            const svcHeaders = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' };
+            // Auth ユーザー一覧から該当メールを検索
+            const listRes = await fetch(SUPABASE_URL + '/auth/v1/admin/users?page=1&per_page=50', { headers: svcHeaders });
+            const listData = await listRes.json();
+            const users = listData.users || listData || [];
+            const existingUser = users.find(u => u.email === inviteData.email);
+            if (existingUser) {
+              // profiles に upsert（既に存在すればスキップ、なければ作成）
+              await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+                method: 'POST',
+                headers: { ...svcHeaders, 'Prefer': 'resolution=merge-duplicates' },
+                body: JSON.stringify({ id: existingUser.id, full_name: inviteData.display_name, role: inviteData.role })
+              });
+              // 成功扱いで続行（下の savePending / setInviteSuccess に進む）
+            } else {
+              setInviteError("このメールアドレスは既に登録されていますが、ユーザー情報を取得できませんでした");
+              setInviteLoading(false); return;
+            }
+          } catch(e) {
+            console.warn('[handleInvite] already-registered recovery failed:', e);
+            setInviteError("既存アカウントの復元に失敗しました: " + e.message);
+            setInviteLoading(false); return;
+          }
+        } else
         if (!isRateLimit) {
           setInviteError(msg);
           setInviteLoading(false); return;
@@ -9733,7 +9757,7 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
     }
     savePending([{ id: Date.now(), email: inviteData.email, display_name: inviteData.display_name, role: inviteData.role, password: inviteData.password, invited_at: new Date().toISOString(), invited_by: currentUser?.email || "管理者", status: "pending" }, ...pendingInvites]);
     setInviteSuccess(`${inviteData.display_name} さんのアカウントを作成しました。`);
-    setInviteData({ email: "", password: "", display_name: "", role: "recruiter" });
+    setInviteData({ email: "", password: "", display_name: "", role: "member" });
     setInviteLoading(false);
     await loadAccounts();
   };
@@ -9750,20 +9774,21 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
 
   const toggleActive = async (profileId, currentActive) => {
     if (profileId === currentUser?.id) { alert("自分自身は無効化できません"); return; }
-    const { error } = await sbApi.update('profiles', 'id=eq.' + profileId, { is_active: !currentActive });
-    if (error) console.warn('[AccountsPage] toggleActive error:', error);
-    await loadAccounts();
+    // is_active は profiles テーブルに存在しないためローカルのみ反映
+    setAccounts(prev => prev.map(a => a.id === profileId ? { ...a, is_active: !currentActive } : a));
   };
 
   const saveProfile = async (profileId) => {
     if (!editName.trim()) return;
     setEditSaving(true);
     try {
-      const updates = { display_name: editName.trim() };
-      if (editEmail.trim()) updates.email = editEmail.trim();
+      const updates = { full_name: editName.trim() };
+      // email は profiles テーブルに存在しないため DB には書かない（ローカルのみ反映）
+      const localUpdates = { full_name: editName.trim(), display_name: editName.trim() };
+      if (editEmail.trim()) localUpdates.email = editEmail.trim();
 
       // ローカルを即座に反映（楽観的更新）
-      setAccounts(prev => prev.map(a => a.id === profileId ? { ...a, ...updates } : a));
+      setAccounts(prev => prev.map(a => a.id === profileId ? { ...a, ...localUpdates } : a));
 
       // DB更新を試行
       const { error } = await sbApi.update('profiles', 'id=eq.' + profileId, updates);
@@ -9815,7 +9840,15 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
   const markAccepted = (id) => savePending(pendingInvites.map(p => p.id === id ? { ...p, status: "accepted" } : p));
 
   const deleteAccount = async (profileId) => {
+    // profiles レコードを削除
     await sbApi.remove('profiles', 'id=eq.' + profileId);
+    // Auth ユーザーも削除（service_role 必要）
+    try {
+      await fetch(SUPABASE_URL + '/auth/v1/admin/users/' + profileId, {
+        method: 'DELETE',
+        headers: { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' }
+      });
+    } catch(e) { console.warn('[deleteAccount] Auth user delete failed:', e); }
     setDeleteConfirm(null);
     await loadAccounts();
   };
