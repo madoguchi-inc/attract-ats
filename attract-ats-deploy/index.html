@@ -9662,6 +9662,11 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
         const pi = JSON.parse(localStorage.getItem('ats_pending_invitations') || '[]');
         pi.forEach(inv => { if (inv.email && inv.display_name) emailMap[inv.display_name] = inv.email; if (inv.email) emailMap[inv.email] = inv.email; });
       } catch(e) {}
+      // saveProfile で保存されたメールアドレスを復元
+      try {
+        const storedEmails = JSON.parse(localStorage.getItem('ats_profile_emails') || '{}');
+        Object.entries(storedEmails).forEach(([pid, em]) => { emailMap[pid] = em; });
+      } catch(e) {}
       // 現在のユーザーのemail
       if (currentUser?.email) emailMap[currentUser.id] = currentUser.email;
       // DB カラム → フロント用に正規化
@@ -9786,6 +9791,15 @@ function AccountsPage({ currentUser, currentProfile, onRefreshProfile }) {
       // email は profiles テーブルに存在しないため DB には書かない（ローカルのみ反映）
       const localUpdates = { full_name: editName.trim(), display_name: editName.trim() };
       if (editEmail.trim()) localUpdates.email = editEmail.trim();
+
+      // メールアドレスを localStorage に保存（loadAccounts の emailMap で復元できるよう）
+      if (editEmail.trim()) {
+        try {
+          const emailMapStored = JSON.parse(localStorage.getItem('ats_profile_emails') || '{}');
+          emailMapStored[profileId] = editEmail.trim();
+          localStorage.setItem('ats_profile_emails', JSON.stringify(emailMapStored));
+        } catch(e) {}
+      }
 
       // ローカルを即座に反映（楽観的更新）
       setAccounts(prev => prev.map(a => a.id === profileId ? { ...a, ...localUpdates } : a));
