@@ -7924,8 +7924,7 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
 
   // 対応待ちカウントをカスタムイベントで同期（サイドバーバッジ用）
   useEffect(() => {
-    window.dispatchEvent(new Event('ats_read_updated'));
-    window.dispatchEvent(new Event('ats_read_updated'));
+    window.dispatchEvent(new CustomEvent('ats_pending_count', { detail: { pending: stats.pending } }));
   }, [stats.pending]);
 
   // テンプレート選択
@@ -10367,11 +10366,26 @@ function App() {
     const interval = setInterval(loadReadIds, 5000);
     return () => { window.removeEventListener('ats_read_updated', onCustom); clearInterval(interval); };
   }, []);
-  // 未読メッセージカウント（globalReadMsgIdsから計算）
-  const [globalUnreadCount, setGlobalUnreadCount] = useState(0);
+  // 未読メッセージカウント（メッセージページのstats.pendingと同期）
+  const [globalUnreadCount, setGlobalUnreadCount] = useState(() => {
+    return UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length;
+  });
   useEffect(() => {
-    const count = UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length;
-    setGlobalUnreadCount(count);
+    // メッセージページから対応待ち件数を受信
+    const onPendingCount = (e) => {
+      if (e.detail && typeof e.detail.pending === 'number') setGlobalUnreadCount(e.detail.pending);
+    };
+    // 既読状態が変わった場合のフォールバック（メッセージページ未表示時）
+    const onReadUpdated = () => {
+      const count = UNREAD_MESSAGES_MOCK.filter(m => !globalReadMsgIds.has(m.id)).length;
+      setGlobalUnreadCount(count);
+    };
+    window.addEventListener('ats_pending_count', onPendingCount);
+    window.addEventListener('ats_read_updated', onReadUpdated);
+    return () => {
+      window.removeEventListener('ats_pending_count', onPendingCount);
+      window.removeEventListener('ats_read_updated', onReadUpdated);
+    };
   }, [globalReadMsgIds]);
 
   // ========== レスポンシブ対応 ==========
