@@ -10488,7 +10488,11 @@ function App() {
 
   const deleteCandidate = async (id) => {
     try {
-      if (SUPABASE_READY) {
+      // 削除対象が紹介会社フォーム由来か確認
+      const target = candidates.find(c => c.id === id);
+      const isAgentFormData = target && target._fromAgentForm;
+
+      if (SUPABASE_READY && !isAgentFormData) {
         // RLS が DELETE を許可していない場合があるため service_role で削除
         const svcHeaders = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' };
         const res = await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + id, {
@@ -10503,6 +10507,20 @@ function App() {
           console.warn('[deleteCandidate] 0 rows deleted — id may not exist:', id);
         }
       }
+
+      // 紹介会社フォーム由来のデータは localStorage からも削除
+      if (isAgentFormData && target.email) {
+        try {
+          const agentRaw = localStorage.getItem('ats_agent_submissions');
+          if (agentRaw) {
+            const agentSubs = JSON.parse(agentRaw);
+            const filtered = agentSubs.filter(s => s.email !== target.email);
+            localStorage.setItem('ats_agent_submissions', JSON.stringify(filtered));
+            console.log('[deleteCandidate] Removed agent submission for:', target.email);
+          }
+        } catch(e) { console.warn('[deleteCandidate] localStorage cleanup failed:', e); }
+      }
+
       // setCandidatesが利用可能か確認してからフィルタリング
       if (typeof setCandidates === 'function') {
         setCandidates(prev => prev.filter(c => c.id !== id));
