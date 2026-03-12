@@ -6821,7 +6821,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
     const col = isSession ? "#8b5cf6" : stageColor(ev.stage);
     const isExpanded = expandedEvent === ev.id;
     return (
-      <div onClick={() => setExpandedEvent(isExpanded ? null : ev.id)}
+      <div onClick={() => compact ? setPopupEvent(ev) : setExpandedEvent(isExpanded ? null : ev.id)}
         style={{ background: "white", borderRadius: compact ? 6 : 10, border: `1px solid ${isExpanded ? col : "#f3f4f6"}`, overflow: "hidden", cursor: "pointer", transition: "all 0.15s" }}
         onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.borderColor = "#d1d5db"; }}
         onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.borderColor = "#f3f4f6"; }}>
@@ -6887,8 +6887,54 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
     );
   };
 
+  // イベント詳細ポップアップ（カレンダー・週間ビュー用）
+  const EventDetailPopup = ({ ev, onClose }) => {
+    if (!ev) return null;
+    const isSession = ev.eventType === "説明会";
+    const col = isSession ? "#8b5cf6" : stageColor(ev.stage);
+    return (
+      <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.3)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={(e) => e.stopPropagation()} style={{ background: "white", borderRadius: 14, padding: 24, maxWidth: 440, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", borderTop: `4px solid ${col}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div>
+              {isSession && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "#f3e8ff", color: "#7c3aed", fontWeight: 600, marginBottom: 6, display: "inline-block" }}>🎤 説明会</span>}
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: "#111827", margin: 0 }}>{isSession ? (ev.title || "説明会") : (ev.candidateName || ev.title)}</h3>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: "#9ca3af", cursor: "pointer", padding: 0 }}>✕</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13, marginBottom: 16 }}>
+            <div><span style={{ color: "#9ca3af" }}>📅 </span>{ev.date}</div>
+            <div><span style={{ color: "#9ca3af" }}>🕐 </span>{ev.startTime} 〜 {ev.endTime}</div>
+            <div><span style={{ color: "#9ca3af" }}>形式: </span><span style={{ padding: "1px 6px", borderRadius: 4, background: ev.format === "WEB" ? "#ecfdf5" : "#fdf2f8", color: ev.format === "WEB" ? "#059669" : "#db2777", fontWeight: 500, fontSize: 11 }}>{ev.format}</span></div>
+            <div><span style={{ color: "#9ca3af" }}>区分: </span>{ev.type}</div>
+            {ev.stage && <div><span style={{ color: "#9ca3af" }}>ステージ: </span><span style={{ color: col, fontWeight: 600 }}>{ev.stage}</span></div>}
+            {ev.interviewer && <div><span style={{ color: "#9ca3af" }}>面接官: </span>{ev.interviewer}</div>}
+            {ev.location && <div style={{ gridColumn: "1/3" }}><span style={{ color: "#9ca3af" }}>場所: </span>{ev.location}</div>}
+            {isSession && ev.capacity > 0 && <div><span style={{ color: "#9ca3af" }}>定員: </span>{ev.capacity}名</div>}
+          </div>
+          {ev.memo && <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12, padding: "8px 12px", background: "#f9fafb", borderRadius: 8 }}>📝 {ev.memo}</div>}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {ev.candidateId && (
+              <button onClick={() => { onClose(); onNavigate && onNavigate("candidate-detail", ev.candidateId); }}
+                style={{ padding: "8px 14px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151", fontWeight: 500 }}>👤 候補者</button>
+            )}
+            <button onClick={() => { onClose(); openEdit(ev); }}
+              style={{ padding: "8px 14px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 12, cursor: "pointer", color: "#374151", fontWeight: 500 }}>✏️ 編集</button>
+            <button onClick={() => { if (confirm("この予定を削除しますか？")) { onClose(); handleDelete(ev.id); } }}
+              style={{ padding: "8px 14px", border: "1px solid #fecaca", borderRadius: 8, background: "#fff5f5", fontSize: 12, cursor: "pointer", color: "#dc2626", fontWeight: 500 }}>🗑 削除</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const [popupEvent, setPopupEvent] = useState(null);
+
   return (
     <div style={{ padding: 24, maxWidth: 1200 }}>
+      {/* イベント詳細ポップアップ */}
+      {popupEvent && <EventDetailPopup ev={popupEvent} onClose={() => setPopupEvent(null)} />}
+
       {/* ヘッダー */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>スケジュール</h1>
@@ -6994,7 +7040,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                     {dayEvents.slice(0, 3).map(ev => (
-                      <div key={ev.id} onClick={(e) => { e.stopPropagation(); setExpandedEvent(expandedEvent === ev.id ? null : ev.id); }}
+                      <div key={ev.id} onClick={(e) => { e.stopPropagation(); setPopupEvent(ev); }}
                         style={{ fontSize: 10, padding: "2px 4px", borderRadius: 3, background: stageColor(ev.stage) + "18", color: stageColor(ev.stage), fontWeight: 500, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", cursor: "pointer" }}>
                         {ev.startTime} {ev.candidateName || ev.title}
                       </div>
