@@ -945,9 +945,19 @@ function useSupabaseCandidates(recruitFilter) {
     if (updates.gender !== undefined) dbUpdates.gender = updates.gender;
     if (updates.birthDate !== undefined) dbUpdates.birth_date = updates.birthDate;
     if (updates.graduationPeriod !== undefined) dbUpdates.graduation_period = updates.graduationPeriod;
+    if (Object.keys(dbUpdates).length === 0) { console.warn('updateCandidate: 更新するフィールドがありません'); return; }
     // RLS が UPDATE を許可していない場合があるため service_role で更新
     const svcHeaders = { 'apikey': SERVICE_ROLE_KEY, 'Authorization': 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
-    await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + id, { method: 'PATCH', headers: svcHeaders, body: JSON.stringify(dbUpdates) });
+    const patchRes = await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + id, { method: 'PATCH', headers: svcHeaders, body: JSON.stringify(dbUpdates) });
+    if (!patchRes.ok) {
+      const errText = await patchRes.text();
+      console.error('候補者更新エラー:', patchRes.status, errText);
+      throw new Error('候補者情報の更新に失敗しました: ' + patchRes.status);
+    }
+    const patchData = await patchRes.json();
+    if (!Array.isArray(patchData) || patchData.length === 0) {
+      console.warn('updateCandidate: PATCHが0件にマッチしました (id=' + id + ')');
+    }
     await fetchCandidates();
   };
 
@@ -2215,22 +2225,31 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   // ===== プロフィール編集 state =====
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileForm, setProfileForm] = useState({});
+  const [profileSaving, setProfileSaving] = useState(false);
   const startProfileEdit = () => {
     setProfileForm({
       lastName: c.lastName || "", firstName: c.firstName || "",
       email: c.email || "", phone: c.phone || "",
       university: c.university || "", faculty: c.faculty || "", department: c.department || "",
-      graduationYear: c.graduationYear || "",
+      graduationYear: c.graduationYear || c.gradYear || "",
       company: c.company || "", position: c.position || "", experience: c.experience || "",
       recruitType: c.recruitType || "新卒",
     });
     setProfileEditing(true);
   };
-  const saveProfile = () => {
-    const updates = { ...profileForm };
-    updates.name = ((updates.lastName || '') + ' ' + (updates.firstName || '')).trim();
-    if (onUpdateCandidate) onUpdateCandidate(c.id, updates);
-    setProfileEditing(false);
+  const saveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      const updates = { ...profileForm };
+      updates.name = ((updates.lastName || '') + ' ' + (updates.firstName || '')).trim();
+      if (onUpdateCandidate) await onUpdateCandidate(c.id, updates);
+      setProfileEditing(false);
+    } catch (e) {
+      console.error('プロフィール保存エラー:', e);
+      alert('保存に失敗しました。もう一度お試しください。');
+    } finally {
+      setProfileSaving(false);
+    }
   };
   const cancelProfileEdit = () => setProfileEditing(false);
 
@@ -3262,6 +3281,10 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     setSending(true);
     setSendError("");
     setSendSuccess("");
+    // 挿入タグを最終置換
+    const candName = ((c.lastName || "") + " " + (c.firstName || "")).trim();
+    const finalSubject = emailSubject.replace(/\{\{name\}\}/g, candName).replace(/\{\{company\}\}/g, "株式会社madoguchi");
+    const finalBody = emailBody.replace(/\{\{name\}\}/g, candName).replace(/\{\{company\}\}/g, "株式会社madoguchi");
 
     try {
       const res = await fetch('/.netlify/functions/gmail', {
@@ -3270,9 +3293,9 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         body: JSON.stringify({
           action: 'send',
           to: c.email,
-          subject: emailSubject,
-          body: emailBody,
-          candidateName: c.lastName + " " + c.firstName,
+          subject: finalSubject,
+          body: finalBody,
+          candidateName: candName,
         }),
       });
       const result = await res.json();
@@ -3283,14 +3306,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
         return;
       }
 
-      // Supabaseにも履歴を保存
+      // Supabaseにも履歴を保存（置換後のテキストを保存）
       await sbApi.insert('messages', {
         candidate_id: c.id,
         direction: 'outbound',
         channel: 'email',
         to_email: c.email,
-        subject: emailSubject,
-        body: emailBody,
+        subject: finalSubject,
+        body: finalBody,
         status: 'sent',
       });
 
@@ -4051,8 +4074,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, paddingTop: 16, borderTop: "1px solid #f3f4f6" }}>
-              <button onClick={cancelProfileEdit} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 13, color: "#6b7280", cursor: "pointer" }}>キャンセル</button>
-              <button onClick={saveProfile} style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#6366f1", fontSize: 13, color: "white", cursor: "pointer", fontWeight: 600 }}>✓ 保存</button>
+              <button onClick={cancelProfileEdit} disabled={profileSaving} style={{ padding: "8px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "white", fontSize: 13, color: "#6b7280", cursor: "pointer" }}>キャンセル</button>
+              <button onClick={saveProfile} disabled={profileSaving} style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: profileSaving ? "#a5b4fc" : "#6366f1", fontSize: 13, color: "white", cursor: profileSaving ? "wait" : "pointer", fontWeight: 600 }}>{profileSaving ? "保存中..." : "✓ 保存"}</button>
             </div>
           </div>
         </div>
@@ -8250,7 +8273,12 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const handleCandidateSelect = (candidateId) => {
     const c = candidates.find(x => x.id == candidateId);
     if (c) {
-      setComposeData(prev => ({ ...prev, candidateId: c.id, candidateName: (c.lastName || "") + " " + (c.firstName || ""), to: c.email || "" }));
+      const candName = ((c.lastName || "") + " " + (c.firstName || "")).trim();
+      setComposeData(prev => {
+        let newSubject = prev.subject.replace(/\{\{name\}\}/g, candName);
+        let newBody = prev.body.replace(/\{\{name\}\}/g, candName);
+        return { ...prev, candidateId: c.id, candidateName: candName, to: c.email || "", subject: newSubject, body: newBody };
+      });
     }
   };
 
@@ -8258,6 +8286,20 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
   const handleSend = async () => {
     if (!composeData.to || !composeData.subject || !composeData.body) {
       setSendResult({ type: "error", text: "宛先・件名・本文をすべて入力してください" });
+      return;
+    }
+    // 送信前に残っている挿入タグを最終置換
+    const companyName = "株式会社madoguchi";
+    const candName = composeData.candidateName || "";
+    let finalSubject = composeData.subject.replace(/\{\{company\}\}/g, companyName);
+    let finalBody = composeData.body.replace(/\{\{company\}\}/g, companyName);
+    if (candName) {
+      finalSubject = finalSubject.replace(/\{\{name\}\}/g, candName);
+      finalBody = finalBody.replace(/\{\{name\}\}/g, candName);
+    }
+    // 置換されていないタグが残っていたら警告
+    if (/\{\{name\}\}/.test(finalBody) || /\{\{name\}\}/.test(finalSubject)) {
+      setSendResult({ type: "error", text: "候補者が選択されていないため、{{name}} タグを置換できません。候補者を選択してください。" });
       return;
     }
     setSending(true);
@@ -8270,8 +8312,8 @@ function MessagesPage({ candidates = [], emailTemplates = [], onNavigate }) {
         body: JSON.stringify({
           action: 'send',
           to: composeData.to,
-          subject: composeData.subject,
-          body: composeData.body,
+          subject: finalSubject,
+          body: finalBody,
           candidateName: composeData.candidateName,
         }),
       });
