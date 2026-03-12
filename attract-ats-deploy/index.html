@@ -11109,53 +11109,138 @@ function PublicEntryForm({ slug }) {
   }
 
   if (submitted) {
+    const lineUrl = formConfig?.require_line && getLineAddUrl(formConfig);
+    const showLineFlow = lineUrl && lineMode;
+    const lineSvg = <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.271.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>;
+
     return (
-      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: 'white', borderRadius: 16, padding: 40, maxWidth: 520, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111827', marginBottom: 12 }}>エントリー完了</h2>
-          <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.7 }}>{formConfig?.thank_you_message}</p>
-          {selectedSession && (
-            <div style={{ marginTop: 16, padding: 12, background: '#eff6ff', borderRadius: 8 }}>
-              <p style={{ fontSize: 13, color: '#1d4ed8', fontWeight: 600 }}>
-                📅 説明会の予約が完了しました
-              </p>
-              <p style={{ fontSize: 12, color: '#3b82f6', marginTop: 4 }}>
-                {sessions.find(s => s.id === selectedSession)?.title} - {sessions.find(s => s.id === selectedSession)?.session_date}
-              </p>
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 16px' }}>
+        <div style={{ maxWidth: 520, width: '100%' }}>
+
+          {showLineFlow ? (
+            /* ===== LINE経由のサンクスページ ===== */
+            <>
+              {/* ステップインジケーター */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'white', color: '#06c755', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>✓</div>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>エントリー</span>
+                </div>
+                <div style={{ width: 32, height: 2, background: 'rgba(255,255,255,0.3)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'white', color: '#667eea', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800 }}>2</div>
+                  <span style={{ fontSize: 12, color: 'white', fontWeight: 700 }}>LINE登録</span>
+                </div>
+                <div style={{ width: 32, height: 2, background: 'rgba(255,255,255,0.3)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.25)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>3</div>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>情報入力</span>
+                </div>
+              </div>
+
+              <div style={{ background: 'white', borderRadius: 20, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+                {/* エントリー完了バナー（小さく） */}
+                <div style={{ padding: '12px 20px', background: '#f0fdf4', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #dcfce7' }}>
+                  <div style={{ width: 20, height: 20, borderRadius: '50%', background: '#06c755', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ color: 'white', fontSize: 11, fontWeight: 700 }}>✓</span>
+                  </div>
+                  <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>エントリーを受け付けました</span>
+                </div>
+
+                {/* 説明会予約完了（あれば） */}
+                {selectedSession && (
+                  <div style={{ padding: '10px 20px', background: '#eff6ff', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #dbeafe' }}>
+                    <span style={{ fontSize: 13 }}>📅</span>
+                    <div>
+                      <span style={{ fontSize: 12, color: '#1d4ed8', fontWeight: 600 }}>説明会予約完了: </span>
+                      <span style={{ fontSize: 12, color: '#3b82f6' }}>{sessions.find(s => s.id === selectedSession)?.title} - {sessions.find(s => s.id === selectedSession)?.session_date}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* メインCTA: LINE友だち追加 */}
+                <div style={{ padding: '28px 24px 20px', textAlign: 'center' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 14px', background: '#fef3c7', borderRadius: 20, marginBottom: 16 }}>
+                    <span style={{ fontSize: 13 }}>⚡</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>あと少しで完了です！</span>
+                  </div>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, color: '#111827', marginBottom: 8, lineHeight: 1.5 }}>LINE友だち追加で<br/>選考をスムーズに進めましょう</h2>
+                  <p style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.7, marginBottom: 20 }}>
+                    友だち追加すると、選考の結果通知や日程調整が<br/>
+                    <strong style={{ color: '#374151' }}>すべてLINEで完結</strong>します。
+                  </p>
+
+                  {/* LINE メリット */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 24, textAlign: 'left' }}>
+                    {[
+                      { icon: '🔔', text: '選考結果を即時通知' },
+                      { icon: '📅', text: '日程調整がワンタップ' },
+                      { icon: '💬', text: '担当者に直接質問OK' },
+                    ].map((m, i) => (
+                      <div key={i} style={{ flex: 1, padding: '10px 8px', background: '#f9fafb', borderRadius: 10, textAlign: 'center' }}>
+                        <div style={{ fontSize: 20, marginBottom: 4 }}>{m.icon}</div>
+                        <div style={{ fontSize: 11, color: '#374151', fontWeight: 600, lineHeight: 1.4 }}>{m.text}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* LINE追加ボタン */}
+                  <a href={lineUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, width: '100%', padding: '16px 24px', background: '#06c755', color: 'white', borderRadius: 14, fontSize: 17, fontWeight: 800, textDecoration: 'none', cursor: 'pointer', boxShadow: '0 4px 14px rgba(6,199,85,0.35)', boxSizing: 'border-box', transition: 'transform 0.15s, box-shadow 0.15s', animation: 'pulse-green 2s infinite' }}
+                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(6,199,85,0.4)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(6,199,85,0.35)'; }}>
+                    {lineSvg}
+                    LINE友だち追加はこちら
+                  </a>
+                  <style>{`@keyframes pulse-green { 0%, 100% { box-shadow: 0 4px 14px rgba(6,199,85,0.35); } 50% { box-shadow: 0 4px 24px rgba(6,199,85,0.55); } }`}</style>
+                </div>
+
+                {/* LINE登録後の案内 */}
+                <div style={{ padding: '20px 24px 24px', background: '#f8fafc', borderTop: '1px solid #e5e7eb' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#e0e7ff', color: '#4338ca', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, flexShrink: 0, marginTop: 2 }}>3</div>
+                    <div>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: '#1e1b4b', marginBottom: 6 }}>友だち追加後、LINEで名前とメールアドレスを送信してください</p>
+                      <p style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.7 }}>
+                        LINE友だち追加後、トーク画面に届くメッセージの案内に沿って<strong style={{ color: '#374151' }}>お名前</strong>と<strong style={{ color: '#374151' }}>メールアドレス</strong>をご入力ください。エントリー情報と紐づけて、選考のご連絡をスムーズにお届けします。
+                      </p>
+                      <div style={{ marginTop: 10, padding: '10px 14px', background: '#eff6ff', borderRadius: 8, border: '1px solid #dbeafe' }}>
+                        <p style={{ fontSize: 11, color: '#1d4ed8', lineHeight: 1.6 }}>
+                          💡 <strong>入力しないと選考状況がLINEに届きません。</strong>必ず名前とメールアドレスを入力して紐づけを完了してください。
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            /* ===== 通常エントリー（LINE未選択）のサンクスページ ===== */
+            <div style={{ background: 'white', borderRadius: 16, padding: 40, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111827', marginBottom: 12 }}>エントリー完了</h2>
+              <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.7 }}>{formConfig?.thank_you_message}</p>
+              {selectedSession && (
+                <div style={{ marginTop: 16, padding: 12, background: '#eff6ff', borderRadius: 8 }}>
+                  <p style={{ fontSize: 13, color: '#1d4ed8', fontWeight: 600 }}>📅 説明会の予約が完了しました</p>
+                  <p style={{ fontSize: 12, color: '#3b82f6', marginTop: 4 }}>{sessions.find(s => s.id === selectedSession)?.title} - {sessions.find(s => s.id === selectedSession)?.session_date}</p>
+                </div>
+              )}
+              {lineUrl && !lineMode && (
+                <div style={{ marginTop: 20, padding: 16, background: '#f0fdf4', borderRadius: 12, border: '1px solid #bbf7d0' }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#15803d', marginBottom: 8 }}>💬 LINE公式アカウントを友だち追加しませんか？</p>
+                  <p style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.6, marginBottom: 12 }}>友だち追加すると、選考に関するご連絡をLINEでお届けします。</p>
+                  <a href={lineUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: '#06c755', color: 'white', borderRadius: 8, fontSize: 14, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
+                    {lineSvg}
+                    LINE友だち追加
+                  </a>
+                </div>
+              )}
             </div>
           )}
-          {/* LINE友だち追加セクション — lineModeユーザーには目立つCTA、通常ユーザーにはさりげない案内 */}
-          {formConfig?.require_line && getLineAddUrl(formConfig) && (
-            lineMode ? (
-              <div style={{ marginTop: 24, padding: 24, background: 'linear-gradient(135deg, #06c755 0%, #05a847 100%)', borderRadius: 16, color: 'white', textAlign: 'center' }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
-                <p style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>LINE友だち追加で選考状況をお届け</p>
-                <p style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.6, marginBottom: 16 }}>
-                  下のボタンから友だち追加すると、選考の進捗をLINEでリアルタイムにお知らせします。
-                </p>
-                <a href={getLineAddUrl(formConfig)} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '14px 32px', background: 'white', color: '#06c755', borderRadius: 12, fontSize: 16, fontWeight: 800, textDecoration: 'none', cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,0.15)', transition: 'transform 0.2s' }}
-                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.03)'}
-                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}>
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="#06c755"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.271.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
-                  LINE友だち追加はこちら
-                </a>
-              </div>
-            ) : (
-              <div style={{ marginTop: 20, padding: 16, background: '#f0fdf4', borderRadius: 12, border: '1px solid #bbf7d0' }}>
-                <p style={{ fontSize: 13, fontWeight: 600, color: '#15803d', marginBottom: 8 }}>💬 LINE公式アカウントを友だち追加しませんか？</p>
-                <p style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.6, marginBottom: 12 }}>
-                  友だち追加すると、選考に関するご連絡をLINEでお届けします。
-                </p>
-                <a href={getLineAddUrl(formConfig)} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: '#06c755', color: 'white', borderRadius: 8, fontSize: 14, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.271.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
-                  LINE友だち追加
-                </a>
-              </div>
-            )
-          )}
+
+          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 20 }}>Powered by Attract ATS</p>
         </div>
       </div>
     );
