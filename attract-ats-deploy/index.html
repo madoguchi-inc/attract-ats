@@ -10717,15 +10717,17 @@ function PublicEntryForm({ slug }) {
             setSessions(filtered);
           }
         }
+        setLoading(false);
+        // LINE連携選択画面を表示するかどうか判定
+        if (fData[0].require_line && getLineAddUrl(fData[0])) {
+          setStep('select');
+        } else {
+          setStep('form');
+        }
       } catch (e) {
         console.error('Public form load error:', e);
         setError('フォームの読み込みに失敗しました。');
-      }
-      setLoading(false);
-      // LINE連携選択画面を表示するかどうか判定
-      if (fData[0].require_line && getLineAddUrl(fData[0])) {
-        setStep('select');
-      } else {
+        setLoading(false);
         setStep('form');
       }
     };
