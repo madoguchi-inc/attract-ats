@@ -8750,6 +8750,69 @@ function TasksPage({ tasks, onUpdateTasks, candidates, onNavigate }) {
 // ============================================================
 // エントリーフォーム管理（SettingsPage 内タブ用）
 // ============================================================
+function EntryFormEditor({ initial, onSave, onCancel }) {
+  const [f, setF] = useState(initial || {
+    title: '', slug: '', description: '', recruit_type: 'newgrad',
+    is_active: true, show_info_sessions: true, require_line: false,
+    thank_you_message: 'エントリーありがとうございます。ご連絡をお待ちください。'
+  });
+  return (
+    <div style={{ background: 'white', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 16 }}>
+      <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#111827' }}>
+        {initial ? 'フォームを編集' : '新規エントリーフォーム'}
+      </h3>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>フォーム名 *</label>
+          <input value={f.title} onChange={e => setF({...f, title: e.target.value})} placeholder="例: 2026卒エントリー"
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>スラッグ（URL識別子）</label>
+          <input value={f.slug} onChange={e => setF({...f, slug: e.target.value})} placeholder="auto-generated-from-title"
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>採用区分</label>
+          <select value={f.recruit_type} onChange={e => setF({...f, recruit_type: e.target.value})}
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}>
+            <option value="newgrad">新卒</option>
+            <option value="midcareer">中途</option>
+          </select>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center' }}>
+          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={f.show_info_sessions} onChange={e => setF({...f, show_info_sessions: e.target.checked})} />
+            <span style={{ color: '#374151' }}>説明会日程を表示</span>
+          </label>
+          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={f.require_line} onChange={e => setF({...f, require_line: e.target.checked})} />
+            <span style={{ color: '#374151' }}>LINE連携を必須にする</span>
+          </label>
+        </div>
+        <div style={{ gridColumn: '1/3' }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>説明文</label>
+          <textarea value={f.description} onChange={e => setF({...f, description: e.target.value})} rows={2}
+            placeholder="フォーム上部に表示される説明文"
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ gridColumn: '1/3' }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>完了メッセージ</label>
+          <textarea value={f.thank_you_message} onChange={e => setF({...f, thank_you_message: e.target.value})} rows={2}
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+        <button onClick={onCancel} style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: 8, background: 'white', fontSize: 13, cursor: 'pointer' }}>キャンセル</button>
+        <button onClick={() => onSave(f)} disabled={!f.title}
+          style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !f.title ? '#d1d5db' : '#6366f1', color: 'white', fontSize: 13, fontWeight: 600, cursor: !f.title ? 'default' : 'pointer' }}>
+          {initial ? '更新' : '作成'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function EntryFormsTab() {
   const [forms, setForms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -8814,69 +8877,6 @@ function EntryFormsTab() {
     navigator.clipboard.writeText(url).then(() => alert('フォームURLをコピーしました'));
   };
 
-  const EntryFormEditor = ({ initial, onSave, onCancel }) => {
-    const [f, setF] = useState(initial || {
-      title: '', slug: '', description: '', recruit_type: 'newgrad',
-      is_active: true, show_info_sessions: true, require_line: false,
-      thank_you_message: 'エントリーありがとうございます。ご連絡をお待ちください。'
-    });
-    return (
-      <div style={{ background: 'white', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: 16 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#111827' }}>
-          {initial ? 'フォームを編集' : '新規エントリーフォーム'}
-        </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>フォーム名 *</label>
-            <input value={f.title} onChange={e => setF({...f, title: e.target.value})} placeholder="例: 2026卒エントリー"
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>スラッグ（URL識別子）</label>
-            <input value={f.slug} onChange={e => setF({...f, slug: e.target.value})} placeholder="auto-generated-from-title"
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>採用区分</label>
-            <select value={f.recruit_type} onChange={e => setF({...f, recruit_type: e.target.value})}
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}>
-              <option value="newgrad">新卒</option>
-              <option value="midcareer">中途</option>
-            </select>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center' }}>
-            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <input type="checkbox" checked={f.show_info_sessions} onChange={e => setF({...f, show_info_sessions: e.target.checked})} />
-              <span style={{ color: '#374151' }}>説明会日程を表示</span>
-            </label>
-            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <input type="checkbox" checked={f.require_line} onChange={e => setF({...f, require_line: e.target.checked})} />
-              <span style={{ color: '#374151' }}>LINE連携を必須にする</span>
-            </label>
-          </div>
-          <div style={{ gridColumn: '1/3' }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>説明文</label>
-            <textarea value={f.description} onChange={e => setF({...f, description: e.target.value})} rows={2}
-              placeholder="フォーム上部に表示される説明文"
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
-          </div>
-          <div style={{ gridColumn: '1/3' }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>完了メッセージ</label>
-            <textarea value={f.thank_you_message} onChange={e => setF({...f, thank_you_message: e.target.value})} rows={2}
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-          <button onClick={onCancel} style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: 8, background: 'white', fontSize: 13, cursor: 'pointer' }}>キャンセル</button>
-          <button onClick={() => onSave(f)} disabled={!f.title}
-            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !f.title ? '#d1d5db' : '#6366f1', color: 'white', fontSize: 13, fontWeight: 600, cursor: !f.title ? 'default' : 'pointer' }}>
-            {initial ? '更新' : '作成'}
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -8921,26 +8921,26 @@ function EntryFormsTab() {
                   </div>
                   {form.description && <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>{form.description}</p>}
                 </div>
-                <div style={{ display: 'flex', gap: 4 }}>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   <button onClick={() => copyFormUrl(form.slug)} title="URLコピー"
-                    style={{ padding: '6px 10px', background: '#eff6ff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
-                    <Icon name="link" size={14} color="#3b82f6" />
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: '#eff6ff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#3b82f6', fontWeight: 500 }}>
+                    <Icon name="link" size={13} color="#3b82f6" /> URL
                   </button>
                   <button onClick={() => window.open(window.location.pathname + '?form=' + form.slug, '_blank')} title="プレビュー"
-                    style={{ padding: '6px 10px', background: '#f0fdf4', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
-                    <Icon name="external-link" size={14} color="#10b981" />
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: '#f0fdf4', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#10b981', fontWeight: 500 }}>
+                    <Icon name="external-link" size={13} color="#10b981" /> プレビュー
                   </button>
                   <button onClick={() => toggleActive(form)} title={form.is_active ? '非公開にする' : '公開する'}
-                    style={{ padding: '6px 10px', background: form.is_active ? '#fef3c7' : '#dcfce7', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
-                    <Icon name={form.is_active ? 'eye-off' : 'eye'} size={14} color={form.is_active ? '#f59e0b' : '#10b981'} />
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: form.is_active ? '#fef3c7' : '#dcfce7', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: form.is_active ? '#f59e0b' : '#10b981', fontWeight: 500 }}>
+                    <Icon name={form.is_active ? 'eye-off' : 'eye'} size={13} color={form.is_active ? '#f59e0b' : '#10b981'} /> {form.is_active ? '非公開' : '公開'}
                   </button>
-                  <button onClick={() => { setEditingForm({...form}); setShowForm(true); }}
-                    style={{ padding: '6px 10px', background: '#f3f4f6', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
-                    <Icon name="edit" size={14} color="#6b7280" />
+                  <button onClick={() => { setEditingForm({...form}); setShowForm(true); }} title="編集"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: '#f3f4f6', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#6b7280', fontWeight: 500 }}>
+                    <Icon name="edit" size={13} color="#6b7280" /> 編集
                   </button>
-                  <button onClick={() => deleteForm(form.id)}
-                    style={{ padding: '6px 10px', background: '#fef2f2', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
-                    <Icon name="trash-2" size={14} color="#ef4444" />
+                  <button onClick={() => deleteForm(form.id)} title="削除"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: '#fef2f2', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#ef4444', fontWeight: 500 }}>
+                    <Icon name="trash-2" size={13} color="#ef4444" /> 削除
                   </button>
                 </div>
               </div>
@@ -10035,7 +10035,9 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
         </div>
       )}
 
-      {tab === "entry-forms" && <EntryFormsTab />}
+      <div style={{ display: tab === "entry-forms" ? "block" : "none" }}>
+        <EntryFormsTab />
+      </div>
 
       {/* トースト */}
       {toast && (
