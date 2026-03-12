@@ -6624,18 +6624,72 @@ function InterviewFBPage({ onNavigate }) {
 // Schedule Page - 本日の予約・スケジュール一覧
 function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
   const STORAGE_KEY = 'ats_schedule_events';
-  // localStorage からイベントを復元
-  const [events, setEvents] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  });
+  const [events, setEvents] = useState([]);
+  const [eventsLoaded, setEventsLoaded] = useState(false);
 
-  // events が変更されたら localStorage に自動保存
+  // 初回ロード: Supabaseのinfo_sessionsとlocalStorageをマージ
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(events)); } catch (e) {}
-  }, [events]);
+    const loadEvents = async () => {
+      // 1. localStorageから非説明会イベントを取得
+      let localEvents = [];
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        localEvents = saved ? JSON.parse(saved) : [];
+      } catch (e) { localEvents = []; }
+      const nonSessionEvents = localEvents.filter(e => e.eventType !== "説明会");
+
+      // 2. Supabaseからinfo_sessionsを取得して説明会イベントに変換
+      let sessionEvents = [];
+      if (SUPABASE_READY) {
+        try {
+          const svcH = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY };
+          const res = await fetch(SUPABASE_URL + '/rest/v1/info_sessions?select=*&order=session_date.desc', { headers: svcH });
+          if (res.ok) {
+            const sessions = await res.json();
+            const fmtMap = { online: "WEB", offline: "対面", hybrid: "ハイブリッド" };
+            const rMap = { newgrad: "新卒", midcareer: "中途", both: "両方" };
+            sessionEvents = sessions.map(s => ({
+              id: 'is_' + s.id,
+              infoSessionId: s.id,
+              title: s.title || "説明会",
+              date: s.session_date,
+              startTime: (s.start_time || "10:00").slice(0, 5),
+              endTime: (s.end_time || "10:45").slice(0, 5),
+              eventType: "説明会",
+              format: fmtMap[s.format] || "WEB",
+              type: rMap[s.recruit_type] || "新卒",
+              capacity: s.capacity || 0,
+              location: s.location || "",
+              meetingUrl: s.meeting_url || "",
+              description: s.description || "",
+              memo: "",
+              isPublic: true,
+              candidateName: "",
+              candidateId: null,
+              stage: "",
+              interviewer: "",
+              googleEventId: s.google_event_id || null,
+              meetLink: s.meet_link || null,
+            }));
+          }
+        } catch (e) { console.warn('[Schedule] info_sessions 読込エラー:', e); }
+      }
+
+      // 3. マージ（説明会はSupabase優先、それ以外はlocalStorage）
+      setEvents([...nonSessionEvents, ...sessionEvents]);
+      setEventsLoaded(true);
+    };
+    loadEvents();
+  }, []);
+
+  // events が変更されたら localStorage に自動保存（非説明会のみ）
+  useEffect(() => {
+    if (!eventsLoaded) return;
+    try {
+      const toSave = events.filter(e => e.eventType !== "説明会");
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    } catch (e) {}
+  }, [events, eventsLoaded]);
 
   const save = (list) => { setEvents(list); };
 
@@ -6752,7 +6806,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
           if (res.ok) {
             const [created] = await res.json();
             if (created) {
-              setEvents(prev => prev.map(e => e.id === newEvent.id ? { ...e, infoSessionId: created.id } : e));
+              setEvents(prev => prev.map(e => e.id === newEvent.id ? { ...e, id: 'is_' + created.id, infoSessionId: created.id } : e));
             }
           }
         }
