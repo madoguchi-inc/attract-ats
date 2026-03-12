@@ -2269,6 +2269,36 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [interviewGuide, setInterviewGuide] = useState("");
 
+  // 説明会予約情報
+  const [sessionBookings, setSessionBookings] = useState([]);
+  const [sessionBookingsLoading, setSessionBookingsLoading] = useState(false);
+  React.useEffect(() => {
+    if (!SUPABASE_READY) return;
+    (async () => {
+      setSessionBookingsLoading(true);
+      try {
+        // 1. この候補者の説明会予約を取得
+        const bRes = await fetch(SUPABASE_URL + '/rest/v1/info_session_bookings?candidate_id=eq.' + c.id + '&select=*', {
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+        });
+        const bookings = await bRes.json();
+        if (!Array.isArray(bookings) || bookings.length === 0) { setSessionBookings([]); setSessionBookingsLoading(false); return; }
+        // 2. 紐づく説明会情報を取得
+        const sessionIds = bookings.map(b => b.info_session_id).filter(Boolean);
+        if (sessionIds.length === 0) { setSessionBookings([]); setSessionBookingsLoading(false); return; }
+        const idFilter = 'id=in.(' + sessionIds.join(',') + ')';
+        const sRes = await fetch(SUPABASE_URL + '/rest/v1/info_sessions?' + idFilter + '&select=*', {
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+        });
+        const sessions = await sRes.json();
+        const sessMap = {};
+        (Array.isArray(sessions) ? sessions : []).forEach(s => { sessMap[s.id] = s; });
+        setSessionBookings(bookings.map(b => ({ ...b, session: sessMap[b.info_session_id] || null })));
+      } catch (e) { console.error('説明会予約取得エラー:', e); }
+      setSessionBookingsLoading(false);
+    })();
+  }, [c.id]);
+
   // 予約済み面接情報
   const [bookedInterviews, setBookedInterviews] = useState([]);
   const [bookedLoading, setBookedLoading] = useState(false);
@@ -4060,6 +4090,26 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#fef3c7", color: "#92400e" }}>志望度: {"★".repeat(c.aspiration)}{"☆".repeat(5 - c.aspiration)}</span>
               {c.agent && <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "#f0fdf4", color: "#15803d" }}>{c.agent}</span>}
             </div>
+            {/* 説明会予約情報 */}
+            {sessionBookings.length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {sessionBookings.map((b, i) => {
+                  const s = b.session;
+                  const dateStr = s?.session_date ? new Date(s.session_date).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' }) : '';
+                  const timeStr = s?.start_time ? s.start_time.slice(0,5) : '';
+                  return (
+                    <div key={b.id || i} style={{ padding: "8px 14px", background: "#f3e8ff", borderRadius: 10, border: "1px solid #ddd6fe", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 15 }}>🎤</span>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#7c3aed" }}>{s?.title || '説明会'}</div>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>{dateStr}{timeStr ? ` ${timeStr}〜` : ''} <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: b.status === 'booked' ? '#dcfce7' : '#fee2e2', color: b.status === 'booked' ? '#15803d' : '#dc2626', fontWeight: 600, marginLeft: 4 }}>{b.status === 'booked' ? '予約済' : b.status}</span></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {sessionBookingsLoading && <div style={{ marginTop: 8, fontSize: 11, color: '#9ca3af' }}>説明会予約を読み込み中...</div>}
             {c.notes && (
               <div style={{ marginTop: 10, padding: "8px 12px", background: "#fffbeb", borderRadius: 8, fontSize: 12, color: "#92400e", border: "1px solid #fde68a" }}>
                 📝 メモ: {c.notes}
