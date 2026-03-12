@@ -6615,8 +6615,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
           if (res.ok) {
             const [created] = await res.json();
             if (created) {
-              const updated = { ...newEvent, infoSessionId: created.id };
-              save(events.map(e => e.id === newEvent.id ? updated : e));
+              setEvents(prev => prev.map(e => e.id === newEvent.id ? { ...e, infoSessionId: created.id } : e));
             }
           }
         }
@@ -6651,9 +6650,8 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
           }),
         }).then(r => r.json()).then(data => {
           if (data.success) {
-            // eventId を保存
-            const updated = { ...newEvent, googleEventId: data.eventId, meetLink: data.meetLink };
-            save(events.map(e => e.id === newEvent.id ? updated : e).concat(editEvent ? [] : []));
+            // eventId を保存（関数型更新で stale closure を回避）
+            setEvents(prev => prev.map(e => e.id === newEvent.id ? { ...e, googleEventId: data.eventId, meetLink: data.meetLink } : e));
             console.log('[Calendar] 同期成功:', data.eventId);
           }
         }).catch(err => console.warn('[Calendar sync]', err));
