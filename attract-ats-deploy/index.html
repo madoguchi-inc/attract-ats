@@ -6962,6 +6962,43 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
             {isSession && ev.capacity > 0 && <div><span style={{ color: "#9ca3af" }}>定員: </span>{ev.capacity}名</div>}
           </div>
           {ev.memo && <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12, padding: "8px 12px", background: "#f9fafb", borderRadius: 8 }}>📝 {ev.memo}</div>}
+          {/* 説明会: 予約者一覧 */}
+          {isSession && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", marginBottom: 8 }}>👥 予約者 ({popupBookingsLoading ? "..." : popupBookings.length}名)</div>
+              {popupBookingsLoading ? (
+                <div style={{ fontSize: 11, color: "#9ca3af", padding: "8px 0" }}>読み込み中...</div>
+              ) : popupBookings.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#d1d5db", padding: "10px 0", textAlign: "center" }}>予約者はまだいません</div>
+              ) : (
+                <div style={{ maxHeight: 180, overflowY: "auto", borderRadius: 8, border: "1px solid #f3f4f6" }}>
+                  {popupBookings.map((b, i) => {
+                    const cd = b.candidate;
+                    return (
+                      <div key={b.id || i}
+                        onClick={() => { if (cd) { onClose(); onNavigate && onNavigate("candidate-detail", cd.id); } }}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: i < popupBookings.length - 1 ? "1px solid #f3f4f6" : "none", cursor: cd ? "pointer" : "default", background: "white", transition: "background 0.1s" }}
+                        onMouseEnter={e => { if (cd) e.currentTarget.style.background = "#faf5ff"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "white"; }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#eef2ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#4338ca" }}>
+                            {cd ? (cd.last_name || "?").slice(0,1) : "?"}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{cd ? `${cd.last_name} ${cd.first_name}` : `ID: ${b.candidate_id}`}</div>
+                            {cd?.email && <div style={{ fontSize: 11, color: "#9ca3af" }}>{cd.email}</div>}
+                          </div>
+                        </div>
+                        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: b.status === 'booked' ? '#dcfce7' : b.status === 'attended' ? '#dbeafe' : '#fee2e2', color: b.status === 'booked' ? '#15803d' : b.status === 'attended' ? '#1e40af' : '#dc2626', fontWeight: 600 }}>
+                          {b.status === 'booked' ? '予約済' : b.status === 'attended' ? '参加済' : b.status}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             {ev.candidateId && (
               <button onClick={() => { onClose(); onNavigate && onNavigate("candidate-detail", ev.candidateId); }}
@@ -6978,6 +7015,38 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
   };
 
   const [popupEvent, setPopupEvent] = useState(null);
+  const [popupBookings, setPopupBookings] = useState([]);
+  const [popupBookingsLoading, setPopupBookingsLoading] = useState(false);
+
+  // 説明会ポップアップが開いたら予約者を取得
+  React.useEffect(() => {
+    if (!popupEvent || popupEvent.eventType !== "説明会" || !SUPABASE_READY) { setPopupBookings([]); return; }
+    // infoSessionId でBookingsを引く
+    const sessionId = popupEvent.infoSessionId;
+    if (!sessionId) { setPopupBookings([]); return; }
+    setPopupBookingsLoading(true);
+    (async () => {
+      try {
+        const bRes = await fetch(SUPABASE_URL + '/rest/v1/info_session_bookings?info_session_id=eq.' + sessionId + '&select=*', {
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+        });
+        const bookings = await bRes.json();
+        if (!Array.isArray(bookings) || bookings.length === 0) { setPopupBookings([]); setPopupBookingsLoading(false); return; }
+        // 候補者情報を取得
+        const candIds = bookings.map(b => b.candidate_id).filter(Boolean);
+        if (candIds.length === 0) { setPopupBookings(bookings); setPopupBookingsLoading(false); return; }
+        const idFilter = 'id=in.(' + candIds.join(',') + ')';
+        const cRes = await fetch(SUPABASE_URL + '/rest/v1/candidates?' + idFilter + '&select=id,last_name,first_name,email,stage,substatus', {
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+        });
+        const cands = await cRes.json();
+        const candMap = {};
+        (Array.isArray(cands) ? cands : []).forEach(c => { candMap[c.id] = c; });
+        setPopupBookings(bookings.map(b => ({ ...b, candidate: candMap[b.candidate_id] || null })));
+      } catch (e) { console.error('説明会予約者取得エラー:', e); }
+      setPopupBookingsLoading(false);
+    })();
+  }, [popupEvent]);
 
   return (
     <div style={{ padding: 24, maxWidth: 1200 }}>
