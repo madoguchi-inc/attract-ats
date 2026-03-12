@@ -6878,16 +6878,16 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
         <div style={{ display: "flex" }}>
           <div style={{ width: 3, background: col, flexShrink: 0 }} />
           <div style={{ flex: 1, padding: compact ? "6px 10px" : "12px 16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: compact ? 11 : 13, fontWeight: 700, color: "#111827" }}>{ev.startTime}</span>
-                {!compact && <span style={{ fontSize: 11, color: "#9ca3af" }}>〜 {ev.endTime}</span>}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden", flexShrink: 1, minWidth: 0 }}>
+                <span style={{ fontSize: compact ? 11 : 13, fontWeight: 700, color: "#111827", flexShrink: 0 }}>{ev.startTime}</span>
+                {!compact && <span style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0 }}>〜 {ev.endTime}</span>}
                 {isSession && (
-                  <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#f3e8ff", color: "#7c3aed", fontWeight: 600 }}>🎤 説明会</span>
+                  <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#f3e8ff", color: "#7c3aed", fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap" }}>🎤 説明会</span>
                 )}
-                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: ev.format === "WEB" ? "#ecfdf5" : "#fdf2f8", color: ev.format === "WEB" ? "#059669" : "#db2777", fontWeight: 500 }}>
+                {!compact && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: ev.format === "WEB" ? "#ecfdf5" : "#fdf2f8", color: ev.format === "WEB" ? "#059669" : "#db2777", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>
                   {ev.format === "WEB" ? "💻 WEB" : ev.format === "ハイブリッド" ? "🔄 ハイブリッド" : "🏢 対面"}
-                </span>
+                </span>}
               </div>
               {!compact && (
                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -6898,7 +6898,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
                 </div>
               )}
             </div>
-            <div style={{ fontSize: compact ? 12 : 14, fontWeight: 600, color: "#111827", marginTop: compact ? 2 : 4 }}>
+            <div style={{ fontSize: compact ? 12 : 14, fontWeight: 600, color: "#111827", marginTop: compact ? 2 : 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {isSession ? (ev.title || "説明会") : (ev.candidateName || ev.title)}
             </div>
             {!compact && (
@@ -7082,7 +7082,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
               const dow = i % 7;
               return (
                 <div key={i} onClick={() => openCreate(ds)}
-                  style={{ minHeight: 90, borderRight: "1px solid #f3f4f6", borderBottom: "1px solid #f3f4f6", padding: 4, cursor: "pointer", background: isToday ? "#eef2ff" : "white", position: "relative" }}
+                  style={{ minHeight: 90, borderRight: "1px solid #f3f4f6", borderBottom: "1px solid #f3f4f6", padding: 4, cursor: "pointer", background: isToday ? "#eef2ff" : "white", position: "relative", overflow: "hidden" }}
                   onMouseEnter={(e) => { if (!isToday) e.currentTarget.style.background = "#fafbfc"; }}
                   onMouseLeave={(e) => { if (!isToday) e.currentTarget.style.background = "white"; }}>
                   <div style={{ fontSize: 12, fontWeight: isToday ? 700 : 400, color: isToday ? "#4338ca" : dow === 0 ? "#ef4444" : dow === 6 ? "#3b82f6" : "#374151", marginBottom: 2, textAlign: "right", paddingRight: 2 }}>
@@ -7091,7 +7091,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                     {dayEvents.slice(0, 3).map(ev => (
                       <div key={ev.id} onClick={(e) => { e.stopPropagation(); setPopupEvent(ev); }}
-                        style={{ fontSize: 10, padding: "2px 4px", borderRadius: 3, background: stageColor(ev.stage) + "18", color: stageColor(ev.stage), fontWeight: 500, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", cursor: "pointer" }}>
+                        style={{ fontSize: 10, padding: "2px 4px", borderRadius: 3, background: stageColor(ev.stage) + "18", color: stageColor(ev.stage), fontWeight: 500, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", cursor: "pointer", display: "block", maxWidth: "100%" }}>
                         {ev.startTime} {ev.candidateName || ev.title}
                       </div>
                     ))}
@@ -7113,7 +7113,7 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
               const isToday = ds === todayStr;
               const dayEvents = getEventsForDate(ds);
               return (
-                <div key={i} style={{ borderRight: i < 6 ? "1px solid #f3f4f6" : "none", minHeight: 300 }}>
+                <div key={i} style={{ borderRight: i < 6 ? "1px solid #f3f4f6" : "none", minHeight: 300, overflow: "hidden" }}>
                   <div style={{ padding: "10px 8px", textAlign: "center", borderBottom: "1px solid #f3f4f6", background: isToday ? "#eef2ff" : "#fafbfc" }}>
                     <div style={{ fontSize: 10, color: i === 0 ? "#ef4444" : i === 6 ? "#3b82f6" : "#6b7280", fontWeight: 600 }}>{dayNames[i]}</div>
                     <div style={{ fontSize: 16, fontWeight: isToday ? 700 : 400, color: isToday ? "#4338ca" : "#111827", marginTop: 2 }}>{wd.getDate()}</div>
