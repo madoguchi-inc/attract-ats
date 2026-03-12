@@ -42,6 +42,9 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const SUPABASE_READY = SUPABASE_URL !== 'YOUR_SUPABASE_URL';
 const SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVuemdqbmVsaW1mcm9zaWxzb2tuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjE2NTQzNCwiZXhwIjoyMDg3NzQxNDM0fQ.fM2Q4wITKciLOjaD5Ju5sUxWU4udf11obeyqyXs2Uao';
 
+// LINE公式アカウント（madoguchi株式会社 採用担当）
+const DEFAULT_LINE_ADD_URL = 'https://lin.ee/IKNNlbt';
+
 // トークン管理
 const tokenStore = {
   get accessToken() { return localStorage.getItem('sb_access_token'); },
@@ -8787,20 +8790,22 @@ function EntryFormEditor({ initial, onSave, onCancel }) {
             <span style={{ color: '#374151' }}>説明会日程を表示</span>
           </label>
           <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-            <input type="checkbox" checked={f.require_line} onChange={e => setF({...f, require_line: e.target.checked})} />
+            <input type="checkbox" checked={f.require_line} onChange={e => setF({...f, require_line: e.target.checked, line_add_url: e.target.checked ? (f.line_add_url || DEFAULT_LINE_ADD_URL) : f.line_add_url})} />
             <span style={{ color: '#374151' }}>LINE連携選択画面を表示</span>
           </label>
         </div>
         {f.require_line && (
           <div style={{ gridColumn: '1/3', background: '#f0fdf4', borderRadius: 8, padding: 12, border: '1px solid #bbf7d0' }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#15803d', display: 'block', marginBottom: 4 }}>LINE友だち追加URL *</label>
-            <input value={f.line_add_url || ''} onChange={e => setF({...f, line_add_url: e.target.value})}
-              placeholder="https://line.me/R/ti/p/@xxx または https://lin.ee/xxx"
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #86efac', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
-            <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
-              フォーム表示時に「LINE連携する / 通常エントリーする」の選択画面が表示されます。
-              LINE公式アカウントの友だち追加URLを入力してください。
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: '#15803d', fontWeight: 600 }}>✅ LINE連携: madoguchi株式会社 採用担当</span>
+              <button type="button" onClick={() => { const el = document.getElementById('line-url-detail'); el.style.display = el.style.display === 'none' ? 'block' : 'none'; }}
+                style={{ fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>URL変更</button>
+            </div>
+            <div id="line-url-detail" style={{ display: 'none', marginTop: 8 }}>
+              <input value={f.line_add_url || ''} onChange={e => setF({...f, line_add_url: e.target.value})}
+                placeholder="https://line.me/R/ti/p/@xxx または https://lin.ee/xxx"
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid #86efac', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+            </div>
           </div>
         )}
         <div style={{ gridColumn: '1/3' }}>
