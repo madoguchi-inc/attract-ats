@@ -6494,11 +6494,18 @@ function InterviewFBPage({ onNavigate }) {
 // Schedule Page - 本日の予約・スケジュール一覧
 function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
   const STORAGE_KEY = 'ats_schedule_events';
-  // 旧データ（Googleカレンダー同期・サンプルデータ）をクリア
+  // localStorage からイベントを復元
+  const [events, setEvents] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) { return []; }
+  });
+
+  // events が変更されたら localStorage に自動保存
   useEffect(() => {
-    // カレンダーイベントのリセット（Supabaseは別途）
-  }, []);
-  const [events, setEvents] = useState([]);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(events)); } catch (e) {}
+  }, [events]);
 
   const save = (list) => { setEvents(list); };
 
