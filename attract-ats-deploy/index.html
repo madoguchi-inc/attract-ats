@@ -2844,6 +2844,10 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const recordingTimerRef = React.useRef(null);
 
   const startRecording = async () => {
+    // 既存の録音データがある場合は確認
+    if (audioBlob || fbFormData.hasRecording) {
+      if (!window.confirm("既存の録音データがあります。新しく録音すると上書きされますが、よろしいですか？")) return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream, { mimeType: 'audio/webm', audioBitsPerSecond: 32000 });
@@ -2891,11 +2895,14 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       setAiError("対応していないファイル形式です。webm, mp3, wav, m4a, ogg に対応しています。");
       return;
     }
+    if (audioBlob || fbFormData.hasRecording) {
+      if (!window.confirm("既存の音声データがあります。新しいファイルに置き換えますか？")) return;
+    }
     setAudioBlob(file);
     setAudioUrl(URL.createObjectURL(file));
     setAiError("");
   };
-  const handleAudioUpload = (e) => validateAndSetAudio(e.target.files?.[0]);
+  const handleAudioUpload = (e) => { validateAndSetAudio(e.target.files?.[0]); if (e.target) e.target.value = ''; };
   const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
   const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
   const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); validateAndSetAudio(e.dataTransfer.files?.[0]); };
@@ -3038,8 +3045,17 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
     if (a.careerPlan) newData.careerPlan = a.careerPlan;
     if (a.reason) newData.reason = a.reason;
     if (a.competitors) newData.competitors = a.competitors;
+    // 逆質問は reverseQ フィールドにのみ反映（concerns に混入しないようにする）
     if (a.reverseQ) newData.reverseQ = a.reverseQ;
-    if (a.concerns) newData.concerns = a.concerns;
+    // concerns から逆質問っぽい内容を除外して反映
+    if (a.concerns) {
+      let cleanConcerns = a.concerns;
+      // AI が concerns に逆質問を混ぜた場合、reverseQ と重複する部分を除外
+      if (a.reverseQ && a.concerns.includes(a.reverseQ)) {
+        cleanConcerns = a.concerns.replace(a.reverseQ, '').trim();
+      }
+      newData.concerns = cleanConcerns;
+    }
     if (a.scores) {
       const newScores = { ...newData.scores };
       Object.keys(a.scores).forEach(k => {
@@ -3712,7 +3728,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
               {audioBlob && !isRecording && (
                 <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
-                  <button onClick={handleAudioUpload} style={{ padding: "6px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}>📎 音声ファイルをアップロード</button>
+                  <input type="file" ref={fileInputRef} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }} onChange={handleAudioUpload} />
+                  <button onClick={() => fileInputRef.current?.click()} style={{ padding: "6px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}>📎 音声ファイルをアップロード</button>
                   <button onClick={runAiAnalysis} disabled={aiLoading}
                     style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: aiLoading ? "#9ca3af" : "#4338ca", color: "white", fontSize: 11, cursor: aiLoading ? "not-allowed" : "pointer", fontWeight: 500 }}>
                     {aiLoading ? "⏳ 分析中..." : "🤖 AIで要約する"}
@@ -4600,6 +4617,41 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                           <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, marginBottom: 8, padding: 10, background: "white", borderRadius: 8 }}>
                             <div style={{ fontSize: 10, fontWeight: 600, color: "#6b7280", marginBottom: 3 }}>💬 コメント</div>
                             {fb.comment}
+                          </div>
+                        )}
+                        {/* 詳細情報 */}
+                        {(fb.careerPlan || fb.reason || fb.competitors || fb.reverseQ || fb.freeNote) && (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                            {fb.careerPlan && (
+                              <div style={{ padding: 8, background: "white", borderRadius: 8, fontSize: 12 }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: "#6b7280", marginBottom: 2 }}>🎯 キャリアプラン</div>
+                                <div style={{ color: "#374151", lineHeight: 1.5 }}>{fb.careerPlan}</div>
+                              </div>
+                            )}
+                            {fb.reason && (
+                              <div style={{ padding: 8, background: "white", borderRadius: 8, fontSize: 12 }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: "#6b7280", marginBottom: 2 }}>💡 志望動機</div>
+                                <div style={{ color: "#374151", lineHeight: 1.5 }}>{fb.reason}</div>
+                              </div>
+                            )}
+                            {fb.competitors && (
+                              <div style={{ padding: 8, background: "white", borderRadius: 8, fontSize: 12 }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: "#6b7280", marginBottom: 2 }}>🏢 競合・併願先</div>
+                                <div style={{ color: "#374151", lineHeight: 1.5 }}>{fb.competitors}</div>
+                              </div>
+                            )}
+                            {fb.reverseQ && (
+                              <div style={{ padding: 8, background: "white", borderRadius: 8, fontSize: 12 }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: "#6b7280", marginBottom: 2 }}>❓ 逆質問</div>
+                                <div style={{ color: "#374151", lineHeight: 1.5 }}>{fb.reverseQ}</div>
+                              </div>
+                            )}
+                            {fb.freeNote && (
+                              <div style={{ padding: 8, background: "white", borderRadius: 8, fontSize: 12, gridColumn: "1 / -1" }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: "#6b7280", marginBottom: 2 }}>📝 メモ</div>
+                                <div style={{ color: "#374151", lineHeight: 1.5 }}>{fb.freeNote}</div>
+                              </div>
+                            )}
                           </div>
                         )}
                         {/* 懸念点 */}
@@ -6178,11 +6230,14 @@ function InterviewFBPage({ onNavigate }) {
       setAiErrorSA("対応していないファイル形式です。webm, mp3, wav, m4a, ogg に対応しています。");
       return;
     }
+    if (audioBlob) {
+      if (!window.confirm("既存の音声データがあります。新しいファイルに置き換えますか？")) return;
+    }
     setAudioBlob(file);
     setAudioUrl(URL.createObjectURL(file));
     setAiErrorSA("");
   };
-  const handleAudioUploadSA = (e) => validateAndSetAudioSA(e.target.files?.[0]);
+  const handleAudioUploadSA = (e) => { validateAndSetAudioSA(e.target.files?.[0]); if (e.target) e.target.value = ''; };
   const handleDragOverSA = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSA(true); };
   const handleDragLeaveSA = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSA(false); };
   const handleDropSA = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSA(false); validateAndSetAudioSA(e.dataTransfer.files?.[0]); };
@@ -11753,8 +11808,8 @@ function App() {
       setSidebarOpen(false);
     };
     window.addEventListener('popstate', onPopState);
-    // 初期状態をhistoryに記録
-    if (!window.history.state) {
+    // 初期状態をhistoryに記録（フィードバック専用モードの場合はスキップ）
+    if (!window.history.state && !feedbackMode.active) {
       const { page, candidateId } = parseHash();
       const hash = candidateId ? `#${page}/${candidateId}` : `#${page}`;
       window.history.replaceState({ page, candidateId }, '', hash || '#dashboard');
@@ -11764,7 +11819,15 @@ function App() {
 
   // 未ログイン → ログイン画面
   if (authChecked && !user) {
-    return <LoginPage onLogin={async (u) => { setUser(u); await loadProfile(u.id, u.email); }} />;
+    return <LoginPage onLogin={async (u) => {
+      setUser(u);
+      await loadProfile(u.id, u.email);
+      // フィードバック専用モードの場合、ログイン後に候補者詳細を表示
+      if (feedbackMode.active && feedbackMode.candidateId) {
+        setCurrentPage("candidate-detail");
+        setSelectedCandidateId(feedbackMode.candidateId);
+      }
+    }} />;
   }
   if (!authChecked) {
     return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f0f5" }}><div style={{ fontSize: 14, color: "#6b7280" }}>読み込み中...</div></div>;
