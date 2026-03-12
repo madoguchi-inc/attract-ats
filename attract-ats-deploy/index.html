@@ -8754,6 +8754,7 @@ function EntryFormEditor({ initial, onSave, onCancel }) {
   const [f, setF] = useState(initial || {
     title: '', slug: '', description: '', recruit_type: 'newgrad',
     is_active: true, show_info_sessions: true, require_line: false,
+    line_add_url: '',
     thank_you_message: 'エントリーありがとうございます。ご連絡をお待ちください。'
   });
   return (
@@ -8787,9 +8788,21 @@ function EntryFormEditor({ initial, onSave, onCancel }) {
           </label>
           <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
             <input type="checkbox" checked={f.require_line} onChange={e => setF({...f, require_line: e.target.checked})} />
-            <span style={{ color: '#374151' }}>LINE連携を必須にする</span>
+            <span style={{ color: '#374151' }}>LINE連携選択画面を表示</span>
           </label>
         </div>
+        {f.require_line && (
+          <div style={{ gridColumn: '1/3', background: '#f0fdf4', borderRadius: 8, padding: 12, border: '1px solid #bbf7d0' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#15803d', display: 'block', marginBottom: 4 }}>LINE友だち追加URL *</label>
+            <input value={f.line_add_url || ''} onChange={e => setF({...f, line_add_url: e.target.value})}
+              placeholder="https://line.me/R/ti/p/@xxx または https://lin.ee/xxx"
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #86efac', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+            <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+              フォーム表示時に「LINE連携する / 通常エントリーする」の選択画面が表示されます。
+              LINE公式アカウントの友だち追加URLを入力してください。
+            </p>
+          </div>
+        )}
         <div style={{ gridColumn: '1/3' }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>説明文</label>
           <textarea value={f.description} onChange={e => setF({...f, description: e.target.value})} rows={2}
@@ -8841,6 +8854,7 @@ function EntryFormsTab() {
       is_active: formData.is_active !== false,
       show_info_sessions: formData.show_info_sessions !== false,
       require_line: formData.require_line || false,
+      custom_fields: formData.require_line && formData.line_add_url ? [{ key: 'line_add_url', value: formData.line_add_url }] : [],
       thank_you_message: formData.thank_you_message || 'エントリーありがとうございます。',
     };
     const url = editingForm
@@ -8934,7 +8948,7 @@ function EntryFormsTab() {
                     style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: form.is_active ? '#fef3c7' : '#dcfce7', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: form.is_active ? '#f59e0b' : '#10b981', fontWeight: 500 }}>
                     <Icon name={form.is_active ? 'eye-off' : 'eye'} size={13} color={form.is_active ? '#f59e0b' : '#10b981'} /> {form.is_active ? '非公開' : '公開'}
                   </button>
-                  <button onClick={() => { setEditingForm({...form}); setShowForm(true); }} title="編集"
+                  <button onClick={() => { const lineField = (form.custom_fields || []).find(x => x.key === 'line_add_url'); setEditingForm({...form, line_add_url: lineField?.value || ''}); setShowForm(true); }} title="編集"
                     style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: '#f3f4f6', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#6b7280', fontWeight: 500 }}>
                     <Icon name="edit" size={13} color="#6b7280" /> 編集
                   </button>
@@ -10584,6 +10598,9 @@ function PublicEntryForm({ slug }) {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
+  // LINE連携選択フロー
+  const [step, setStep] = useState('loading'); // 'loading' | 'select' | 'form'
+  const [lineMode, setLineMode] = useState(false); // LINE連携を選んだかどうか
 
   const [form, setForm] = useState({
     last_name: '', first_name: '', last_name_kana: '', first_name_kana: '',
@@ -10591,6 +10608,13 @@ function PublicEntryForm({ slug }) {
     grad_year: new Date().getFullYear() + 1, graduation_period: '',
     major_type: '文系', gender: '', aspiration: '', notes: ''
   });
+
+  // custom_fieldsからline_add_urlを取得するヘルパー
+  const getLineAddUrl = (config) => {
+    if (!config?.custom_fields) return '';
+    const f = (config.custom_fields || []).find(x => x.key === 'line_add_url');
+    return f?.value || '';
+  };
 
   useEffect(() => {
     const loadForm = async () => {
@@ -10624,6 +10648,12 @@ function PublicEntryForm({ slug }) {
         setError('フォームの読み込みに失敗しました。');
       }
       setLoading(false);
+      // LINE連携選択画面を表示するかどうか判定
+      if (fData[0].require_line && getLineAddUrl(fData[0])) {
+        setStep('select');
+      } else {
+        setStep('form');
+      }
     };
     loadForm();
   }, [slug]);
@@ -10653,7 +10683,7 @@ function PublicEntryForm({ slug }) {
         aspiration: form.aspiration || null,
         notes: form.notes || null,
         recruit_type: formConfig.recruit_type === 'newgrad' ? '新卒' : '中途',
-        route: 'エントリーフォーム',
+        route: lineMode ? 'エントリーフォーム（LINE連携）' : 'エントリーフォーム',
         stage: 'エントリー',
         substatus: '受付済',
         status: 'active',
@@ -10750,6 +10780,56 @@ function PublicEntryForm({ slug }) {
               </p>
             </div>
           )}
+          {/* LINE連携していない場合、サンクスページでも友だち追加を案内 */}
+          {!lineMode && formConfig?.require_line && getLineAddUrl(formConfig) && (
+            <div style={{ marginTop: 20, padding: 16, background: '#f0fdf4', borderRadius: 12, border: '1px solid #bbf7d0' }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#15803d', marginBottom: 8 }}>💬 LINE公式アカウントを友だち追加しませんか？</p>
+              <p style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.6, marginBottom: 12 }}>
+                友だち追加すると、選考に関するご連絡をLINEでお届けします。
+              </p>
+              <a href={getLineAddUrl(formConfig)} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: '#06c755', color: 'white', borderRadius: 8, fontSize: 14, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.271.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
+                LINE友だち追加
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // LINE連携選択画面
+  if (step === 'select' && formConfig) {
+    const lineUrl = getLineAddUrl(formConfig);
+    return (
+      <div style={{ minHeight: '100vh', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 16px' }}>
+        <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
+          <img src="logo.svg" alt="Attract" style={{ width: 160, marginBottom: 16, opacity: 0.9 }} />
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 32 }}>応募フォーム</h1>
+
+          {/* LINE連携するボタン */}
+          <a href={lineUrl} target="_blank" rel="noopener noreferrer"
+            onClick={() => { setLineMode(true); setTimeout(() => setStep('form'), 500); }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, width: '100%', maxWidth: 400, margin: '0 auto', padding: '16px 24px', background: '#06c755', color: 'white', borderRadius: 12, fontSize: 16, fontWeight: 700, textDecoration: 'none', cursor: 'pointer', boxShadow: '0 2px 8px rgba(6,199,85,0.3)', boxSizing: 'border-box' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.271.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
+            LINE連携する
+          </a>
+
+          <div style={{ maxWidth: 400, margin: '16px auto 0', textAlign: 'left' }}>
+            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.7 }}>
+              LINE連携にあたっては、「LINE連携する」を選択のうえ権限を許可いただき、LINEのアプリ上で「友だち追加」を忘れずに行ってください。
+            </p>
+            <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+              ※アイコンやホーム画像、LINE VOOMに関する情報は公開されません。
+            </p>
+          </div>
+
+          {/* 通常エントリーするボタン */}
+          <button onClick={() => setStep('form')}
+            style={{ display: 'block', width: '100%', maxWidth: 400, margin: '24px auto 0', padding: '14px 24px', background: '#e5e7eb', color: '#374151', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
+            通常エントリーする
+          </button>
         </div>
       </div>
     );
