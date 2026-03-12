@@ -9826,6 +9826,33 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
       if (res.ok) {
         showToast('紐付けが完了しました');
         loadLineStatus();
+        // pending_line_message があれば送信
+        try {
+          const svcH = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY };
+          const candRes = await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId + '&select=pending_line_message', { headers: svcH });
+          if (candRes.ok) {
+            const candData = await candRes.json();
+            const pending = candData[0]?.pending_line_message;
+            if (pending) {
+              const sendRes = await fetch(NETLIFY_DOMAIN + '/.netlify/functions/line-send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (tokenStore.accessToken || 'demo') },
+                body: JSON.stringify({ action: 'push', line_user_id: lineUserId, message: pending }),
+              });
+              if (sendRes.ok) {
+                console.log('[LINE] pending message sent to', lineUserId);
+                // pending_line_message をクリア
+                await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId, {
+                  method: 'PATCH',
+                  headers: { ...svcH, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+                  body: JSON.stringify({ pending_line_message: null }),
+                });
+              }
+            }
+          }
+        } catch (pe) {
+          console.warn('[LINE] pending message check/send error:', pe);
+        }
       } else {
         alert('紐付けに失敗しました');
       }
@@ -11077,6 +11104,124 @@ function PublicEntryForm({ slug }) {
           headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
           body: JSON.stringify({ stage: '説明会', substatus: '予約済' })
         });
+      }
+
+      // 3. サンクスメール & サンクスLINE送信（バックグラウンド）
+      const ENTRY_NETLIFY = (() => { try { const h = window.location.hostname; return (h.includes('netlify') || h.includes('attract') || h.includes('ats.') || h.includes('madoguchi')) ? window.location.origin : ''; } catch(e) { return ''; } })();
+      if (ENTRY_NETLIFY) {
+        const candName = (form.last_name + ' ' + form.first_name).trim();
+        const sess = selectedSession ? sessions.find(s => s.id === selectedSession) : null;
+        const fmtMap = { online: 'オンライン', offline: 'オフライン', hybrid: 'ハイブリッド' };
+
+        // セッション詳細テキスト
+        const sessionDetail = sess ? [
+          '',
+          '━━━━━━━━━━━━━━━━━━━━',
+          '📅 説明会のご予約内容',
+          '━━━━━━━━━━━━━━━━━━━━',
+          '■ ' + (sess.title || '会社説明会'),
+          '■ 日程: ' + sess.session_date,
+          '■ 時間: ' + (sess.start_time || '').slice(0, 5) + ' 〜 ' + (sess.end_time || '').slice(0, 5),
+          '■ 形式: ' + (fmtMap[sess.format] || 'オンライン'),
+          sess.location ? '■ 場所: ' + sess.location : '',
+          sess.meeting_url ? '■ 参加URL: ' + sess.meeting_url : '',
+          '',
+        ].filter(Boolean).join('\n') : '';
+
+        // サンクスメール本文
+        const emailBody = [
+          candName + 'さん',
+          '',
+          'エントリーいただきありがとうございます。',
+          '株式会社madoguchiの採用担当です。',
+          '',
+          'エントリーを確認いたしました。',
+          sess ? '下記の説明会のご予約も承りましたのでご確認ください。' : '今後の選考についてご連絡いたしますので、今しばらくお待ちください。',
+          sessionDetail,
+          sess ? 'ご不明点がございましたら、お気軽にご連絡ください。' : '',
+          'どうぞよろしくお願いいたします。',
+          '',
+          '────────────────────',
+          '株式会社madoguchi 採用担当',
+          '────────────────────',
+        ].filter(l => l !== false).join('\n');
+
+        const emailSubject = sess
+          ? '【エントリー受付完了】説明会のご予約を承りました - 株式会社madoguchi'
+          : '【エントリー受付完了】ありがとうございます - 株式会社madoguchi';
+
+        // メール送信（バックグラウンド）
+        if (form.email) {
+          fetch(ENTRY_NETLIFY + '/.netlify/functions/gmail', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'send', to: form.email, subject: emailSubject, body: emailBody, candidateName: candName })
+          }).then(r => r.json()).then(d => {
+            if (d.success) console.log('[Entry] サンクスメール送信完了');
+            else console.warn('[Entry] サンクスメール送信失敗:', d.error);
+          }).catch(e => console.warn('[Entry] サンクスメール送信エラー:', e));
+        }
+
+        // LINE送信（LINE連携で候補者にlineUserIdがある場合）
+        // ※ LINE連携はエントリー後に行うので、この時点ではlineUserIdはない。
+        // → Supabase email_historyに記録しておいて、LINE連携完了時に送る方式にする。
+        // → ただし、もし既存のLINEユーザー（再エントリー等）なら即送信可能。
+        // ここでは候補者DBにサンクスLINE送信フラグを立てておく
+        if (lineMode) {
+          // サンクスLINEメッセージ
+          const lineMsg = [
+            '🎉 エントリーありがとうございます！',
+            '',
+            candName + 'さんのエントリーを受け付けました。',
+            sess ? '' : '今後の選考について、こちらのLINEでご連絡いたします。',
+            sessionDetail ? sessionDetail : '',
+            sess ? '説明会の詳細は上記をご確認ください。\n日程が近くなりましたらリマインドもお送りします。' : '',
+            '',
+            'ご不明点はこちらのトークから\nお気軽にお問い合わせください 💬',
+          ].filter(l => l !== '' || l === '').join('\n').replace(/\n{3,}/g, '\n\n');
+
+          // pending_line_thanks メッセージをDBに保存 → LINE紐付け時に自動送信
+          fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId, {
+            method: 'PATCH',
+            headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pending_line_message: lineMsg })
+          }).catch(e => console.warn('[Entry] LINE pending保存エラー:', e));
+
+          // 既にlineUserIdがある場合（再エントリー）は即送信
+          try {
+            const existRes = await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId + '&select=line_user_id', {
+              headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+            });
+            const existData = await existRes.json();
+            const lineUserId = existData?.[0]?.line_user_id;
+            if (lineUserId) {
+              fetch(ENTRY_NETLIFY + '/.netlify/functions/line-send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'send', lineUserId, message: lineMsg })
+              }).then(r => r.json()).then(d => {
+                if (d.success) console.log('[Entry] サンクスLINE送信完了');
+                else console.warn('[Entry] サンクスLINE送信失敗:', d.error);
+              }).catch(e => console.warn('[Entry] サンクスLINE送信エラー:', e));
+            }
+          } catch (e) { console.warn('[Entry] LINE即送信チェックエラー:', e); }
+        }
+
+        // メール送信履歴をDBに保存
+        if (form.email) {
+          fetch(SUPABASE_URL + '/rest/v1/email_history', {
+            method: 'POST',
+            headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              candidate_id: candidateId,
+              subject: emailSubject,
+              body: emailBody,
+              direction: 'outbound',
+              channel: 'email',
+              sent_at: new Date().toISOString(),
+            })
+          }).catch(e => console.warn('[Entry] メール履歴保存エラー:', e));
+        }
       }
 
       setSubmitted(true);
