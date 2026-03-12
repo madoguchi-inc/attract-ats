@@ -6670,7 +6670,30 @@ function SchedulePage({ recruitFilter, candidates = [], onNavigate }) {
       }
     }
   };
-  const handleDelete = (id) => { save(events.filter(e => e.id !== id)); setExpandedEvent(null); };
+  const handleDelete = async (id) => {
+    const ev = events.find(e => e.id === id);
+    // 説明会の場合、info_sessions テーブルからも削除
+    if (ev?.infoSessionId && SUPABASE_READY) {
+      try {
+        await fetch(SUPABASE_URL + '/rest/v1/info_sessions?id=eq.' + ev.infoSessionId, {
+          method: 'DELETE',
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+        });
+      } catch (e) { console.warn('[Schedule] info_sessions 削除エラー:', e); }
+    }
+    // Google カレンダーからも削除
+    if (ev?.googleEventId && SCHED_NETLIFY) {
+      try {
+        await fetch(SCHED_NETLIFY + '/.netlify/functions/google-calendar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete', eventId: ev.googleEventId })
+        });
+      } catch (e) { console.warn('[Calendar] 削除エラー:', e); }
+    }
+    save(events.filter(e => e.id !== id));
+    setExpandedEvent(null);
+  };
 
   // 候補者選択時の自動入力
   const handleCandidateSelect = (cid) => {
