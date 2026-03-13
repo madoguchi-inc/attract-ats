@@ -929,15 +929,15 @@ function useSupabaseCandidates(recruitFilter) {
     if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
     if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
     // name は candidates テーブルに存在しないためスキップ（last_name / first_name を使う）
-    if (updates.email !== undefined) dbUpdates.email = updates.email;
-    if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
-    if (updates.university !== undefined) dbUpdates.university = updates.university;
-    if (updates.faculty !== undefined) dbUpdates.faculty = updates.faculty;
-    if (updates.department !== undefined) dbUpdates.department = updates.department;
-    if (updates.graduationYear !== undefined) dbUpdates.grad_year = updates.graduationYear;
-    if (updates.company !== undefined) dbUpdates.company = updates.company;
-    if (updates.position !== undefined) dbUpdates.position = updates.position;
-    if (updates.experience !== undefined) dbUpdates.experience = updates.experience;
+    if (updates.email !== undefined) dbUpdates.email = updates.email || null;
+    if (updates.phone !== undefined) dbUpdates.phone = updates.phone || null;
+    if (updates.university !== undefined) dbUpdates.university = updates.university || null;
+    if (updates.faculty !== undefined) dbUpdates.faculty = updates.faculty || null;
+    if (updates.department !== undefined) dbUpdates.department = updates.department || null;
+    if (updates.graduationYear !== undefined) dbUpdates.grad_year = updates.graduationYear === '' ? null : (isNaN(Number(updates.graduationYear)) ? null : Number(updates.graduationYear));
+    if (updates.company !== undefined) dbUpdates.company = updates.company || null;
+    if (updates.position !== undefined) dbUpdates.position = updates.position || null;
+    if (updates.experience !== undefined) dbUpdates.experience = updates.experience === '' ? null : (isNaN(Number(updates.experience)) ? null : Number(updates.experience));
     if (updates.recruitType !== undefined) dbUpdates.recruit_type = updates.recruitType;
     if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
     if (updates.route !== undefined) dbUpdates.route = updates.route;
@@ -2887,6 +2887,8 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
 
   // 音声ファイルアップロード処理
   const fileInputRef = React.useRef(null);
+  const fileInputRef2 = React.useRef(null);
+  const fileInputRef3 = React.useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const validateAndSetAudio = (file) => {
     if (!file) return;
@@ -3205,7 +3207,12 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
   const [loadingMessages, setLoadingMessages] = useState(false);
 
   // LINE メッセージ state
-  const [msgSubTab, setMsgSubTab] = useState("email"); // "email" | "line"
+  const [msgSubTab, setMsgSubTab] = useState("email"); // "email" | "line" | "agent"
+  const [agentNotes, setAgentNotes] = useState([]);
+  const [agentNoteInput, setAgentNoteInput] = useState("");
+  const [agentNoteSending, setAgentNoteSending] = useState(false);
+  const [agentNoteLoading, setAgentNoteLoading] = useState(false);
+  const agentNoteEndRef = React.useRef(null);
   const [lineMessages, setLineMessages] = useState([]);
   const [lineLoading, setLineLoading] = useState(false);
   const [lineInput, setLineInput] = useState("");
@@ -3260,6 +3267,51 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
       }
     } catch(e) { alert('エラーが発生しました'); }
     setLineSending(false);
+  };
+
+  // エージェントメモ 読み込み
+  const loadAgentNotes = useCallback(async () => {
+    setAgentNoteLoading(true);
+    try {
+      const svcH = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY };
+      const res = await fetch(SUPABASE_URL + '/rest/v1/agent_notes?candidate_id=eq.' + c.id + '&order=created_at.asc', { headers: svcH });
+      if (res.ok) {
+        const data = await res.json();
+        setAgentNotes(data || []);
+      }
+    } catch (err) { console.warn('[AgentNotes] load error:', err); }
+    setAgentNoteLoading(false);
+  }, [c.id]);
+
+  useEffect(() => { if (msgSubTab === 'agent') loadAgentNotes(); }, [msgSubTab, loadAgentNotes]);
+  useEffect(() => { if (agentNoteEndRef.current) agentNoteEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [agentNotes]);
+
+  const sendAgentNote = async () => {
+    if (!agentNoteInput.trim() || agentNoteSending) return;
+    setAgentNoteSending(true);
+    try {
+      const svcH = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
+      const res = await fetch(SUPABASE_URL + '/rest/v1/agent_notes', {
+        method: 'POST', headers: svcH,
+        body: JSON.stringify({ candidate_id: c.id, content: agentNoteInput.trim(), author: '採用担当', created_at: new Date().toISOString() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) setAgentNotes(prev => [...prev, data[0]]);
+        else loadAgentNotes();
+        setAgentNoteInput("");
+      } else {
+        console.warn('[AgentNotes] POST failed:', res.status);
+        // テーブルが存在しない場合はローカルに追加
+        setAgentNotes(prev => [...prev, { id: Date.now(), candidate_id: c.id, content: agentNoteInput.trim(), author: '採用担当', created_at: new Date().toISOString() }]);
+        setAgentNoteInput("");
+      }
+    } catch (err) {
+      console.warn('[AgentNotes] send error:', err);
+      setAgentNotes(prev => [...prev, { id: Date.now(), candidate_id: c.id, content: agentNoteInput.trim(), author: '採用担当', created_at: new Date().toISOString() }]);
+      setAgentNoteInput("");
+    }
+    setAgentNoteSending(false);
   };
 
   // Gmail APIからメッセージ履歴を読み込む
@@ -3705,7 +3757,15 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
             </div>
 
             {/* 🎙️ 録音セクション */}
-            <div style={{ background: "#f9fafb", borderRadius: 12, padding: 16, marginBottom: 16, border: "1px solid #e5e7eb" }}>
+            <div onDragOver={!isRecording ? handleDragOver : undefined} onDragLeave={!isRecording ? handleDragLeave : undefined} onDrop={!isRecording ? handleDrop : undefined}
+              style={{ background: isDragging && !isRecording ? "#eef2ff" : "#f9fafb", borderRadius: 12, padding: 16, marginBottom: 16, border: isDragging && !isRecording ? "2px dashed #6366f1" : "1px solid #e5e7eb", transition: "all 0.2s ease" }}>
+              {isDragging && !isRecording ? (
+                <div style={{ textAlign: "center", padding: 16 }}>
+                  <Icon name="upload" size={32} color="#6366f1" />
+                  <div style={{ marginTop: 8, fontSize: 14, fontWeight: 600, color: "#4338ca" }}>ここにドロップ！</div>
+                  <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>音声ファイルをドロップしてアップロード</div>
+                </div>
+              ) : (<>
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <button onClick={() => isRecording ? stopRecording() : startRecording()}
                   style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
@@ -3717,7 +3777,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     {isRecording ? "● 録音中..." : audioBlob ? "録音完了" : "🎙️ 面接を録音する"}
                   </div>
                   <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-                    {isRecording ? "クリックして停止" : audioBlob ? "録音データあり — 停止後AIで要約できます" : "録音終了後、AIが自動で文字起こし・要約を行います"}
+                    {isRecording ? "クリックして停止" : audioBlob ? "録音データあり — 停止後AIで要約できます" : "録音終了後、AIが自動で文字起こし・要約を行います（ドラッグ＆ドロップも可）"}
                   </div>
                 </div>
                 {(isRecording || recordingTime > 0) && (
@@ -3728,14 +3788,15 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
               {audioBlob && !isRecording && (
                 <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
-                  <input type="file" ref={fileInputRef} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }} onChange={handleAudioUpload} />
-                  <button onClick={() => fileInputRef.current?.click()} style={{ padding: "6px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}>📎 音声ファイルをアップロード</button>
+                  <input type="file" ref={fileInputRef2} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }} onChange={handleAudioUpload} />
+                  <button onClick={() => fileInputRef2.current?.click()} style={{ padding: "6px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#374151" }}>📎 音声ファイルをアップロード</button>
                   <button onClick={runAiAnalysis} disabled={aiLoading}
                     style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: aiLoading ? "#9ca3af" : "#4338ca", color: "white", fontSize: 11, cursor: aiLoading ? "not-allowed" : "pointer", fontWeight: 500 }}>
                     {aiLoading ? "⏳ 分析中..." : "🤖 AIで要約する"}
                   </button>
                 </div>
               )}
+              </>)}
             </div>
 
             {/* タブ切替 */}
@@ -4772,7 +4833,15 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               </div>
 
               {/* 🎙️ 録音セクション */}
-              <div style={{ marginBottom: 16, padding: 16, background: isRecording ? "#fef2f2" : "#f9fafb", borderRadius: 12, border: isRecording ? "1px solid #fecaca" : "1px solid #e5e7eb" }}>
+              <div onDragOver={!isRecording ? handleDragOver : undefined} onDragLeave={!isRecording ? handleDragLeave : undefined} onDrop={!isRecording ? handleDrop : undefined}
+                style={{ marginBottom: 16, padding: 16, background: isDragging && !isRecording ? "#eef2ff" : isRecording ? "#fef2f2" : "#f9fafb", borderRadius: 12, border: isDragging && !isRecording ? "2px dashed #6366f1" : isRecording ? "1px solid #fecaca" : "1px solid #e5e7eb", transition: "all 0.2s ease" }}>
+                {isDragging && !isRecording ? (
+                  <div style={{ textAlign: "center", padding: 16 }}>
+                    <Icon name="upload" size={32} color="#6366f1" />
+                    <div style={{ marginTop: 8, fontSize: 14, fontWeight: 600, color: "#4338ca" }}>ここにドロップ！</div>
+                    <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>音声ファイルをドロップしてアップロード</div>
+                  </div>
+                ) : (<>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <button onClick={() => isRecording ? stopRecording() : startRecording()}
                     style={{ width: 44, height: 44, borderRadius: "50%", border: "none", background: isRecording ? "#ef4444" : "#6366f1", color: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -4783,7 +4852,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                       {isRecording ? "● 録音中..." : audioBlob ? "録音完了" : "🎙️ 面接を録音する"}
                     </div>
                     <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-                      {isRecording ? "クリックして停止" : audioBlob ? "録音データあり — 停止後AIで要約できます" : "録音終了後、AIが自動で文字起こし・要約を行います"}
+                      {isRecording ? "クリックして停止" : audioBlob ? "録音データあり — 停止後AIで要約できます" : "録音終了後、AIが自動で文字起こし・要約を行います（ドラッグ＆ドロップも可）"}
                     </div>
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "monospace", color: isRecording ? "#dc2626" : audioBlob ? "#059669" : "#9ca3af" }}>
@@ -4799,6 +4868,7 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                     </button>
                   </div>
                 )}
+                </>)}
               </div>
 
               {/* タブ切替 */}
@@ -5070,7 +5140,15 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                       </div>
                     </div>
                   ) : audioBlob ? (
-                    <div style={{ textAlign: "center", padding: 40 }}>
+                    <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+                      style={{ textAlign: "center", padding: 40, borderRadius: 12, border: isDragging ? "2px dashed #6366f1" : "2px dashed transparent", background: isDragging ? "#eef2ff" : "transparent", transition: "all 0.2s ease" }}>
+                      {isDragging ? (
+                        <>
+                          <Icon name="upload" size={40} color="#6366f1" />
+                          <div style={{ marginTop: 12, fontSize: 15, fontWeight: 600, color: "#4338ca" }}>ここにドロップで置き換え！</div>
+                          <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>音声ファイルをドロップして既存データを置き換えます</div>
+                        </>
+                      ) : (<>
                       <div style={{ fontSize: 40, marginBottom: 12 }}>🤖</div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>AI分析を実行する</div>
                       <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4, marginBottom: 8 }}>
@@ -5089,13 +5167,15 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                         <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>録音時間: {fmtTime(fbFormData.recordingDuration || recordingTime)}</div>
                       )}
                       <div style={{ marginTop: 12 }}>
-                        <input type="file" ref={fileInputRef} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }}
+                        <input type="file" ref={fileInputRef3} accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg" style={{ display: "none" }}
                           onChange={handleAudioUpload} />
-                        <button onClick={() => fileInputRef.current?.click()}
+                        <button onClick={() => fileInputRef3.current?.click()}
                           style={{ padding: "4px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", color: "#6b7280", fontSize: 11, cursor: "pointer" }}>
                           別のファイルに変更
                         </button>
+                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>ドラッグ＆ドロップでも変更可</div>
                       </div>
+                    </>)}
                     </div>
                   ) : (
                     <div
@@ -5166,6 +5246,11 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
               style={{ padding: "8px 16px", border: "none", borderBottom: msgSubTab === "line" ? "2px solid #06c755" : "2px solid transparent", background: "none", fontSize: 13, fontWeight: msgSubTab === "line" ? 600 : 400, color: msgSubTab === "line" ? "#06c755" : "#6b7280", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
               💬 LINE
               {lineLinked?.linked && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#06c755", display: "inline-block" }}></span>}
+            </button>
+            <button onClick={() => setMsgSubTab("agent")}
+              style={{ padding: "8px 16px", border: "none", borderBottom: msgSubTab === "agent" ? "2px solid #f59e0b" : "2px solid transparent", background: "none", fontSize: 13, fontWeight: msgSubTab === "agent" ? 600 : 400, color: msgSubTab === "agent" ? "#f59e0b" : "#6b7280", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+              🏢 エージェント
+              {agentNotes.length > 0 && <span style={{ background: "#fef3c7", color: "#92400e", padding: "0 6px", borderRadius: 10, fontSize: 10, fontWeight: 600 }}>{agentNotes.length}</span>}
             </button>
           </div>
 
@@ -5441,6 +5526,82 @@ function CandidateDetailPage({ candidateId, onNavigate, candidates: propCandidat
                   </div>
                 </>
               )}
+            </div>
+          )}
+
+          {/* ===== エージェントサブタブ ===== */}
+          {msgSubTab === "agent" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <h4 style={{ fontSize: 13, fontWeight: 600, color: "#6b7280" }}>エージェントメモ・連絡スレッド</h4>
+                <button onClick={loadAgentNotes} disabled={agentNoteLoading}
+                  style={{ padding: "4px 12px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", fontSize: 11, cursor: "pointer", color: "#6b7280" }}>
+                  {agentNoteLoading ? "読込中..." : "↻ 更新"}
+                </button>
+              </div>
+
+              {/* メッセージ表示エリア */}
+              <div style={{ background: "#fefce8", borderRadius: 12, padding: 16, minHeight: 250, maxHeight: 400, overflowY: "auto", marginBottom: 12, border: "1px solid #fde68a" }}>
+                {agentNoteLoading && agentNotes.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 20, color: "#9ca3af", fontSize: 13 }}>読み込み中...</div>
+                ) : agentNotes.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#9ca3af", fontSize: 13 }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>🏢</div>
+                    <div>まだエージェントメモはありません</div>
+                    <div style={{ marginTop: 4, fontSize: 12 }}>この候補者に関するエージェントとの連絡や社内メモを記録できます</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {agentNotes.map((note, i) => {
+                      const time = note.created_at ? new Date(note.created_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                      const isAgent = note.author && note.author !== '採用担当';
+                      return (
+                        <div key={note.id || i} style={{ display: "flex", justifyContent: isAgent ? "flex-start" : "flex-end" }}>
+                          <div style={{
+                            maxWidth: "75%",
+                            background: isAgent ? "white" : "#f59e0b",
+                            color: isAgent ? "#111827" : "white",
+                            borderRadius: isAgent ? "12px 12px 12px 4px" : "12px 12px 4px 12px",
+                            padding: "10px 14px",
+                            fontSize: 13, lineHeight: 1.6,
+                            boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, marginBottom: 4 }}>{note.author || '採用担当'}</div>
+                            <div style={{ whiteSpace: "pre-wrap" }}>{note.content}</div>
+                            <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 4 }}>{time}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={agentNoteEndRef} />
+                  </div>
+                )}
+              </div>
+
+              {/* 入力フォーム */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <textarea
+                  value={agentNoteInput}
+                  onChange={e => setAgentNoteInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendAgentNote(); } }}
+                  placeholder="エージェントへのメモ・連絡を入力..."
+                  rows={agentNoteInput.includes('\n') ? Math.min(agentNoteInput.split('\n').length + 1, 6) : 1}
+                  style={{ flex: 1, padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 16, fontSize: 13, outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.5 }}
+                />
+                <button
+                  onClick={sendAgentNote}
+                  disabled={!agentNoteInput.trim() || agentNoteSending}
+                  style={{
+                    padding: "10px 20px", border: "none", borderRadius: 20, alignSelf: "flex-end",
+                    background: agentNoteInput.trim() ? "#f59e0b" : "#d1d5db",
+                    color: "white", fontSize: 13, fontWeight: 500,
+                    cursor: agentNoteInput.trim() ? "pointer" : "not-allowed",
+                    opacity: agentNoteSending ? 0.6 : 1,
+                  }}>
+                  {agentNoteSending ? "送信中..." : "送信"}
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>※ Supabase に「agent_notes」テーブルが必要です（candidate_id, content, author, created_at カラム）</div>
             </div>
           )}
         </div>
@@ -6559,7 +6720,15 @@ function InterviewFBPage({ onNavigate }) {
               </div>
             </div>
           ) : audioBlob ? (
-            <div style={{ ...cardSty, textAlign: "center", padding: 40 }}>
+            <div onDragOver={handleDragOverSA} onDragLeave={handleDragLeaveSA} onDrop={handleDropSA}
+              style={{ ...cardSty, textAlign: "center", padding: 40, borderRadius: 12, border: isDraggingSA ? "2px dashed #6366f1" : undefined, background: isDraggingSA ? "#eef2ff" : undefined, transition: "all 0.2s ease" }}>
+              {isDraggingSA ? (
+                <>
+                  <Icon name="upload" size={40} color="#6366f1" />
+                  <div style={{ marginTop: 12, fontSize: 15, fontWeight: 600, color: "#4338ca" }}>ここにドロップで置き換え！</div>
+                  <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>音声ファイルをドロップして既存データを置き換えます</div>
+                </>
+              ) : (<>
               <div style={{ fontSize: 40, marginBottom: 12 }}>🤖</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 6 }}>AI分析を実行する</div>
               <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>
@@ -6578,7 +6747,9 @@ function InterviewFBPage({ onNavigate }) {
                   style={{ padding: "4px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "white", color: "#6b7280", fontSize: 11, cursor: "pointer" }}>
                   別のファイルに変更
                 </button>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>ドラッグ＆ドロップでも変更可</div>
               </div>
+              </>)}
             </div>
           ) : (
             <div
@@ -7570,7 +7741,7 @@ function AutomationPage({ emailTemplates = [] }) {
       setAutoLoading(true);
       const { data } = await sbApi.select('automations', 'order=created_at.desc');
       if (data && data.length > 0) {
-        setTriggers(data.map(d => ({ id: d.id, name: d.name, trigger: d.trigger_type, triggerType: d.trigger_type, triggerValue: d.trigger_value || '', actionType: d.action_type, actionConfig: d.action_config || {}, active: d.enabled !== false, ...d.action_config })));
+        setTriggers(data.map(d => { const ac = typeof d.action_config === 'string' ? (() => { try { return JSON.parse(d.action_config); } catch(e) { return {}; } })() : (d.action_config || {}); return { id: d.id, name: d.name, trigger: d.trigger_type, triggerType: d.trigger_type, triggerValue: d.trigger_value || '', actionType: d.action_type, actionConfig: ac, active: d.enabled !== false, ...ac }; }));
       } else {
         // 初回: デフォルトを投入
         const rows = AUTOMATION_TRIGGERS.map(t => ({ id: t.id, name: t.name, trigger_type: t.triggerType || t.trigger || '', trigger_value: t.triggerValue || t.triggerStage || '', action_type: t.actionType || 'email', action_config: JSON.stringify({ channels: t.channels, templateId: t.templateId, target: t.target, delay: t.delay }), enabled: t.active !== false }));
@@ -9829,25 +10000,38 @@ function SettingsPage({ emailTemplates, onSaveTemplates }) {
         // pending_line_message があれば送信
         try {
           const svcH = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY };
-          const candRes = await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId + '&select=pending_line_message', { headers: svcH });
+          const candRes = await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId + '&select=pending_line_message,pending_email', { headers: svcH });
           if (candRes.ok) {
             const candData = await candRes.json();
             const pending = candData[0]?.pending_line_message;
+            const pendingEmail = candData[0]?.pending_email;
             if (pending) {
               const sendRes = await fetch(NETLIFY_DOMAIN + '/.netlify/functions/line-send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (tokenStore.accessToken || 'demo') },
                 body: JSON.stringify({ action: 'push', line_user_id: lineUserId, message: pending }),
               });
-              if (sendRes.ok) {
-                console.log('[LINE] pending message sent to', lineUserId);
-                // pending_line_message をクリア
-                await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId, {
-                  method: 'PATCH',
-                  headers: { ...svcH, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-                  body: JSON.stringify({ pending_line_message: null }),
+              if (sendRes.ok) console.log('[LINE] pending message sent to', lineUserId);
+            }
+            // pending_email があればサンクスメールも送信
+            if (pendingEmail) {
+              try {
+                const emailData = typeof pendingEmail === 'string' ? JSON.parse(pendingEmail) : pendingEmail;
+                await fetch(NETLIFY_DOMAIN + '/.netlify/functions/gmail', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'send', ...emailData }),
                 });
-              }
+                console.log('[LINE] pending email sent for', candidateId);
+              } catch (ee) { console.warn('[LINE] pending email send error:', ee); }
+            }
+            // pending をクリア
+            if (pending || pendingEmail) {
+              await fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId, {
+                method: 'PATCH',
+                headers: { ...svcH, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+                body: JSON.stringify({ pending_line_message: null, pending_email: null }),
+              });
             }
           }
         } catch (pe) {
@@ -10972,6 +11156,17 @@ function PublicEntryForm({ slug }) {
   const [step, setStep] = useState('loading'); // 'loading' | 'select' | 'form'
   const [lineMode, setLineMode] = useState(false); // LINE連携を選んだかどうか
 
+  // 流入元判別（UTMパラメータ）
+  const utmSource = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      source: params.get('utm_source') || '',
+      medium: params.get('utm_medium') || '',
+      campaign: params.get('utm_campaign') || '',
+      ref: params.get('ref') || '',
+    };
+  }, []);
+
   const [form, setForm] = useState({
     last_name: '', first_name: '', last_name_kana: '', first_name_kana: '',
     email: '', phone: '', university: '', faculty: '', department: '',
@@ -11037,6 +11232,23 @@ function PublicEntryForm({ slug }) {
     }
     setSubmitting(true);
     try {
+      // 0. 重複チェック（同じメールアドレスが既に存在するか）
+      try {
+        const dupRes = await fetch(SUPABASE_URL + '/rest/v1/candidates?email=eq.' + encodeURIComponent(form.email) + '&select=id,last_name,first_name,email', {
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY }
+        });
+        if (dupRes.ok) {
+          const dupData = await dupRes.json();
+          if (dupData && dupData.length > 0) {
+            const dupName = (dupData[0].last_name || '') + ' ' + (dupData[0].first_name || '');
+            if (!window.confirm('このメールアドレス（' + form.email + '）は既に「' + dupName.trim() + '」さんとして登録されています。\n\n再度エントリーしますか？')) {
+              setSubmitting(false);
+              return;
+            }
+          }
+        }
+      } catch (dupErr) { console.warn('[Entry] 重複チェックエラー:', dupErr); }
+
       // 1. 候補者をDBに登録
       const candidatePayload = {
         last_name: form.last_name,
@@ -11055,7 +11267,15 @@ function PublicEntryForm({ slug }) {
         aspiration: form.aspiration || null,
         notes: form.notes || null,
         recruit_type: formConfig.recruit_type === 'newgrad' ? '新卒' : '中途',
-        route: lineMode ? 'エントリーフォーム（LINE連携）' : 'エントリーフォーム',
+        route: (() => {
+          let r = lineMode ? 'エントリーフォーム（LINE連携）' : 'エントリーフォーム';
+          const src = utmSource.source || utmSource.ref;
+          if (src) r += '（' + src + '）';
+          return r;
+        })(),
+        utm_source: utmSource.source || null,
+        utm_medium: utmSource.medium || null,
+        utm_campaign: utmSource.campaign || null,
         stage: 'エントリー',
         substatus: '受付済',
         status: 'active',
@@ -11150,8 +11370,8 @@ function PublicEntryForm({ slug }) {
           ? '【エントリー受付完了】説明会のご予約を承りました - 株式会社madoguchi'
           : '【エントリー受付完了】ありがとうございます - 株式会社madoguchi';
 
-        // メール送信（バックグラウンド）
-        if (form.email) {
+        // メール送信（LINE連携モードの場合はLINE紐付け後に送信するため、ここではスキップ）
+        if (form.email && !lineMode) {
           fetch(ENTRY_NETLIFY + '/.netlify/functions/gmail', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -11180,11 +11400,15 @@ function PublicEntryForm({ slug }) {
             'ご不明点はこちらのトークから\nお気軽にお問い合わせください 💬',
           ].filter(l => l !== '' || l === '').join('\n').replace(/\n{3,}/g, '\n\n');
 
-          // pending_line_thanks メッセージをDBに保存 → LINE紐付け時に自動送信
+          // pending_line_thanks メッセージ + pending_email をDBに保存 → LINE紐付け時に自動送信
+          const pendingData = { pending_line_message: lineMsg };
+          if (form.email) {
+            pendingData.pending_email = JSON.stringify({ to: form.email, subject: emailSubject, body: emailBody, candidateName: candName });
+          }
           fetch(SUPABASE_URL + '/rest/v1/candidates?id=eq.' + candidateId, {
             method: 'PATCH',
             headers: { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pending_line_message: lineMsg })
+            body: JSON.stringify(pendingData)
           }).catch(e => console.warn('[Entry] LINE pending保存エラー:', e));
 
           // 既にlineUserIdがある場合（再エントリー）は即送信
